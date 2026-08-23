@@ -101,14 +101,30 @@ same thing, and pretending otherwise produces bad UI on both platforms.
 
 ### Expo version discipline
 
-React Native and React versions are chosen by **`expo install`**, never by "latest
-on npm". Expo SDK 57 pins `react-native@0.86.2`; installing `0.87.0` bundles
-`@expo/metro-config` against a React Native that no longer exports the polyfill
-path it needs, and Metro fails with an unrelated-looking
-`ERR_PACKAGE_PATH_NOT_EXPORTED`.
+**The project targets Expo SDK 54** (`react-native@0.81.5`, `react@19.1.0`).
 
-Always use `pnpm --filter @heaven/mobile exec expo install <pkg>` and check drift
-with `expo install --check`.
+The SDK is chosen by **what Expo Go supports on the devices we actually test on**,
+not by what is newest. Expo Go ships one SDK at a time: a project on SDK 57 simply
+refuses to open in an Expo Go built for 54, with no workaround short of a custom
+development build. Verify against `https://api.expo.dev/v2/versions/latest` before
+changing SDK.
+
+React Native and React versions are then chosen by **`expo install`**, never by
+"latest on npm". Two failures we have already hit:
+
+- Installing `react-native@0.87.0` under SDK 57 built `@expo/metro-config` against
+  a React Native that no longer exports the polyfill path it needs; Metro failed
+  with an unrelated-looking `ERR_PACKAGE_PATH_NOT_EXPORTED`.
+- `expo install --fix` bumped mobile to `typescript@6` and `react@19.2.3`, which
+  then conflicted with the rest of the workspace.
+
+**React is pinned exactly (`19.1.0`) in both `mobile` and `admin`.** Because
+`node-linker=hoisted` gives the whole workspace a _single_ React, a caret range in
+the admin silently pulls a newer React that Metro then rejects. The app with a hard
+requirement decides the version; the other must pin to match.
+
+Always `pnpm --filter @heaven/mobile exec expo install <pkg>`, and check drift with
+`expo install --check` after any dependency change.
 
 ### node_modules layout
 

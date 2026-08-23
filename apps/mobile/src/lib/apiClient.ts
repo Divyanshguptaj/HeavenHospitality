@@ -7,9 +7,31 @@ import Constants from 'expo-constants';
  * Mirrors the admin client's contract deliberately: same envelope, same typed
  * error, same Bearer transport. One API, two clients — no mobile-only endpoints.
  */
-const apiBaseUrl =
-  (Constants.expoConfig?.extra?.['apiBaseUrl'] as string | undefined) ??
-  'http://localhost:4000/api/v1';
+/**
+ * Resolves the API base URL.
+ *
+ * On a physical device `localhost` is the *phone*, not the development machine,
+ * so a configured localhost URL can never reach the API. In development we take
+ * the LAN address Expo is already serving the bundle from (`hostUri`, e.g.
+ * `192.168.0.106:8081`) and reuse its host with the API port.
+ *
+ * This keeps the laptop's IP out of source control and means it keeps working
+ * when the router hands out a different address tomorrow.
+ */
+function resolveApiBaseUrl(): string {
+  const configured =
+    (Constants.expoConfig?.extra?.['apiBaseUrl'] as string | undefined) ??
+    'http://localhost:4000/api/v1';
+
+  if (!__DEV__ || !configured.includes('localhost')) return configured;
+
+  const devServerHost = Constants.expoConfig?.hostUri?.split(':')[0];
+  if (devServerHost === undefined || devServerHost === '') return configured;
+
+  return configured.replace('localhost', devServerHost);
+}
+
+const apiBaseUrl = resolveApiBaseUrl();
 
 /** In memory only — never SecureStore, never AsyncStorage. */
 let accessToken: string | null = null;
