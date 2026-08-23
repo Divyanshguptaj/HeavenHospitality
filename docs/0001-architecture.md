@@ -117,6 +117,15 @@ React Native and React versions are then chosen by **`expo install`**, never by
   with an unrelated-looking `ERR_PACKAGE_PATH_NOT_EXPORTED`.
 - `expo install --fix` bumped mobile to `typescript@6` and `react@19.2.3`, which
   then conflicted with the rest of the workspace.
+- `expo` declares `@expo/metro-runtime` as a `*` peer. With
+  `auto-install-peers=true` in `.npmrc`, pnpm resolved `*` to the **latest**
+  (57.x), which no longer exports the `./error-overlay` subpath that
+  `expo-router@6` requires — Android bundling failed while web still worked.
+
+**Any Expo package reached through a `*` peer range must be listed explicitly in
+`apps/mobile/package.json`.** An unpinned `*` peer silently tracks the newest
+release and will drift out of the SDK on the next install. `@expo/metro-runtime`
+is pinned for exactly this reason.
 
 **React is pinned exactly (`19.1.0`) in both `mobile` and `admin`.** Because
 `node-linker=hoisted` gives the whole workspace a _single_ React, a caret range in
