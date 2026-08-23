@@ -1,0 +1,61 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+# A new push supersedes an in-flight run on the same branch.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    env:
+      # CI never touches a real database. These satisfy the boot-time env schema
+      # for the unit suite; integration tests that need PostgreSQL run against a
+      # dedicated Neon branch and supply their own credentials.
+      NODE_ENV: test
+      DATABASE_URL: postgresql://placeholder:placeholder@localhost:5432/heaven_test
+      JWT_ACCESS_SECRET: ci-access-secret-that-is-long-enough-0000000
+      JWT_REFRESH_SECRET: ci-refresh-secret-that-is-long-enough-000000
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      # --frozen-lockfile fails the build if the lockfile is out of date, rather
+      # than silently resolving different versions than a developer ran locally.
+      - name: Install
+        run: pnpm install --frozen-lockfile
+
+      - name: Generate Prisma client
+        run: pnpm db:generate
+
+      - name: Build packages
+        run: pnpm build:packages
+
+      - name: Typecheck
+        run: pnpm typecheck
+
+      - name: Lint
+        run: pnpm lint
+
+      - name: Format check
+        run: pnpm format:check
+
+      - name: Test
+        run: pnpm test
+
+      - name: Build apps
+        run: pnpm build

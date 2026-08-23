@@ -1,0 +1,40 @@
+{
+  "name": "heaven-hospitality",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "packageManager": "pnpm@10.17.1",
+  "engines": {
+    "node": ">=22.13.0",
+    "pnpm": ">=10.0.0"
+  },
+  "scripts": {
+    "build": "pnpm -r run build",
+    "build:packages": "pnpm --filter \"./packages/**\" run build",
+    "typecheck": "pnpm -r run typecheck",
+    "test": "pnpm -r run test",
+    "lint": "eslint .",
+    "lint:fix": "eslint . --fix",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "dev:api": "pnpm --filter @heaven/api run dev",
+    "dev:admin": "pnpm --filter @heaven/admin run dev",
+    "dev:mobile": "pnpm --filter @heaven/mobile run start",
+    "storage:up": "docker compose up -d",
+    "storage:down": "docker compose down",
+    "db:generate": "pnpm --filter @heaven/api run db:generate",
+    "db:migrate": "pnpm --filter @heaven/api run db:migrate",
+    "db:deploy": "pnpm --filter @heaven/api run db:deploy",
+    "db:studio": "pnpm --filter @heaven/api run db:studio",
+    "verify": "pnpm build:packages && pnpm typecheck && pnpm lint && pnpm test"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.36.0",
+    "eslint": "^9.36.0",
+    "eslint-config-prettier": "^10.1.8",
+    "globals": "^16.4.0",
+    "prettier": "^3.6.2",
+    "typescript": "^5.9.2",
+    "typescript-eslint": "^8.45.0"
+  }
+}

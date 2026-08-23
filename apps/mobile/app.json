@@ -1,0 +1,26 @@
+{
+  "expo": {
+    "name": "Heaven Hospitality",
+    "slug": "heaven-hospitality",
+    "version": "0.1.0",
+    "orientation": "portrait",
+    "scheme": "heavenhospitality",
+    "userInterfaceStyle": "automatic",
+    "newArchEnabled": true,
+    "ios": {
+      "supportsTablet": false,
+      "bundleIdentifier": "in.heavenhospitality.app"
+    },
+    "android": {
+      "package": "in.heavenhospitality.app",
+      "edgeToEdgeEnabled": true
+    },
+    "plugins": ["expo-router", "expo-secure-store"],
+    "experiments": {
+      "typedRoutes": true
+    },
+    "extra": {
+      "apiBaseUrl": "http://localhost:4000/api/v1"
+    }
+  }
+}

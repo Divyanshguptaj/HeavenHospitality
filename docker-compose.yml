@@ -1,0 +1,42 @@
+# Local development services.
+#
+# PostgreSQL is NOT here — the database is Neon (serverless), for every
+# environment including local development. See docs/0001-architecture.md.
+#
+# This file exists only for object storage, so file uploads can be developed
+# without an AWS account.
+
+services:
+  minio:
+    image: minio/minio:latest
+    container_name: heaven-minio
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: heaven-dev
+      MINIO_ROOT_PASSWORD: heaven-dev-secret
+    ports:
+      - '9000:9000' # S3 API
+      - '9001:9001' # Web console
+    volumes:
+      - minio-data:/data
+    healthcheck:
+      test: ['CMD', 'mc', 'ready', 'local']
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Creates the development bucket on first run, then exits.
+  minio-init:
+    image: minio/mc:latest
+    depends_on:
+      minio:
+        condition: service_healthy
+    entrypoint: >
+      /bin/sh -c "
+      mc alias set local http://minio:9000 heaven-dev heaven-dev-secret &&
+      mc mb --ignore-existing local/heaven-dev &&
+      mc anonymous set none local/heaven-dev
+      "
+
+volumes:
+  minio-data:

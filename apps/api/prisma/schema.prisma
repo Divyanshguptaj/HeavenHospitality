@@ -1,0 +1,88 @@
+// Heaven Hospitality — database schema
+//
+// Phase 2 (foundation) defines only the two infrastructure tables that have no
+// foreign keys and are fully specified by docs/0006-idempotency-and-jobs.md.
+// Domain models (User, Property, Room, Bed, Tenancy, Invoice, ...) arrive with
+// their vertical slices, so that every table lands with its constraints, its
+// service and its tests at the same time.
+//
+// Conventions:
+//   - Primary keys are UUIDv7: non-guessable, but time-ordered for index locality.
+//   - Money is `Int` paise. See docs/0002-money.md.
+//   - Timestamps are stored UTC (`timestamptz`); business dates use `@db.Date`.
+//   - Some correctness constraints cannot be expressed here and live in
+//     hand-written migration SQL. Each is documented in
+//     docs/0006-idempotency-and-jobs.md.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+// Neon serverless PostgreSQL.
+//
+// DATABASE_URL is the *pooled* endpoint (`...-pooler...`), used at runtime.
+// DIRECT_DATABASE_URL is the *unpooled* endpoint, used by Prisma Migrate.
+//
+// Both are needed: Neon's pooler runs PgBouncer in transaction mode, which cannot
+// execute the session-level statements migrations require. Pointing migrations at
+// the pooled URL fails in ways that look like network errors.
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_DATABASE_URL")
+}
+
+enum JobStatus {
+  RUNNING
+  SUCCEEDED
+  FAILED
+}
+
+/// One row per (job, unit of work). The unique constraint IS the lock: a second
+/// concurrent run loses the insert and exits, so correctness holds even if the
+/// deployment ever runs more than one API process.
+model JobRun {
+  id         String    @id @default(uuid(7)) @db.Uuid
+  jobName    String
+  /// The unit of work this run covers — "2026-08" for monthly jobs, "2026-08-23"
+  /// for daily ones. Together with jobName this makes every job idempotent.
+  periodKey  String
+  status     JobStatus @default(RUNNING)
+  startedAt  DateTime  @default(now()) @db.Timestamptz(3)
+  finishedAt DateTime? @db.Timestamptz(3)
+  /// Truncated failure message. Never a full stack trace or provider payload.
+  error      String?
+
+  @@unique([jobName, periodKey])
+  @@index([jobName, startedAt])
+}
+
+enum WebhookStatus {
+  RECEIVED
+  PROCESSED
+  FAILED
+}
+
+/// Replay protection for provider webhooks. Providers retry; the same event will
+/// arrive more than once, sometimes late and sometimes out of order.
+///
+/// A duplicate must return 200, not an error — an error tells the provider to
+/// retry, which is the opposite of what a duplicate needs.
+model WebhookEvent {
+  id          String        @id @default(uuid(7)) @db.Uuid
+  provider    String
+  /// The provider's own event identifier — the idempotency key.
+  eventId     String
+  eventType   String
+  status      WebhookStatus @default(RECEIVED)
+  /// Hash of the raw body, for detecting a provider replaying an event id with
+  /// different content. The payload itself is not stored: it contains payment
+  /// identifiers and is not needed after processing.
+  payloadHash String
+  receivedAt  DateTime      @default(now()) @db.Timestamptz(3)
+  processedAt DateTime?     @db.Timestamptz(3)
+  error       String?
+
+  @@unique([provider, eventId])
+  @@index([provider, status, receivedAt])
+}
