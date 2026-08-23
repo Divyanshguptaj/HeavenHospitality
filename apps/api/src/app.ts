@@ -20,11 +20,13 @@ function buildCorsOptions(): CorsOptions {
     origin(origin, callback) {
       // A missing Origin header is a same-origin or non-browser client (the
       // mobile app, curl, a health checker) — there is nothing to authorise.
-      if (origin === undefined || allowlist.has(origin)) {
-        callback(null, true);
-        return;
-      }
-      callback(new Error('Origin not allowed by CORS'));
+      //
+      // A disallowed origin resolves with `false`, not an Error: rejecting simply
+      // omits the CORS headers and the browser blocks the response, which is the
+      // correct outcome. Passing an Error would route every blocked preflight
+      // through the error handler as a 500 INTERNAL_ERROR logged at error level —
+      // turning routine browser behaviour into fake server alarms.
+      callback(null, origin === undefined || allowlist.has(origin));
     },
     // Required by the two cookie-bearing auth endpoints; see
     // docs/0003-auth-and-sessions.md.
@@ -45,16 +47,22 @@ export function createApp(): Express {
   app.set('trust proxy', isProduction ? 1 : false);
   app.disable('x-powered-by');
 
+  // requestId runs FIRST, before anything that can fail. The error envelope
+  // requires a requestId, so a failure inside helmet or cors must already have
+  // one — otherwise the response violates its own schema and clients cannot
+  // parse it.
+  app.use(requestId);
   app.use(helmet());
   app.use(cors(buildCorsOptions()));
-  app.use(requestId);
 
   if (!isTest) {
     app.use(
       pinoHttp({
         logger,
-        genReqId: (req) => req.id ?? '',
-        customProps: (req) => ({ requestId: (req as { requestId?: string }).requestId }),
+        // Reuse the id the middleware already assigned, so a log line and the
+        // response header always agree. `req.id` is pino's own field and is not
+        // set by our middleware.
+        genReqId: (req) => (req as unknown as { requestId: string }).requestId,
         autoLogging: {
           // Health checks would otherwise dominate the log volume.
           ignore: (req) => req.url?.startsWith(`${API_PREFIX}/health`) ?? false,

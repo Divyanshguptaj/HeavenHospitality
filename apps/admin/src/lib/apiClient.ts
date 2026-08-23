@@ -51,6 +51,15 @@ export class ApiRequestError extends Error {
   }
 }
 
+/**
+ * Detects a cancelled fetch across runtimes: browsers throw a `DOMException`
+ * named `AbortError`, but checking the signal directly is the reliable test.
+ */
+function isAbortError(cause: unknown, signal: AbortSignal | undefined): boolean {
+  if (signal?.aborted === true) return true;
+  return cause instanceof Error && cause.name === 'AbortError';
+}
+
 export interface RequestOptions {
   readonly method?: 'GET' | 'POST' | 'PATCH' | 'PUT' | 'DELETE';
   readonly body?: unknown;
@@ -92,13 +101,17 @@ export async function apiRequest<T>(
       ...(body === undefined ? {} : { body: JSON.stringify(body) }),
       ...(signal === undefined ? {} : { signal }),
     });
-  } catch {
+  } catch (cause) {
+    // A cancelled request is not a failure. TanStack Query aborts superseded
+    // fetches routinely; remapping that to a network error makes every
+    // fast-typing search look like an outage and triggers pointless retries.
+    if (isAbortError(cause, signal)) {
+      throw new ApiRequestError('REQUEST_ABORTED', 'The request was cancelled.', 0);
+    }
     throw new ApiRequestError(
       'PROVIDER_UNAVAILABLE',
       'Could not reach the server. Check your connection and try again.',
       0,
-      undefined,
-      undefined,
     );
   }
 

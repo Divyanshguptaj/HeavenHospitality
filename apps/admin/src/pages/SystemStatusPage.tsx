@@ -3,8 +3,18 @@ import { useQuery } from '@tanstack/react-query';
 import { ApiRequestError, apiGet } from '../lib/apiClient';
 
 interface Readiness {
-  readonly status: 'ready' | 'degraded';
-  readonly database: 'up' | 'down';
+  readonly status: 'ready';
+  readonly database: 'up';
+}
+
+/**
+ * A degraded API answers /health/ready with a 503 and SERVICE_DEGRADED, so the
+ * "database down" state arrives as a rejection rather than as data. Treating it
+ * as an error would show a generic connection failure and hide the one fact the
+ * operator needs.
+ */
+function isDegraded(error: unknown): boolean {
+  return error instanceof ApiRequestError && error.code === 'SERVICE_DEGRADED';
 }
 
 /**
@@ -37,6 +47,18 @@ export function SystemStatusPage() {
             <div className="h-4 w-40 animate-pulse rounded bg-[var(--color-surface-subtle)]" />
             <div className="h-4 w-24 animate-pulse rounded bg-[var(--color-surface-subtle)]" />
           </div>
+        ) : isDegraded(error) ? (
+          <dl className="grid grid-cols-[auto_1fr] gap-x-6 gap-y-2 text-sm" role="alert">
+            <dt className="text-[var(--color-text-secondary)]">API</dt>
+            <dd>
+              <StatusBadge tone="warning" label="Degraded" />
+            </dd>
+
+            <dt className="text-[var(--color-text-secondary)]">Database</dt>
+            <dd>
+              <StatusBadge tone="danger" label="Unreachable" />
+            </dd>
+          </dl>
         ) : error ? (
           <div role="alert" className="flex flex-col items-start gap-3">
             <div>

@@ -26,7 +26,8 @@ export function buildThemeCss(): string {
 
 @import 'tailwindcss';
 
-@custom-variant dark (&:where(.dark, .dark *));
+/* Dark applies when the OS asks for it, or when .dark is set explicitly. */
+@custom-variant dark (&:where(.dark, .dark *, :root:not(.light) *));
 
 @theme {
 ${declarations('color', colors.light)}
@@ -43,6 +44,20 @@ ${declarations('shadow', shadow)}
 
   --font-sans: ${fontFamily.sans};
   --font-mono: ${fontFamily.mono};
+}
+
+/*
+ * Dark palette, applied two ways:
+ *   1. The viewer's OS preference, unless they have explicitly chosen light.
+ *   2. An explicit .dark class, for a future in-app theme toggle.
+ *
+ * Without rule 1 the dark tokens would be unreachable — nothing sets .dark today,
+ * so a dark-mode user would get light surfaces with dark browser form controls.
+ */
+@media (prefers-color-scheme: dark) {
+  :root:not(.light) {
+${declarations('color', colors.dark)}
+  }
 }
 
 .dark {

@@ -37,6 +37,11 @@ export const phoneSchema = z
 export const paiseSchema = z
   .number()
   .int('Amount must be a whole number of paise')
+  // Both bounds matter. Credits, reversals and adjustments are legitimately
+  // negative, so the lower bound cannot be zero — but without it a hugely
+  // negative amount passes validation and then throws MoneyError deeper in,
+  // surfacing as a 500 instead of a 400.
+  .min(-MAX_AMOUNT_PAISE, 'Amount is implausibly large — is this rupees instead of paise?')
   .max(MAX_AMOUNT_PAISE, 'Amount is implausibly large — is this rupees instead of paise?');
 
 export const nonNegativePaiseSchema = paiseSchema.min(0, 'Amount must not be negative');

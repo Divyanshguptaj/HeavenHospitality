@@ -97,6 +97,14 @@ describe('buildThemeCss', () => {
     expect(css).toContain(colors.dark.canvas);
   });
 
+  it('applies the dark palette from the OS preference, not only a .dark class', () => {
+    // Nothing sets .dark today, so without the media query the entire dark
+    // palette would be unreachable and dark-mode users would get light surfaces
+    // behind dark browser form controls.
+    expect(css).toContain('@media (prefers-color-scheme: dark)');
+    expect(css).toContain(':root:not(.light)');
+  });
+
   it('adds units only where a unit is meaningful', () => {
     expect(css).toContain('--radius-md: 6px;');
     expect(css).toContain('--spacing-0: 0;');

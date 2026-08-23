@@ -55,7 +55,11 @@ export async function apiRequest<T>(path: string, options: RequestOptions = {}):
       ...(body === undefined ? {} : { body: JSON.stringify(body) }),
       ...(signal === undefined ? {} : { signal }),
     });
-  } catch {
+  } catch (cause) {
+    // A cancelled request is not a failure — see the admin client for why.
+    if (signal?.aborted === true || (cause instanceof Error && cause.name === 'AbortError')) {
+      throw new ApiRequestError('REQUEST_ABORTED', 'The request was cancelled.', 0);
+    }
     throw new ApiRequestError(
       'PROVIDER_UNAVAILABLE',
       'No connection to the server. Check your network and try again.',

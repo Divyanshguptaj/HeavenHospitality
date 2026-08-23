@@ -125,6 +125,23 @@ describe('error handling', () => {
     });
   });
 
+  it('distinguishes a cancelled request from a network outage', async () => {
+    const controller = new AbortController();
+    const abortError = new Error('The operation was aborted.');
+    abortError.name = 'AbortError';
+    fetchMock.mockRejectedValue(abortError);
+    controller.abort();
+
+    const error = await apiRequest('/health', { signal: controller.signal }).catch(
+      (caught: unknown) => caught,
+    );
+
+    // TanStack Query aborts superseded fetches routinely. Reporting that as
+    // PROVIDER_UNAVAILABLE makes ordinary typing look like an outage and causes
+    // the query to be retried.
+    expect((error as ApiRequestError).code).toBe('REQUEST_ABORTED');
+  });
+
   it('reports a network failure as a typed error, not a raw TypeError', async () => {
     fetchMock.mockRejectedValue(new TypeError('Failed to fetch'));
 

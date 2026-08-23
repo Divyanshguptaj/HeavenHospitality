@@ -53,7 +53,11 @@ export const ERROR_CODES = [
   // Infrastructure
   'RATE_LIMITED',
   'PROVIDER_UNAVAILABLE',
+  /** The API is up but a dependency it needs (the database) is not. */
+  'SERVICE_DEGRADED',
   'INTERNAL_ERROR',
+  /** The client aborted the request. Never sent over the wire — clients only. */
+  'REQUEST_ABORTED',
 ] as const;
 
 export type ErrorCode = (typeof ERROR_CODES)[number];
@@ -98,5 +102,8 @@ export const ERROR_STATUS: Readonly<Record<ErrorCode, number>> = Object.freeze({
 
   RATE_LIMITED: 429,
   PROVIDER_UNAVAILABLE: 503,
+  SERVICE_DEGRADED: 503,
   INTERNAL_ERROR: 500,
+  // Client-side only; the status is nominal so callers can treat it uniformly.
+  REQUEST_ABORTED: 499,
 });

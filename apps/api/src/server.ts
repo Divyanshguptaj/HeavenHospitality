@@ -10,10 +10,15 @@ const SHUTDOWN_TIMEOUT_MS = 10_000;
 function registerShutdown(server: Server): void {
   let shuttingDown = false;
 
-  const shutdown = (signal: string): void => {
+  /**
+   * @param exitCode 0 for a requested shutdown, non-zero for a crash. An
+   * orchestrator reads this to decide whether to restart, so exiting 0 after an
+   * uncaught exception makes a crash look intentional and the process stays down.
+   */
+  const shutdown = (signal: string, exitCode: number): void => {
     if (shuttingDown) return;
     shuttingDown = true;
-    logger.info({ signal }, 'Shutting down');
+    logger.info({ signal, exitCode }, 'Shutting down');
 
     // In-flight requests are allowed to finish — a payment being written must not
     // be interrupted halfway through its transaction.
@@ -32,24 +37,24 @@ function registerShutdown(server: Server): void {
           logger.error({ err: error }, 'Error disconnecting from the database');
         }
         clearTimeout(forceExit);
-        process.exit(closeError ? 1 : 0);
+        process.exit(closeError ? 1 : exitCode);
       })();
     });
   };
 
-  process.on('SIGTERM', () => shutdown('SIGTERM'));
-  process.on('SIGINT', () => shutdown('SIGINT'));
+  process.on('SIGTERM', () => shutdown('SIGTERM', 0));
+  process.on('SIGINT', () => shutdown('SIGINT', 0));
 
   // A crash must be loud and fatal. Continuing after an unhandled rejection means
   // running with unknown state, which for a financial system is worse than exiting.
   process.on('unhandledRejection', (reason) => {
     logger.fatal({ err: reason }, 'Unhandled promise rejection');
-    shutdown('unhandledRejection');
+    shutdown('unhandledRejection', 1);
   });
 
   process.on('uncaughtException', (error) => {
     logger.fatal({ err: error }, 'Uncaught exception');
-    shutdown('uncaughtException');
+    shutdown('uncaughtException', 1);
   });
 }
 

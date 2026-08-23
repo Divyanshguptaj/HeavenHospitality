@@ -1,7 +1,8 @@
 import type { ApiSuccess } from '@heaven/contracts';
-import { Router, type Request, type Response } from 'express';
+import { Router, type NextFunction, type Request, type Response } from 'express';
 
 import { env } from '../../config/env.js';
+import { AppError } from '../../errors/AppError.js';
 import { isDatabaseReachable } from '../../lib/prisma.js';
 
 interface LivenessPayload {
@@ -11,15 +12,16 @@ interface LivenessPayload {
 }
 
 interface ReadinessPayload {
-  readonly status: 'ready' | 'degraded';
-  readonly database: 'up' | 'down';
+  readonly status: 'ready';
+  readonly database: 'up';
 }
 
 export const healthRouter: Router = Router();
 
 /**
  * Liveness — is the process running? Deliberately does not touch the database, so
- * a database blip cannot cause an orchestrator to kill a healthy process.
+ * a database blip (or a Neon cold start) cannot cause an orchestrator to kill an
+ * otherwise healthy process.
  */
 healthRouter.get('/', (_req: Request, res: Response) => {
   const body: ApiSuccess<LivenessPayload> = {
@@ -33,17 +35,29 @@ healthRouter.get('/', (_req: Request, res: Response) => {
   res.status(200).json(body);
 });
 
-/** Readiness — can this instance actually serve traffic? */
-healthRouter.get('/ready', async (_req: Request, res: Response) => {
-  const databaseUp = await isDatabaseReachable();
+/**
+ * Readiness — can this instance actually serve traffic?
+ *
+ * A degraded result is a 503 carrying an *error* envelope, not a success envelope
+ * with a sad payload. Clients branch on `response.ok` before reading the body, so
+ * a 503 with `success: true` is unreachable by every consumer we have — the caller
+ * would report a generic parse failure instead of "the database is down".
+ *
+ * Orchestrators still get the 503 they need; clients get a code they can render.
+ */
+healthRouter.get('/ready', async (_req: Request, res: Response, next: NextFunction) => {
+  if (!(await isDatabaseReachable())) {
+    next(
+      new AppError('SERVICE_DEGRADED', 'The database is unreachable.', {
+        context: { database: 'down' },
+      }),
+    );
+    return;
+  }
 
   const body: ApiSuccess<ReadinessPayload> = {
     success: true,
-    data: {
-      status: databaseUp ? 'ready' : 'degraded',
-      database: databaseUp ? 'up' : 'down',
-    },
+    data: { status: 'ready', database: 'up' },
   };
-
-  res.status(databaseUp ? 200 : 503).json(body);
+  res.status(200).json(body);
 });

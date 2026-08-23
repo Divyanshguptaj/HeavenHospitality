@@ -114,6 +114,16 @@ describe('money at the API boundary', () => {
     expect(() => paiseSchema.parse(5_000_000_000)).toThrow();
   });
 
+  it('rejects an implausibly large NEGATIVE amount', () => {
+    // Without a lower bound this passes Zod and then throws MoneyError deeper in,
+    // surfacing as a 500 rather than the 400 the validation layer exists to give.
+    expect(() => paiseSchema.parse(-5_000_000_000)).toThrow();
+  });
+
+  it('still allows ordinary negative amounts for credits and reversals', () => {
+    expect(paiseSchema.parse(-25_000)).toBe(-25_000);
+  });
+
   it('accepts a normal rent amount in paise', () => {
     expect(paiseSchema.parse(800_000)).toBe(800_000);
   });
