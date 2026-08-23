@@ -26,7 +26,8 @@
     "db:migrate": "pnpm --filter @heaven/api run db:migrate",
     "db:deploy": "pnpm --filter @heaven/api run db:deploy",
     "db:studio": "pnpm --filter @heaven/api run db:studio",
-    "verify": "pnpm build:packages && pnpm typecheck && pnpm lint && pnpm test"
+    "verify": "pnpm build:packages && pnpm typecheck && pnpm lint && pnpm test",
+    "db:seed": "pnpm --filter @heaven/api run db:seed"
   },
   "devDependencies": {
     "@eslint/js": "^9.36.0",

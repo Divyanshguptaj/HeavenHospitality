@@ -10,8 +10,8 @@ import { useTheme } from '../src/theme';
  * Root layout.
  *
  * The app boots with **no authentication**: the guest experience is public, so
- * nothing here may block on a token. Authenticated tenant routes live under
- * `app/(tenant)/` and guard themselves.
+ * nothing here may block on a token. The authenticated tenant experience will
+ * mount as a sibling group that guards itself.
  */
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -40,13 +40,11 @@ export default function RootLayout() {
         <StatusBar style="auto" />
         <Stack
           screenOptions={{
-            headerStyle: { backgroundColor: theme.surface },
-            headerTintColor: theme.textPrimary,
-            headerTitleStyle: { fontWeight: '600' },
             contentStyle: { backgroundColor: theme.canvas },
           }}
         >
-          <Stack.Screen name="index" options={{ title: 'Heaven Hospitality' }} />
+          {/* The guest group owns its own tab bar and headers. */}
+          <Stack.Screen name="(guest)" options={{ headerShown: false }} />
         </Stack>
       </SafeAreaProvider>
     </QueryClientProvider>

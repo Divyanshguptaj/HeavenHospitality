@@ -12,9 +12,11 @@
   },
   "dependencies": {
     "@expo/metro-runtime": "~6.1.2",
+    "@expo/vector-icons": "^15.1.1",
     "@heaven/contracts": "workspace:*",
     "@heaven/money": "workspace:*",
     "@heaven/tokens": "workspace:*",
+    "@react-navigation/bottom-tabs": "^7.4.0",
     "@tanstack/react-query": "^5.90.2",
     "expo": "~54.0.37",
     "expo-constants": "~18.0.14",

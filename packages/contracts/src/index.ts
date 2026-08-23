@@ -35,3 +35,13 @@ export {
   shortTextSchema,
   slugSchema,
 } from './primitives.js';
+export {
+  DAY_NAMES,
+  MEAL_LABELS,
+  MEAL_TYPES,
+  type MealTypeName,
+  type PublicPropertyAddress,
+  type PublicPropertyDetail,
+  type PublicPropertySummary,
+  type PublicRoomTypeView,
+} from './public.js';

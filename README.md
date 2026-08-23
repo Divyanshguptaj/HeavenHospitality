@@ -6,9 +6,15 @@ mobile app, and a public guest experience that needs no account.
 
 ## Status
 
-**Phase 2 (Foundation) complete.** The workspace, tooling, API skeleton, database
-connection, design tokens and both client shells build, run and are tested. Domain
-features land next, as vertical slices.
+**Phase 2 (Foundation) complete.** Workspace, tooling, API, database, design
+tokens and both client shells build, run and are tested.
+
+**Slice 1 — Property + Guest experience complete.** Property/RoomType/Room/Bed
+are modelled and migrated, the public API serves the guest payload, and the
+mobile app has its six guest tabs (Explore, Rooms, Facilities, Food, Rules,
+Contact) working against real data. No authentication is involved anywhere in it.
+
+Next: authentication, then tenancy and bed allocation.
 
 See [docs/](./docs) for the decisions that shape the code, and
 [docs/README.md](./docs/README.md) for where to start reading.
@@ -33,6 +39,7 @@ pnpm install
 cp .env.example .env      # then fill in the Neon URLs and generate JWT secrets
 pnpm db:generate
 pnpm db:migrate
+pnpm db:seed              # one fully-populated property for the guest experience
 
 pnpm dev:api              # http://localhost:4000
 pnpm dev:admin            # http://localhost:5173

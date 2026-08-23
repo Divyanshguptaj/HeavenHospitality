@@ -7,9 +7,10 @@ import { env, isProduction, isTest } from './config/env.js';
 import { logger } from './lib/logger.js';
 import { errorHandler } from './middleware/errorHandler.js';
 import { notFound } from './middleware/notFound.js';
-import { generalLimiter } from './middleware/rateLimit.js';
+import { generalLimiter, publicLimiter } from './middleware/rateLimit.js';
 import { requestId } from './middleware/requestId.js';
 import { healthRouter } from './modules/health/health.routes.js';
+import { publicRouter } from './modules/public/public.routes.js';
 
 const API_PREFIX = '/api/v1';
 
@@ -91,8 +92,13 @@ export function createApp(): Express {
 
   app.use(`${API_PREFIX}/health`, healthRouter);
 
+  // Guest endpoints are unauthenticated, so they carry a tighter limit than
+  // authenticated traffic: there is no account to hold accountable and scraping
+  // is the expected abuse.
+  app.use(`${API_PREFIX}/public`, publicLimiter, publicRouter);
+
   app.use(API_PREFIX, generalLimiter);
-  // Domain routers mount here as their vertical slices land.
+  // Authenticated domain routers mount here as their vertical slices land.
 
   app.use(notFound);
   app.use(errorHandler);

@@ -86,3 +86,199 @@ model WebhookEvent {
   @@unique([provider, eventId])
   @@index([provider, status, receivedAt])
 }
+
+// ---------------------------------------------------------------------------
+// Property domain
+//
+// Property is the top-level operational entity. Organization is deliberately
+// deferred (docs/0001-architecture.md) — every record carries propertyId, so
+// adding an org above Property later is one table plus one FK, not a rewrite.
+//
+// Building and Floor are fields on Room rather than tables: nothing bills,
+// allocates, authorizes or reports at floor level.
+// ---------------------------------------------------------------------------
+
+enum PropertyStatus {
+  ACTIVE
+  INACTIVE
+}
+
+/// A hostel/PG building operated as one unit.
+model Property {
+  id          String         @id @default(uuid(7)) @db.Uuid
+  /// URL-safe public identifier. The guest experience is addressed by slug, never
+  /// by id, so internal identifiers are never exposed publicly.
+  slug        String         @unique
+  name        String
+  tagline     String?
+  description String?
+  status      PropertyStatus @default(ACTIVE)
+
+  /// Whether the guest experience may show this property at all. Distinct from
+  /// `status`: a property can be operating but withdrawn from public listing.
+  isPubliclyListed Boolean @default(false)
+
+  /// Business rules (due dates, mess cutoffs, late fees) run in this timezone,
+  /// never the server's or the device's. See docs/0005-billing-rules.md.
+  timezone String @default("Asia/Kolkata")
+  currency String @default("INR")
+
+  addressLine String
+  locality    String
+  city        String
+  state       String
+  pincode     String
+  /// Coarse map location. Stored as Decimal, not Float — these are coordinates,
+  /// not measurements, and must round-trip exactly.
+  latitude    Decimal? @db.Decimal(9, 6)
+  longitude   Decimal? @db.Decimal(9, 6)
+
+  contactPhone String
+  contactEmail String?
+
+  createdAt DateTime @default(now()) @db.Timestamptz(3)
+  updatedAt DateTime @updatedAt @db.Timestamptz(3)
+
+  photos     PropertyPhoto[]
+  facilities Facility[]
+  rules      PropertyRule[]
+  roomTypes  RoomType[]
+  rooms      Room[]
+  menuItems  WeeklyMenuItem[]
+
+  @@index([isPubliclyListed, status])
+}
+
+model PropertyPhoto {
+  id         String   @id @default(uuid(7)) @db.Uuid
+  propertyId String   @db.Uuid
+  property   Property @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+  /// Object-storage key or absolute URL. Public photos only — tenant documents
+  /// live in a private bucket and never appear here.
+  url        String
+  caption    String?
+  sortOrder  Int      @default(0)
+
+  @@index([propertyId, sortOrder])
+}
+
+model Facility {
+  id         String   @id @default(uuid(7)) @db.Uuid
+  propertyId String   @db.Uuid
+  property   Property @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+  label      String
+  /// Icon name resolved by the client; the server stores no presentation markup.
+  icon       String?
+  sortOrder  Int      @default(0)
+
+  @@unique([propertyId, label])
+  @@index([propertyId, sortOrder])
+}
+
+model PropertyRule {
+  id         String   @id @default(uuid(7)) @db.Uuid
+  propertyId String   @db.Uuid
+  property   Property @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+  text       String
+  sortOrder  Int      @default(0)
+
+  @@index([propertyId, sortOrder])
+}
+
+/// A category of room — "3 Sharing (AC)" — carrying the pricing a guest sees.
+/// Rent lives here as the advertised rate; the agreed rent for a specific stay is
+/// captured on the Tenancy, because they legitimately differ.
+model RoomType {
+  id              String   @id @default(uuid(7)) @db.Uuid
+  propertyId      String   @db.Uuid
+  property        Property @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+  name            String
+  /// Beds per room of this type.
+  sharingCapacity Int
+  /// Advertised monthly rent, in paise. See docs/0002-money.md.
+  baseRentPaise   Int
+  /// Advertised security deposit, in paise.
+  depositPaise    Int
+  description     String?
+  amenities       String[]
+  sortOrder       Int      @default(0)
+
+  rooms Room[]
+
+  @@unique([propertyId, name])
+  @@index([propertyId, sortOrder])
+}
+
+enum RoomStatus {
+  ACTIVE
+  MAINTENANCE
+  INACTIVE
+}
+
+model Room {
+  id         String     @id @default(uuid(7)) @db.Uuid
+  propertyId String     @db.Uuid
+  property   Property   @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+  roomTypeId String     @db.Uuid
+  roomType   RoomType   @relation(fields: [roomTypeId], references: [id], onDelete: Restrict)
+  number     String
+  /// Floor and block are labels, not entities — see the header comment.
+  floor      Int        @default(0)
+  block      String?
+  status     RoomStatus @default(ACTIVE)
+
+  createdAt DateTime @default(now()) @db.Timestamptz(3)
+  updatedAt DateTime @updatedAt @db.Timestamptz(3)
+
+  beds Bed[]
+
+  @@unique([propertyId, number])
+  @@index([propertyId, status])
+}
+
+enum BedStatus {
+  AVAILABLE
+  OCCUPIED
+  RESERVED
+  MAINTENANCE
+  BLOCKED
+}
+
+/// The unit that is actually let. Occupancy is tracked by Allocation rows in the
+/// tenancy slice; `status` here is the operational state of the bed itself.
+model Bed {
+  id     String    @id @default(uuid(7)) @db.Uuid
+  roomId String    @db.Uuid
+  room   Room      @relation(fields: [roomId], references: [id], onDelete: Cascade)
+  label  String
+  status BedStatus @default(AVAILABLE)
+
+  createdAt DateTime @default(now()) @db.Timestamptz(3)
+  updatedAt DateTime @updatedAt @db.Timestamptz(3)
+
+  @@unique([roomId, label])
+  @@index([status])
+}
+
+enum MealType {
+  BREAKFAST
+  LUNCH
+  SNACKS
+  DINNER
+}
+
+/// The published weekly menu. Guests see it as the food offering; the mess slice
+/// will reuse it for expected meal counts.
+model WeeklyMenuItem {
+  id         String   @id @default(uuid(7)) @db.Uuid
+  propertyId String   @db.Uuid
+  property   Property @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+  /// ISO-8601 day of week: 1 = Monday ... 7 = Sunday.
+  dayOfWeek  Int
+  mealType   MealType
+  /// Dishes served, in serving order.
+  items      String[]
+
+  @@unique([propertyId, dayOfWeek, mealType])
+  @@index([propertyId, dayOfWeek])
+}
