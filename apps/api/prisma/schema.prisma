@@ -139,12 +139,13 @@ model Property {
   createdAt DateTime @default(now()) @db.Timestamptz(3)
   updatedAt DateTime @updatedAt @db.Timestamptz(3)
 
-  photos     PropertyPhoto[]
-  facilities Facility[]
-  rules      PropertyRule[]
-  roomTypes  RoomType[]
-  rooms      Room[]
-  menuItems  WeeklyMenuItem[]
+  photos      PropertyPhoto[]
+  facilities  Facility[]
+  rules       PropertyRule[]
+  roomTypes   RoomType[]
+  rooms       Room[]
+  menuItems   WeeklyMenuItem[]
+  memberships PropertyMembership[]
 
   @@index([isPubliclyListed, status])
 }
@@ -281,4 +282,143 @@ model WeeklyMenuItem {
 
   @@unique([propertyId, dayOfWeek, mealType])
   @@index([propertyId, dayOfWeek])
+}
+
+// ---------------------------------------------------------------------------
+// Identity, access and audit
+//
+// User is a PERSON and exists once, forever. A stay is a Tenancy (next slice);
+// leaving and returning creates a second Tenancy under the same User. This is why
+// contact phone numbers are NOT globally unique — only login identity is.
+//
+// See docs/0003-auth-and-sessions.md and docs/0004-authorization.md.
+// ---------------------------------------------------------------------------
+
+enum UserStatus {
+  /// Can sign in.
+  ACTIVE
+  /// Temporarily blocked by staff; credentials still valid.
+  SUSPENDED
+  /// Left, or exercised a deletion request. PII anonymised, financial history kept.
+  DEACTIVATED
+}
+
+enum MembershipRole {
+  OWNER
+  MANAGER
+  STAFF
+  TENANT
+}
+
+model User {
+  id String @id @default(uuid(7)) @db.Uuid
+
+  /// Login identity. At least one of email/phone is required — enforced by a
+  /// CHECK constraint in the migration, because Prisma cannot express it.
+  email String? @unique
+  phone String? @unique
+
+  fullName     String
+  passwordHash String?
+  status       UserStatus @default(ACTIVE)
+
+  /// Set for an admin-provisioned account until the first password is chosen.
+  mustChangePassword Boolean @default(false)
+
+  // --- Brute-force protection -------------------------------------------------
+  // Persisted in PostgreSQL, not in memory: per-IP limits reset on every deploy
+  // and are trivially evaded by rotating IPs. Per-account state is what actually
+  // stops a targeted attack. See docs/0003-auth-and-sessions.md.
+  failedLoginAttempts Int       @default(0)
+  lockedUntil         DateTime? @db.Timestamptz(3)
+  lastFailedLoginAt   DateTime? @db.Timestamptz(3)
+  lastLoginAt         DateTime? @db.Timestamptz(3)
+
+  createdAt DateTime @default(now()) @db.Timestamptz(3)
+  updatedAt DateTime @updatedAt @db.Timestamptz(3)
+
+  memberships PropertyMembership[]
+  sessions    RefreshSession[]
+  auditLogs   AuditLog[]
+
+  @@index([status])
+}
+
+/// Grants a user a role at a property. This is the single source of "who may do
+/// what, where" — an OWNER is simply a membership with role OWNER.
+model PropertyMembership {
+  id         String         @id @default(uuid(7)) @db.Uuid
+  userId     String         @db.Uuid
+  user       User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  propertyId String         @db.Uuid
+  property   Property       @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+  role       MembershipRole
+
+  createdAt DateTime @default(now()) @db.Timestamptz(3)
+
+  /// One role per person per property. A second role would make authorization
+  /// ambiguous, so the database refuses it.
+  @@unique([userId, propertyId])
+  @@index([propertyId, role])
+}
+
+/// A refresh token, stored only as a hash.
+///
+/// Tokens belong to a family. Presenting an already-revoked token means it was
+/// replayed — the whole family is revoked, because that is the signature of a
+/// stolen token rather than a normal refresh.
+model RefreshSession {
+  id     String @id @default(uuid(7)) @db.Uuid
+  userId String @db.Uuid
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  /// SHA-256 of the token. The raw token is never stored, so a database leak
+  /// does not hand over live sessions.
+  tokenHash String @unique
+  familyId  String @db.Uuid
+
+  /// Shown in the user's device/session list.
+  deviceLabel String?
+  ipAddress   String?
+
+  createdAt    DateTime  @default(now()) @db.Timestamptz(3)
+  expiresAt    DateTime  @db.Timestamptz(3)
+  revokedAt    DateTime? @db.Timestamptz(3)
+  replacedById String?   @db.Uuid
+
+  @@index([userId, revokedAt])
+  @@index([familyId])
+  @@index([expiresAt])
+}
+
+/// Append-only record of sensitive actions. There is no update or delete path
+/// anywhere in the codebase.
+///
+/// `before`/`after` hold a REDACTED field allowlist, never a whole row — an
+/// unrestricted diff would make this the leakiest table in the database.
+/// See docs/0008-data-protection.md.
+model AuditLog {
+  id String @id @default(uuid(7)) @db.Uuid
+
+  /// Null for system/scheduled actions, which have no human actor.
+  actorUserId String? @db.Uuid
+  actorUser   User?   @relation(fields: [actorUserId], references: [id], onDelete: SetNull)
+  actorRole   String?
+
+  action     String
+  entityType String
+  entityId   String?
+  propertyId String? @db.Uuid
+
+  before Json?
+  after  Json?
+
+  ipAddress String?
+  requestId String?
+
+  createdAt DateTime @default(now()) @db.Timestamptz(3)
+
+  @@index([entityType, entityId])
+  @@index([propertyId, createdAt])
+  @@index([actorUserId, createdAt])
 }

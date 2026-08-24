@@ -1,6 +1,8 @@
 import { Ionicons } from '@expo/vector-icons';
-import { Tabs } from 'expo-router';
+import { Tabs, router } from 'expo-router';
+import { Pressable, Text } from 'react-native';
 
+import { useAuthStore } from '../../src/auth/authStore';
 import { layout, useTheme } from '../../src/theme';
 
 /**
@@ -12,10 +14,34 @@ import { layout, useTheme } from '../../src/theme';
  */
 export default function GuestLayout() {
   const theme = useTheme();
+  const status = useAuthStore((state) => state.status);
+
+  /**
+   * The way into the resident area. Shown to everyone: a guest gets the sign-in
+   * screen, a signed-in resident jumps straight to their home.
+   */
+  const headerRight = () => (
+    <Pressable
+      onPress={() => router.push(status === 'signedIn' ? '/(tenant)' : '/(auth)/login')}
+      accessibilityRole="button"
+      accessibilityLabel={status === 'signedIn' ? 'Open resident area' : 'Sign in'}
+      hitSlop={12}
+      style={{
+        paddingHorizontal: layout.spacing[5],
+        minHeight: layout.minTouchTarget,
+        justifyContent: 'center',
+      }}
+    >
+      <Text style={{ color: theme.primary, fontWeight: '600', fontSize: layout.fontSize.md }}>
+        {status === 'signedIn' ? 'My stay' : 'Sign in'}
+      </Text>
+    </Pressable>
+  );
 
   return (
     <Tabs
       screenOptions={{
+        headerRight,
         headerStyle: { backgroundColor: theme.surface },
         headerTintColor: theme.textPrimary,
         headerTitleStyle: { fontWeight: '600' },

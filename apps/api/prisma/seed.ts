@@ -7,7 +7,9 @@
  *
  *   pnpm --filter @heaven/api run db:seed
  */
-import { BedStatus, MealType, PrismaClient, type Prisma } from '@prisma/client';
+import { BedStatus, MealType, MembershipRole, PrismaClient, type Prisma } from '@prisma/client';
+
+import { hashPassword } from '../src/modules/auth/password.js';
 
 const prisma = new PrismaClient();
 
@@ -136,6 +138,73 @@ const ROOMS: ReadonlyArray<{
   { number: '302', floor: 3, typeName: 'Three Sharing (Non-AC)', occupied: 3 },
 ];
 
+/**
+ * Demo accounts, one per role, so the role boundaries can actually be exercised.
+ *
+ * The shared password is development-only and is printed at the end of the seed;
+ * real accounts are provisioned by staff and must change their password on first
+ * login. Never run this seed against production.
+ */
+const DEMO_PASSWORD = 'HeavenDemo#2026';
+
+const USERS: ReadonlyArray<{
+  fullName: string;
+  email: string;
+  phone: string;
+  role: MembershipRole;
+}> = [
+  {
+    fullName: 'Asha Menon',
+    email: 'owner@heavenhospitality.in',
+    phone: '+919000000001',
+    role: MembershipRole.OWNER,
+  },
+  {
+    fullName: 'Rahul Deshpande',
+    email: 'manager@heavenhospitality.in',
+    phone: '+919000000002',
+    role: MembershipRole.MANAGER,
+  },
+  {
+    fullName: 'Sunita Kale',
+    email: 'staff@heavenhospitality.in',
+    phone: '+919000000003',
+    role: MembershipRole.STAFF,
+  },
+  {
+    fullName: 'Vikram Iyer',
+    email: 'tenant@heavenhospitality.in',
+    phone: '+919000000004',
+    role: MembershipRole.TENANT,
+  },
+];
+
+async function seedUsers(propertyId: string): Promise<void> {
+  // One hash reused across demo accounts: Argon2 is deliberately slow, and
+  // hashing the same password four times adds seconds for no benefit here.
+  const passwordHash = await hashPassword(DEMO_PASSWORD);
+
+  for (const person of USERS) {
+    const user = await prisma.user.upsert({
+      where: { email: person.email },
+      update: { fullName: person.fullName, phone: person.phone, status: 'ACTIVE' },
+      create: {
+        fullName: person.fullName,
+        email: person.email,
+        phone: person.phone,
+        passwordHash,
+        status: 'ACTIVE',
+      },
+    });
+
+    await prisma.propertyMembership.upsert({
+      where: { userId_propertyId: { userId: user.id, propertyId } },
+      update: { role: person.role },
+      create: { userId: user.id, propertyId, role: person.role },
+    });
+  }
+}
+
 async function main(): Promise<void> {
   const property = await prisma.property.upsert({
     where: { slug: PROPERTY_SLUG },
@@ -235,13 +304,21 @@ async function main(): Promise<void> {
     await prisma.bed.createMany({ data: beds });
   }
 
+  await seedUsers(property.id);
+
   const bedCount = await prisma.bed.count();
   const availableCount = await prisma.bed.count({ where: { status: BedStatus.AVAILABLE } });
 
-  process.stdout.write(
-    `Seeded "${property.name}" (${PROPERTY_SLUG}): ` +
-      `${ROOMS.length} rooms, ${bedCount} beds, ${availableCount} available.\n`,
-  );
+  const summary = [
+    `Seeded "${property.name}" (${PROPERTY_SLUG})`,
+    `  ${ROOMS.length} rooms, ${bedCount} beds, ${availableCount} available`,
+    '',
+    '  Demo accounts — DEVELOPMENT ONLY. Password for all four:',
+    `    ${DEMO_PASSWORD}`,
+    ...USERS.map((user) => `    ${user.role.padEnd(8)} ${user.email}`),
+    '',
+  ];
+  process.stdout.write(`${summary.join('\n')}\n`);
 }
 
 main()
