@@ -1,14 +1,25 @@
 import { QueryClientProvider } from '@tanstack/react-query';
 import { StrictMode, useEffect } from 'react';
 import { createRoot } from 'react-dom/client';
-import { createBrowserRouter, Navigate, RouterProvider } from 'react-router-dom';
+import { createBrowserRouter, RouterProvider } from 'react-router-dom';
 
 import { AppShell } from './app/AppShell';
 import { RequireAuth } from './auth/RequireAuth';
 import { useAuthStore } from './auth/authStore';
 import { queryClient } from './lib/queryClient';
+import { BillingPage } from './pages/BillingPage';
+import { ComplaintDetailPage, ComplaintsPage } from './pages/ComplaintsPage';
+import { DashboardPage } from './pages/DashboardPage';
+import { ElectricityPage } from './pages/ElectricityPage';
+import { InvoiceDetailPage } from './pages/InvoiceDetailPage';
 import { LoginPage } from './pages/LoginPage';
-import { SystemStatusPage } from './pages/SystemStatusPage';
+import { MessPage } from './pages/MessPage';
+import { OccupancyPage } from './pages/OccupancyPage';
+import { OperationsPage } from './pages/OperationsPage';
+import { PaymentsPage } from './pages/PaymentsPage';
+import { ResidentDetailPage } from './pages/ResidentDetailPage';
+import { ResidentsPage } from './pages/ResidentsPage';
+import { SettingsPage } from './pages/SettingsPage';
 import './styles/global.css';
 
 const router = createBrowserRouter([
@@ -21,9 +32,19 @@ const router = createBrowserRouter([
       </RequireAuth>
     ),
     children: [
-      { index: true, element: <Navigate to="/system" replace /> },
-      { path: 'system', element: <SystemStatusPage /> },
-      // Domain routes mount here as their vertical slices land.
+      { index: true, element: <DashboardPage /> },
+      { path: 'occupancy', element: <OccupancyPage /> },
+      { path: 'residents', element: <ResidentsPage /> },
+      { path: 'residents/:id', element: <ResidentDetailPage /> },
+      { path: 'billing', element: <BillingPage /> },
+      { path: 'billing/:id', element: <InvoiceDetailPage /> },
+      { path: 'payments', element: <PaymentsPage /> },
+      { path: 'electricity', element: <ElectricityPage /> },
+      { path: 'mess', element: <MessPage /> },
+      { path: 'complaints', element: <ComplaintsPage /> },
+      { path: 'complaints/:id', element: <ComplaintDetailPage /> },
+      { path: 'operations', element: <OperationsPage /> },
+      { path: 'settings', element: <SettingsPage /> },
     ],
   },
 ]);

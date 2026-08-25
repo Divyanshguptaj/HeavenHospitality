@@ -1,17 +1,13 @@
 // Heaven Hospitality — database schema
 //
-// Phase 2 (foundation) defines only the two infrastructure tables that have no
-// foreign keys and are fully specified by docs/0006-idempotency-and-jobs.md.
-// Domain models (User, Property, Room, Bed, Tenancy, Invoice, ...) arrive with
-// their vertical slices, so that every table lands with its constraints, its
-// service and its tests at the same time.
-//
 // Conventions:
 //   - Primary keys are UUIDv7: non-guessable, but time-ordered for index locality.
-//   - Money is `Int` paise. See docs/0002-money.md.
-//   - Timestamps are stored UTC (`timestamptz`); business dates use `@db.Date`.
+//   - Money is `Int` paise, never a float or a string. See docs/0002-money.md.
+//   - Timestamps are UTC (`timestamptz`); business dates are `@db.Date`.
+//   - Rates and prices are SNAPSHOT onto financial records when they are
+//     generated, so changing a setting never rewrites history.
 //   - Some correctness constraints cannot be expressed here and live in
-//     hand-written migration SQL. Each is documented in
+//     hand-written migration SQL. Each is listed in
 //     docs/0006-idempotency-and-jobs.md.
 
 generator client {
@@ -22,15 +18,15 @@ generator client {
 //
 // DATABASE_URL is the *pooled* endpoint (`...-pooler...`), used at runtime.
 // DIRECT_DATABASE_URL is the *unpooled* endpoint, used by Prisma Migrate.
-//
-// Both are needed: Neon's pooler runs PgBouncer in transaction mode, which cannot
-// execute the session-level statements migrations require. Pointing migrations at
-// the pooled URL fails in ways that look like network errors.
 datasource db {
   provider  = "postgresql"
   url       = env("DATABASE_URL")
   directUrl = env("DIRECT_DATABASE_URL")
 }
+
+// ---------------------------------------------------------------------------
+// Infrastructure
+// ---------------------------------------------------------------------------
 
 enum JobStatus {
   RUNNING
@@ -39,63 +35,164 @@ enum JobStatus {
 }
 
 /// One row per (job, unit of work). The unique constraint IS the lock: a second
-/// concurrent run loses the insert and exits, so correctness holds even if the
-/// deployment ever runs more than one API process.
+/// concurrent run loses the insert and exits, so jobs stay correct even if the
+/// deployment ever runs more than one process.
 model JobRun {
   id         String    @id @default(uuid(7)) @db.Uuid
   jobName    String
-  /// The unit of work this run covers — "2026-08" for monthly jobs, "2026-08-23"
-  /// for daily ones. Together with jobName this makes every job idempotent.
+  /// "2026-08" for monthly jobs, "2026-08-24" for daily ones.
   periodKey  String
   status     JobStatus @default(RUNNING)
   startedAt  DateTime  @default(now()) @db.Timestamptz(3)
   finishedAt DateTime? @db.Timestamptz(3)
-  /// Truncated failure message. Never a full stack trace or provider payload.
   error      String?
 
   @@unique([jobName, periodKey])
   @@index([jobName, startedAt])
 }
 
-enum WebhookStatus {
-  RECEIVED
-  PROCESSED
-  FAILED
+// ---------------------------------------------------------------------------
+// Identity and access
+//
+// Three user types only (spec §2): OWNER, RESIDENT, and guests — who are simply
+// unauthenticated and have no row anywhere.
+// ---------------------------------------------------------------------------
+
+enum UserStatus {
+  ACTIVE
+  SUSPENDED
+  /// Left, or exercised a deletion request: PII anonymised, financial history kept.
+  DEACTIVATED
 }
 
-/// Replay protection for provider webhooks. Providers retry; the same event will
-/// arrive more than once, sometimes late and sometimes out of order.
-///
-/// A duplicate must return 200, not an error — an error tells the provider to
-/// retry, which is the opposite of what a duplicate needs.
-model WebhookEvent {
-  id          String        @id @default(uuid(7)) @db.Uuid
-  provider    String
-  /// The provider's own event identifier — the idempotency key.
-  eventId     String
-  eventType   String
-  status      WebhookStatus @default(RECEIVED)
-  /// Hash of the raw body, for detecting a provider replaying an event id with
-  /// different content. The payload itself is not stored: it contains payment
-  /// identifiers and is not needed after processing.
-  payloadHash String
-  receivedAt  DateTime      @default(now()) @db.Timestamptz(3)
-  processedAt DateTime?     @db.Timestamptz(3)
-  error       String?
+enum MembershipRole {
+  OWNER
+  RESIDENT
+}
 
-  @@unique([provider, eventId])
-  @@index([provider, status, receivedAt])
+/// A person. Exists once, forever. Someone who leaves and returns gets a second
+/// Tenancy under the same User — which is why contact phone numbers are not
+/// globally unique and only login identity is.
+model User {
+  id String @id @default(uuid(7)) @db.Uuid
+
+  email String? @unique
+  phone String?
+
+  fullName     String
+  passwordHash String?
+  status       UserStatus @default(ACTIVE)
+
+  /// Set on an owner-provisioned account until the first password is chosen.
+  mustChangePassword Boolean @default(false)
+
+  // Brute-force protection, persisted in PostgreSQL because per-IP limits reset
+  // on deploy and are evaded by rotating IPs. See docs/0003-auth-and-sessions.md.
+  failedLoginAttempts Int       @default(0)
+  lockedUntil         DateTime? @db.Timestamptz(3)
+  lastFailedLoginAt   DateTime? @db.Timestamptz(3)
+  lastLoginAt         DateTime? @db.Timestamptz(3)
+
+  createdAt DateTime @default(now()) @db.Timestamptz(3)
+  updatedAt DateTime @updatedAt @db.Timestamptz(3)
+
+  memberships PropertyMembership[]
+  sessions    RefreshSession[]
+  auditLogs   AuditLog[]
+  tenancies   Tenancy[]
+  complaints  Complaint[]
+
+  @@index([status])
+}
+
+model PropertyMembership {
+  id         String         @id @default(uuid(7)) @db.Uuid
+  userId     String         @db.Uuid
+  user       User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  propertyId String         @db.Uuid
+  property   Property       @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+  role       MembershipRole
+
+  createdAt DateTime @default(now()) @db.Timestamptz(3)
+
+  @@unique([userId, propertyId])
+  @@index([propertyId, role])
+}
+
+/// A refresh token, stored only as a SHA-256 hash. Tokens belong to a family:
+/// presenting a revoked token means it was replayed, so the family is revoked.
+model RefreshSession {
+  id     String @id @default(uuid(7)) @db.Uuid
+  userId String @db.Uuid
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  tokenHash String @unique
+  familyId  String @db.Uuid
+
+  deviceLabel String?
+  ipAddress   String?
+
+  createdAt    DateTime  @default(now()) @db.Timestamptz(3)
+  expiresAt    DateTime  @db.Timestamptz(3)
+  revokedAt    DateTime? @db.Timestamptz(3)
+  replacedById String?   @db.Uuid
+
+  @@index([userId, revokedAt])
+  @@index([familyId])
+}
+
+enum AuditAction {
+  RESIDENT_ADDED
+  RESIDENT_MOVED
+  RESIDENT_EXITED
+  BED_ASSIGNED
+  BED_RELEASED
+  PAYMENT_RECORDED
+  PAYMENT_CONFIRMED
+  INVOICE_ISSUED
+  INVOICE_ADJUSTED
+  ELECTRICITY_READING_ADDED
+  ELECTRICITY_READING_CORRECTED
+  COMPLAINT_RAISED
+  COMPLAINT_UPDATED
+  SETTINGS_CHANGED
+  ROOM_CREATED
+  ROOM_UPDATED
+  FLOOR_CREATED
+  ATTENDANCE_OVERRIDDEN
+}
+
+/// Append-only. `before`/`after` hold a redacted field allowlist, never a whole
+/// row — an unrestricted diff would make this the leakiest table in the database.
+/// Doubles as the dashboard's recent-activity feed.
+model AuditLog {
+  id String @id @default(uuid(7)) @db.Uuid
+
+  actorUserId String? @db.Uuid
+  actorUser   User?   @relation(fields: [actorUserId], references: [id], onDelete: SetNull)
+  actorRole   String?
+
+  action     AuditAction
+  entityType String
+  entityId   String?
+  propertyId String?     @db.Uuid
+  /// Human-readable line for the activity feed, written at the call site.
+  summary    String
+
+  before Json?
+  after  Json?
+
+  ipAddress String?
+  requestId String?
+
+  createdAt DateTime @default(now()) @db.Timestamptz(3)
+
+  @@index([propertyId, createdAt])
+  @@index([entityType, entityId])
 }
 
 // ---------------------------------------------------------------------------
-// Property domain
-//
-// Property is the top-level operational entity. Organization is deliberately
-// deferred (docs/0001-architecture.md) — every record carries propertyId, so
-// adding an org above Property later is one table plus one FK, not a rewrite.
-//
-// Building and Floor are fields on Room rather than tables: nothing bills,
-// allocates, authorizes or reports at floor level.
+// Property, floors, rooms, beds
 // ---------------------------------------------------------------------------
 
 enum PropertyStatus {
@@ -103,23 +200,18 @@ enum PropertyStatus {
   INACTIVE
 }
 
-/// A hostel/PG building operated as one unit.
 model Property {
   id          String         @id @default(uuid(7)) @db.Uuid
-  /// URL-safe public identifier. The guest experience is addressed by slug, never
-  /// by id, so internal identifiers are never exposed publicly.
   slug        String         @unique
   name        String
   tagline     String?
   description String?
   status      PropertyStatus @default(ACTIVE)
 
-  /// Whether the guest experience may show this property at all. Distinct from
-  /// `status`: a property can be operating but withdrawn from public listing.
-  isPubliclyListed Boolean @default(false)
+  isPubliclyListed Boolean @default(true)
 
   /// Business rules (due dates, mess cutoffs, late fees) run in this timezone,
-  /// never the server's or the device's. See docs/0005-billing-rules.md.
+  /// never the server's or the device's.
   timezone String @default("Asia/Kolkata")
   currency String @default("INR")
 
@@ -128,8 +220,6 @@ model Property {
   city        String
   state       String
   pincode     String
-  /// Coarse map location. Stored as Decimal, not Float — these are coordinates,
-  /// not measurements, and must round-trip exactly.
   latitude    Decimal? @db.Decimal(9, 6)
   longitude   Decimal? @db.Decimal(9, 6)
 
@@ -139,23 +229,69 @@ model Property {
   createdAt DateTime @default(now()) @db.Timestamptz(3)
   updatedAt DateTime @updatedAt @db.Timestamptz(3)
 
-  photos      PropertyPhoto[]
-  facilities  Facility[]
-  rules       PropertyRule[]
-  roomTypes   RoomType[]
-  rooms       Room[]
-  menuItems   WeeklyMenuItem[]
-  memberships PropertyMembership[]
+  settings         PropertySettings?
+  memberships      PropertyMembership[]
+  photos           PropertyPhoto[]
+  facilities       Facility[]
+  rules            PropertyRule[]
+  floors           Floor[]
+  rooms            Room[]
+  tenancies        Tenancy[]
+  invoices         Invoice[]
+  payments         Payment[]
+  menuItems        WeeklyMenuItem[]
+  mealTimings      MealTiming[]
+  complaints       Complaint[]
+  notices          Notice[]
+  staff            Staff[]
+  inventory        InventoryItem[]
+  expenses         Expense[]
+  reminders        ReminderEvent[]
+  meterReadings    MeterReading[]
+  receiptSequences ReceiptSequence[]
 
   @@index([isPubliclyListed, status])
+}
+
+/// Owner-configurable values that must never be hard-coded in business logic
+/// (spec §10, §25). One row per property.
+model PropertySettings {
+  id         String   @id @default(uuid(7)) @db.Uuid
+  propertyId String   @unique @db.Uuid
+  property   Property @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+
+  // --- Financial ---
+  /// Day of month rent falls due, 1-28 (28 so every month has the day).
+  rentDueDay                  Int @default(5)
+  /// Days after the due date before a late fee starts accruing.
+  graceDays                   Int @default(3)
+  lateFeePerDayPaise          Int @default(10000)
+  /// Hard cap per invoice. Uncapped accrual produces balances nobody collects.
+  lateFeeCapPaise             Int @default(300000)
+  electricityRatePaisePerUnit Int @default(1300)
+
+  // --- Payment details shown to residents (and guests when public) ---
+  bankAccountName   String?
+  bankAccountNumber String?
+  bankIfsc          String?
+  bankName          String?
+  upiId             String?
+  upiQrImageUrl     String?
+  /// Whether guests, not just residents, may see the payment details.
+  paymentDetailsArePublic Boolean @default(false)
+
+  // --- Mess ---
+  /// Local time-of-day after which a resident may no longer change an absence.
+  mealCutoffLocalTime String @default("21:00")
+
+  createdAt DateTime @default(now()) @db.Timestamptz(3)
+  updatedAt DateTime @updatedAt @db.Timestamptz(3)
 }
 
 model PropertyPhoto {
   id         String   @id @default(uuid(7)) @db.Uuid
   propertyId String   @db.Uuid
   property   Property @relation(fields: [propertyId], references: [id], onDelete: Cascade)
-  /// Object-storage key or absolute URL. Public photos only — tenant documents
-  /// live in a private bucket and never appear here.
   url        String
   caption    String?
   sortOrder  Int      @default(0)
@@ -168,7 +304,6 @@ model Facility {
   propertyId String   @db.Uuid
   property   Property @relation(fields: [propertyId], references: [id], onDelete: Cascade)
   label      String
-  /// Icon name resolved by the client; the server stores no presentation markup.
   icon       String?
   sortOrder  Int      @default(0)
 
@@ -186,28 +321,25 @@ model PropertyRule {
   @@index([propertyId, sortOrder])
 }
 
-/// A category of room — "3 Sharing (AC)" — carrying the pricing a guest sees.
-/// Rent lives here as the advertised rate; the agreed rent for a specific stay is
-/// captured on the Tenancy, because they legitimately differ.
-model RoomType {
-  id              String   @id @default(uuid(7)) @db.Uuid
-  propertyId      String   @db.Uuid
-  property        Property @relation(fields: [propertyId], references: [id], onDelete: Cascade)
-  name            String
-  /// Beds per room of this type.
-  sharingCapacity Int
-  /// Advertised monthly rent, in paise. See docs/0002-money.md.
-  baseRentPaise   Int
-  /// Advertised security deposit, in paise.
-  depositPaise    Int
-  description     String?
-  amenities       String[]
-  sortOrder       Int      @default(0)
+/// A floor is a real, owner-managed entity (spec §4): created, renamed and
+/// deleted, with rooms belonging to it.
+model Floor {
+  id         String   @id @default(uuid(7)) @db.Uuid
+  propertyId String   @db.Uuid
+  property   Property @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+  /// "Ground Floor", "First Floor".
+  name       String
+  /// Sort key; 0 = ground. Also what "floor number" means operationally.
+  level      Int
+
+  createdAt DateTime @default(now()) @db.Timestamptz(3)
+  updatedAt DateTime @updatedAt @db.Timestamptz(3)
 
   rooms Room[]
 
   @@unique([propertyId, name])
-  @@index([propertyId, sortOrder])
+  @@unique([propertyId, level])
+  @@index([propertyId, level])
 }
 
 enum RoomStatus {
@@ -216,37 +348,43 @@ enum RoomStatus {
   INACTIVE
 }
 
+/// Rent lives here, not on a room-type table: the owner sets rent per room
+/// (spec §9), and a resident-specific override sits on the Tenancy.
 model Room {
-  id         String     @id @default(uuid(7)) @db.Uuid
-  propertyId String     @db.Uuid
-  property   Property   @relation(fields: [propertyId], references: [id], onDelete: Cascade)
-  roomTypeId String     @db.Uuid
-  roomType   RoomType   @relation(fields: [roomTypeId], references: [id], onDelete: Restrict)
-  number     String
-  /// Floor and block are labels, not entities — see the header comment.
-  floor      Int        @default(0)
-  block      String?
-  status     RoomStatus @default(ACTIVE)
+  id         String   @id @default(uuid(7)) @db.Uuid
+  propertyId String   @db.Uuid
+  property   Property @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+  floorId    String   @db.Uuid
+  floor      Floor    @relation(fields: [floorId], references: [id], onDelete: Restrict)
+
+  number String
+  /// Display label used for public grouping, e.g. "3 Sharing".
+  roomType         String
+  capacity         Int
+  monthlyRentPaise Int
+  isAirConditioned Boolean    @default(false)
+  description      String?
+  facilities       String[]
+  status           RoomStatus @default(ACTIVE)
 
   createdAt DateTime @default(now()) @db.Timestamptz(3)
   updatedAt DateTime @updatedAt @db.Timestamptz(3)
 
-  beds Bed[]
+  beds          Bed[]
+  meterReadings MeterReading[]
 
   @@unique([propertyId, number])
   @@index([propertyId, status])
+  @@index([floorId])
 }
 
 enum BedStatus {
   AVAILABLE
   OCCUPIED
-  RESERVED
   MAINTENANCE
   BLOCKED
 }
 
-/// The unit that is actually let. Occupancy is tracked by Allocation rows in the
-/// tenancy slice; `status` here is the operational state of the bed itself.
 model Bed {
   id     String    @id @default(uuid(7)) @db.Uuid
   roomId String    @db.Uuid
@@ -257,168 +395,572 @@ model Bed {
   createdAt DateTime @default(now()) @db.Timestamptz(3)
   updatedAt DateTime @updatedAt @db.Timestamptz(3)
 
+  allocations Allocation[]
+
   @@unique([roomId, label])
   @@index([status])
 }
 
+// ---------------------------------------------------------------------------
+// Residents
+// ---------------------------------------------------------------------------
+
+enum TenancyStatus {
+  ACTIVE
+  NOTICE_PERIOD
+  VACATED
+}
+
+/// One *stay*. A person who leaves and returns gets a second Tenancy, which is
+/// what keeps history intact instead of overwriting it.
+model Tenancy {
+  id         String   @id @default(uuid(7)) @db.Uuid
+  propertyId String   @db.Uuid
+  property   Property @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+  userId     String   @db.Uuid
+  user       User     @relation(fields: [userId], references: [id], onDelete: Restrict)
+
+  status TenancyStatus @default(ACTIVE)
+
+  joiningDate      DateTime  @db.Date
+  expectedExitDate DateTime? @db.Date
+  actualExitDate   DateTime? @db.Date
+
+  /// Overrides the room rent when set — otherwise the room's rent applies.
+  monthlyRentOverridePaise Int?
+  securityDepositPaise     Int @default(0)
+
+  emergencyContactName  String?
+  emergencyContactPhone String?
+
+  createdAt DateTime @default(now()) @db.Timestamptz(3)
+  updatedAt DateTime @updatedAt @db.Timestamptz(3)
+
+  allocations       Allocation[]
+  invoices          Invoice[]
+  payments          Payment[]
+  mealAbsences      MealAbsence[]
+  electricityShares ElectricityShare[]
+
+  @@index([propertyId, status])
+  @@index([userId])
+}
+
+/// Bed occupancy over time. A room change closes one row and opens another, so
+/// history is preserved by construction.
+///
+/// A partial unique index (hand-written in the migration) enforces at most one
+/// OPEN allocation per bed and per tenancy — this is what makes two staff
+/// assigning the same bed simultaneously impossible rather than merely unlikely.
+model Allocation {
+  id        String  @id @default(uuid(7)) @db.Uuid
+  tenancyId String  @db.Uuid
+  tenancy   Tenancy @relation(fields: [tenancyId], references: [id], onDelete: Cascade)
+  bedId     String  @db.Uuid
+  bed       Bed     @relation(fields: [bedId], references: [id], onDelete: Restrict)
+
+  startedAt DateTime  @db.Date
+  endedAt   DateTime? @db.Date
+  reason    String?
+
+  createdAt DateTime @default(now()) @db.Timestamptz(3)
+
+  @@index([bedId, endedAt])
+  @@index([tenancyId, endedAt])
+}
+
+// ---------------------------------------------------------------------------
+// Billing
+// ---------------------------------------------------------------------------
+
+enum InvoiceStatus {
+  DRAFT
+  ISSUED
+  PARTIALLY_PAID
+  PAID
+  OVERDUE
+  CANCELLED
+}
+
+enum InvoiceItemKind {
+  RENT
+  ELECTRICITY
+  LATE_FEE
+  OTHER
+  DISCOUNT
+}
+
+model Invoice {
+  id         String   @id @default(uuid(7)) @db.Uuid
+  propertyId String   @db.Uuid
+  property   Property @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+  tenancyId  String   @db.Uuid
+  tenancy    Tenancy  @relation(fields: [tenancyId], references: [id], onDelete: Cascade)
+
+  /// "2026-09". With tenancyId this makes monthly generation idempotent.
+  periodKey String
+  number    String @unique
+
+  status    InvoiceStatus @default(ISSUED)
+  issueDate DateTime      @db.Date
+  dueDate   DateTime      @db.Date
+
+  /// Sum of items. Recomputed by the service, never sent by a client.
+  totalPaise      Int @default(0)
+  amountPaidPaise Int @default(0)
+
+  /// Set when the owner waives the late fee; the fee function respects it.
+  lateFeeWaivedAt DateTime? @db.Timestamptz(3)
+  notes           String?
+
+  createdAt DateTime @default(now()) @db.Timestamptz(3)
+  updatedAt DateTime @updatedAt @db.Timestamptz(3)
+
+  items       InvoiceItem[]
+  allocations PaymentAllocation[]
+  receipts    Receipt[]
+
+  @@unique([tenancyId, periodKey])
+  @@index([propertyId, status])
+  @@index([propertyId, periodKey])
+  @@index([dueDate])
+}
+
+model InvoiceItem {
+  id        String          @id @default(uuid(7)) @db.Uuid
+  invoiceId String          @db.Uuid
+  invoice   Invoice         @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+  kind      InvoiceItemKind
+  /// Shown on the invoice, e.g. "Electricity — 60 units @ ₹13.00".
+  description String
+  amountPaise Int
+
+  /// Traces a line back to what produced it (an electricity share, a reading).
+  sourceType String?
+  sourceId   String?
+
+  createdAt DateTime @default(now()) @db.Timestamptz(3)
+
+  @@index([invoiceId])
+}
+
+enum PaymentMethod {
+  CASH
+  UPI
+  BANK_TRANSFER
+  ONLINE
+}
+
+enum PaymentStatus {
+  PENDING
+  PAID
+  FAILED
+  CANCELLED
+}
+
+model Payment {
+  id         String   @id @default(uuid(7)) @db.Uuid
+  propertyId String   @db.Uuid
+  property   Property @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+  tenancyId  String   @db.Uuid
+  tenancy    Tenancy  @relation(fields: [tenancyId], references: [id], onDelete: Cascade)
+
+  amountPaise Int
+  method      PaymentMethod
+  status      PaymentStatus @default(PENDING)
+
+  /// Provider name ("mock" today, "razorpay" later) and its identifiers. Kept
+  /// generic so swapping providers does not touch the billing domain.
+  provider          String?
+  providerOrderId   String?
+  providerPaymentId String? @unique
+
+  /// UTR / cheque number for a manually recorded payment.
+  reference String?
+  notes     String?
+  paidAt    DateTime? @db.Timestamptz(3)
+
+  /// Who keyed it in. Null for resident-initiated online payments.
+  recordedByUserId String? @db.Uuid
+
+  /// Any amount not applied to an invoice, held as resident credit.
+  unallocatedPaise Int @default(0)
+
+  /// Set by the client on retryable writes so a double submit cannot pay twice.
+  idempotencyKey String? @unique
+
+  createdAt DateTime @default(now()) @db.Timestamptz(3)
+  updatedAt DateTime @updatedAt @db.Timestamptz(3)
+
+  allocations PaymentAllocation[]
+  receipts    Receipt[]
+
+  @@index([propertyId, status])
+  @@index([tenancyId, createdAt])
+}
+
+/// Records where each paise of a payment landed, so one payment can span
+/// invoices and one invoice can receive many payments.
+model PaymentAllocation {
+  id          String  @id @default(uuid(7)) @db.Uuid
+  paymentId   String  @db.Uuid
+  payment     Payment @relation(fields: [paymentId], references: [id], onDelete: Cascade)
+  invoiceId   String  @db.Uuid
+  invoice     Invoice @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+  amountPaise Int
+
+  createdAt DateTime @default(now()) @db.Timestamptz(3)
+
+  @@unique([paymentId, invoiceId])
+  @@index([invoiceId])
+}
+
+/// Gapless sequential receipt numbers per property per financial year, which
+/// Indian bookkeeping expects. Locked with SELECT … FOR UPDATE inside the
+/// payment transaction — `count() + 1` races.
+model ReceiptSequence {
+  id         String   @id @default(uuid(7)) @db.Uuid
+  propertyId String   @db.Uuid
+  property   Property @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+  /// "2026-27".
+  fiscalYear String
+  lastNumber Int      @default(0)
+
+  @@unique([propertyId, fiscalYear])
+}
+
+model Receipt {
+  id        String   @id @default(uuid(7)) @db.Uuid
+  paymentId String   @db.Uuid
+  payment   Payment  @relation(fields: [paymentId], references: [id], onDelete: Cascade)
+  invoiceId String?  @db.Uuid
+  invoice   Invoice? @relation(fields: [invoiceId], references: [id], onDelete: SetNull)
+
+  number   String   @unique
+  issuedAt DateTime @default(now()) @db.Timestamptz(3)
+  /// Frozen copy of what the receipt says, so a later edit upstream cannot
+  /// silently change an issued receipt.
+  snapshot Json
+
+  @@index([paymentId])
+}
+
+// ---------------------------------------------------------------------------
+// Electricity
+// ---------------------------------------------------------------------------
+
+enum ReadingStatus {
+  ACTIVE
+  CORRECTED
+}
+
+/// A meter reading for a room in a billing month. The rate in force is snapshot
+/// here, so changing the setting later never rewrites an issued bill.
+model MeterReading {
+  id         String   @id @default(uuid(7)) @db.Uuid
+  propertyId String   @db.Uuid
+  property   Property @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+  roomId     String   @db.Uuid
+  room       Room     @relation(fields: [roomId], references: [id], onDelete: Cascade)
+
+  /// "2026-09".
+  periodKey        String
+  previousReading  Int
+  currentReading   Int
+  units            Int
+  ratePaisePerUnit Int
+  amountPaise      Int
+
+  status               ReadingStatus @default(ACTIVE)
+  correctedByReadingId String?       @db.Uuid
+  recordedByUserId     String?       @db.Uuid
+  readingDate          DateTime      @db.Date
+  notes                String?
+
+  createdAt DateTime @default(now()) @db.Timestamptz(3)
+
+  shares ElectricityShare[]
+
+  /// One ACTIVE reading per room per month; a correction supersedes rather than
+  /// overwrites. Enforced by a partial unique index in the migration.
+  @@index([propertyId, periodKey])
+  @@index([roomId, periodKey])
+}
+
+/// A room's electricity split across the residents who occupied it that month.
+model ElectricityShare {
+  id        String       @id @default(uuid(7)) @db.Uuid
+  readingId String       @db.Uuid
+  reading   MeterReading @relation(fields: [readingId], references: [id], onDelete: Cascade)
+  tenancyId String       @db.Uuid
+  tenancy   Tenancy      @relation(fields: [tenancyId], references: [id], onDelete: Cascade)
+
+  sharePaise Int
+  /// Recorded so the split is explainable months later.
+  occupiedDays Int
+
+  createdAt DateTime @default(now()) @db.Timestamptz(3)
+
+  @@unique([readingId, tenancyId])
+  @@index([tenancyId])
+}
+
+// ---------------------------------------------------------------------------
+// Mess
+// ---------------------------------------------------------------------------
+
 enum MealType {
   BREAKFAST
   LUNCH
-  SNACKS
   DINNER
 }
 
-/// The published weekly menu. Guests see it as the food offering; the mess slice
-/// will reuse it for expected meal counts.
 model WeeklyMenuItem {
   id         String   @id @default(uuid(7)) @db.Uuid
   propertyId String   @db.Uuid
   property   Property @relation(fields: [propertyId], references: [id], onDelete: Cascade)
-  /// ISO-8601 day of week: 1 = Monday ... 7 = Sunday.
+  /// ISO-8601: 1 = Monday … 7 = Sunday.
   dayOfWeek  Int
   mealType   MealType
-  /// Dishes served, in serving order.
   items      String[]
 
   @@unique([propertyId, dayOfWeek, mealType])
   @@index([propertyId, dayOfWeek])
 }
 
-// ---------------------------------------------------------------------------
-// Identity, access and audit
-//
-// User is a PERSON and exists once, forever. A stay is a Tenancy (next slice);
-// leaving and returning creates a second Tenancy under the same User. This is why
-// contact phone numbers are NOT globally unique — only login identity is.
-//
-// See docs/0003-auth-and-sessions.md and docs/0004-authorization.md.
-// ---------------------------------------------------------------------------
+model MealTiming {
+  id         String   @id @default(uuid(7)) @db.Uuid
+  propertyId String   @db.Uuid
+  property   Property @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+  mealType   MealType
+  /// Local times, e.g. "08:00" / "09:30".
+  startsAt   String
+  endsAt     String
 
-enum UserStatus {
-  /// Can sign in.
-  ACTIVE
-  /// Temporarily blocked by staff; credentials still valid.
-  SUSPENDED
-  /// Left, or exercised a deletion request. PII anonymised, financial history kept.
-  DEACTIVATED
+  @@unique([propertyId, mealType])
 }
 
-enum MembershipRole {
-  OWNER
-  MANAGER
-  STAFF
-  TENANT
+/// Absence is opt-out: everyone is expected unless they say otherwise, which is
+/// far less data and far less friction than opt-in attendance.
+model MealAbsence {
+  id        String   @id @default(uuid(7)) @db.Uuid
+  tenancyId String   @db.Uuid
+  tenancy   Tenancy  @relation(fields: [tenancyId], references: [id], onDelete: Cascade)
+  date      DateTime @db.Date
+  mealType  MealType
+
+  /// True when the owner corrected it rather than the resident declaring it.
+  overriddenByOwner Boolean @default(false)
+
+  createdAt DateTime @default(now()) @db.Timestamptz(3)
+
+  /// Prevents duplicate submissions at the database level.
+  @@unique([tenancyId, date, mealType])
+  @@index([date, mealType])
 }
 
-model User {
-  id String @id @default(uuid(7)) @db.Uuid
+// ---------------------------------------------------------------------------
+// Complaints and notices
+// ---------------------------------------------------------------------------
 
-  /// Login identity. At least one of email/phone is required — enforced by a
-  /// CHECK constraint in the migration, because Prisma cannot express it.
-  email String? @unique
-  phone String? @unique
+enum ComplaintCategory {
+  PLUMBING
+  ELECTRICAL
+  CARPENTER
+  WIFI
+  CLEANING
+  AC
+  FURNITURE
+  OTHER
+}
 
-  fullName     String
-  passwordHash String?
-  status       UserStatus @default(ACTIVE)
+enum ComplaintStatus {
+  OPEN
+  IN_PROGRESS
+  RESOLVED
+  CLOSED
+}
 
-  /// Set for an admin-provisioned account until the first password is chosen.
-  mustChangePassword Boolean @default(false)
+model Complaint {
+  id         String   @id @default(uuid(7)) @db.Uuid
+  propertyId String   @db.Uuid
+  property   Property @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+  /// The resident who raised it. Ownership is what stops one resident reading
+  /// another's complaint.
+  raisedByUserId String  @db.Uuid
+  raisedBy       User    @relation(fields: [raisedByUserId], references: [id], onDelete: Cascade)
+  tenancyId      String? @db.Uuid
 
-  // --- Brute-force protection -------------------------------------------------
-  // Persisted in PostgreSQL, not in memory: per-IP limits reset on every deploy
-  // and are trivially evaded by rotating IPs. Per-account state is what actually
-  // stops a targeted attack. See docs/0003-auth-and-sessions.md.
-  failedLoginAttempts Int       @default(0)
-  lockedUntil         DateTime? @db.Timestamptz(3)
-  lastFailedLoginAt   DateTime? @db.Timestamptz(3)
-  lastLoginAt         DateTime? @db.Timestamptz(3)
+  title       String
+  description String
+  category    ComplaintCategory
+  status      ComplaintStatus   @default(OPEN)
+  imageUrl    String?
+
+  resolvedAt  DateTime? @db.Timestamptz(3)
+  reopenCount Int       @default(0)
 
   createdAt DateTime @default(now()) @db.Timestamptz(3)
   updatedAt DateTime @updatedAt @db.Timestamptz(3)
 
-  memberships PropertyMembership[]
-  sessions    RefreshSession[]
-  auditLogs   AuditLog[]
+  events ComplaintEvent[]
 
-  @@index([status])
+  @@index([propertyId, status])
+  @@index([raisedByUserId, createdAt])
 }
 
-/// Grants a user a role at a property. This is the single source of "who may do
-/// what, where" — an OWNER is simply a membership with role OWNER.
-model PropertyMembership {
-  id         String         @id @default(uuid(7)) @db.Uuid
-  userId     String         @db.Uuid
-  user       User           @relation(fields: [userId], references: [id], onDelete: Cascade)
-  propertyId String         @db.Uuid
-  property   Property       @relation(fields: [propertyId], references: [id], onDelete: Cascade)
-  role       MembershipRole
+/// Status history and notes in one timeline, rather than two tables that can
+/// disagree about the order things happened.
+model ComplaintEvent {
+  id          String           @id @default(uuid(7)) @db.Uuid
+  complaintId String           @db.Uuid
+  complaint   Complaint        @relation(fields: [complaintId], references: [id], onDelete: Cascade)
+  fromStatus  ComplaintStatus?
+  toStatus    ComplaintStatus?
+  note        String?
+  actorUserId String?          @db.Uuid
 
   createdAt DateTime @default(now()) @db.Timestamptz(3)
 
-  /// One role per person per property. A second role would make authorization
-  /// ambiguous, so the database refuses it.
-  @@unique([userId, propertyId])
-  @@index([propertyId, role])
+  @@index([complaintId, createdAt])
 }
 
-/// A refresh token, stored only as a hash.
-///
-/// Tokens belong to a family. Presenting an already-revoked token means it was
-/// replayed — the whole family is revoked, because that is the signature of a
-/// stolen token rather than a normal refresh.
-model RefreshSession {
-  id     String @id @default(uuid(7)) @db.Uuid
-  userId String @db.Uuid
-  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
-
-  /// SHA-256 of the token. The raw token is never stored, so a database leak
-  /// does not hand over live sessions.
-  tokenHash String @unique
-  familyId  String @db.Uuid
-
-  /// Shown in the user's device/session list.
-  deviceLabel String?
-  ipAddress   String?
-
-  createdAt    DateTime  @default(now()) @db.Timestamptz(3)
-  expiresAt    DateTime  @db.Timestamptz(3)
-  revokedAt    DateTime? @db.Timestamptz(3)
-  replacedById String?   @db.Uuid
-
-  @@index([userId, revokedAt])
-  @@index([familyId])
-  @@index([expiresAt])
-}
-
-/// Append-only record of sensitive actions. There is no update or delete path
-/// anywhere in the codebase.
-///
-/// `before`/`after` hold a REDACTED field allowlist, never a whole row — an
-/// unrestricted diff would make this the leakiest table in the database.
-/// See docs/0008-data-protection.md.
-model AuditLog {
-  id String @id @default(uuid(7)) @db.Uuid
-
-  /// Null for system/scheduled actions, which have no human actor.
-  actorUserId String? @db.Uuid
-  actorUser   User?   @relation(fields: [actorUserId], references: [id], onDelete: SetNull)
-  actorRole   String?
-
-  action     String
-  entityType String
-  entityId   String?
-  propertyId String? @db.Uuid
-
-  before Json?
-  after  Json?
-
-  ipAddress String?
-  requestId String?
+model Notice {
+  id         String   @id @default(uuid(7)) @db.Uuid
+  propertyId String   @db.Uuid
+  property   Property @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+  title      String
+  body       String
+  /// Inclusive window during which residents see it.
+  startsOn   DateTime  @db.Date
+  endsOn     DateTime? @db.Date
+  isPinned   Boolean   @default(false)
 
   createdAt DateTime @default(now()) @db.Timestamptz(3)
 
-  @@index([entityType, entityId])
-  @@index([propertyId, createdAt])
-  @@index([actorUserId, createdAt])
+  @@index([propertyId, startsOn])
+}
+
+// ---------------------------------------------------------------------------
+// Staff, inventory and expenses (spec §19 — deliberately simple)
+// ---------------------------------------------------------------------------
+
+model Staff {
+  id                 String   @id @default(uuid(7)) @db.Uuid
+  propertyId         String   @db.Uuid
+  property           Property @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+  fullName           String
+  role               String
+  phone              String?
+  monthlySalaryPaise Int?
+  isActive           Boolean  @default(true)
+  joinedOn           DateTime @db.Date
+
+  createdAt DateTime @default(now()) @db.Timestamptz(3)
+
+  attendance StaffAttendance[]
+
+  @@index([propertyId, isActive])
+}
+
+enum AttendanceStatus {
+  PRESENT
+  ABSENT
+  HALF_DAY
+  LEAVE
+}
+
+model StaffAttendance {
+  id      String           @id @default(uuid(7)) @db.Uuid
+  staffId String           @db.Uuid
+  staff   Staff            @relation(fields: [staffId], references: [id], onDelete: Cascade)
+  date    DateTime         @db.Date
+  status  AttendanceStatus
+
+  createdAt DateTime @default(now()) @db.Timestamptz(3)
+
+  @@unique([staffId, date])
+  @@index([date])
+}
+
+model InventoryItem {
+  id            String    @id @default(uuid(7)) @db.Uuid
+  propertyId    String    @db.Uuid
+  property      Property  @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+  name          String
+  category      String
+  quantity      Int       @default(0)
+  unitCostPaise Int?
+  purchasedOn   DateTime? @db.Date
+  notes         String?
+
+  createdAt DateTime @default(now()) @db.Timestamptz(3)
+
+  @@index([propertyId, category])
+}
+
+model Expense {
+  id          String   @id @default(uuid(7)) @db.Uuid
+  propertyId  String   @db.Uuid
+  property    Property @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+  title       String
+  category    String
+  amountPaise Int
+  spentOn     DateTime @db.Date
+  notes       String?
+
+  createdAt DateTime @default(now()) @db.Timestamptz(3)
+
+  @@index([propertyId, spentOn])
+}
+
+// ---------------------------------------------------------------------------
+// Notifications (spec §20 — architecture now, provider later)
+// ---------------------------------------------------------------------------
+
+enum ReminderKind {
+  BEFORE_DUE
+  ON_DUE
+  AFTER_DUE
+}
+
+enum ReminderChannel {
+  IN_APP
+  WHATSAPP
+  EMAIL
+}
+
+enum ReminderStatus {
+  PENDING
+  SENT
+  FAILED
+  SKIPPED
+}
+
+/// A rent reminder. The provider is mocked for now: events are recorded and
+/// shown in the owner UI, and a real WhatsApp/email sender drops in behind the
+/// same interface without touching this table.
+model ReminderEvent {
+  id         String   @id @default(uuid(7)) @db.Uuid
+  propertyId String   @db.Uuid
+  property   Property @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+  invoiceId  String?  @db.Uuid
+  tenancyId  String?  @db.Uuid
+
+  kind    ReminderKind
+  channel ReminderChannel @default(IN_APP)
+  status  ReminderStatus  @default(PENDING)
+
+  /// Encodes the business meaning, e.g. "rent:<tenancyId>:2026-09:ON_DUE".
+  /// Unique, so re-running the job cannot send the same reminder twice.
+  dedupeKey String @unique
+
+  message   String
+  sentAt    DateTime? @db.Timestamptz(3)
+  attempts  Int       @default(0)
+  lastError String?
+
+  createdAt DateTime @default(now()) @db.Timestamptz(3)
+
+  @@index([propertyId, status])
 }

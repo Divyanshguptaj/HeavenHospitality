@@ -88,12 +88,12 @@ export const useAuthStore = create<AuthState>((set) => ({
 /**
  * Whether the user may use the console at all.
  *
- * Tenants have accounts but no operational role, and the admin console is not
- * built for them — they use the mobile app. This is a routing decision only; the
- * API rejects their requests regardless.
+ * Residents have accounts but no operational role, and the console is not built
+ * for them — they use the mobile app. This is a routing decision only; the API
+ * rejects their requests regardless.
  */
 export function canAccessConsole(user: AuthenticatedUser | null): boolean {
-  return user !== null && user.memberships.some((m) => m.role !== 'TENANT');
+  return user !== null && user.memberships.some((m) => m.role === 'OWNER');
 }
 
 /**

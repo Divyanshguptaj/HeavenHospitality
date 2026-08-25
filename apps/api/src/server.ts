@@ -4,6 +4,7 @@ import { createApp } from './app.js';
 import { env, features } from './config/env.js';
 import { logger } from './lib/logger.js';
 import { disconnectPrisma } from './lib/prisma.js';
+import { startScheduledJobs } from './jobs/index.js';
 
 const SHUTDOWN_TIMEOUT_MS = 10_000;
 
@@ -73,6 +74,10 @@ function start(): void {
   });
 
   registerShutdown(server);
+
+  // Late fees and rent reminders. In-process by design — see
+  // docs/0006-idempotency-and-jobs.md for why this needs no queue.
+  startScheduledJobs();
 }
 
 start();

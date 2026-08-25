@@ -42,9 +42,9 @@ export default function RoomsScreen() {
                   <View style={styles.headerText}>
                     <CardTitle>{roomType.name}</CardTitle>
                     <Muted>
-                      {roomType.sharingCapacity === 1
+                      {roomType.capacity === 1
                         ? 'Private room'
-                        : `${roomType.sharingCapacity} people sharing`}
+                        : `${roomType.capacity} people sharing`}
                     </Muted>
                   </View>
                   <Badge
@@ -67,13 +67,13 @@ export default function RoomsScreen() {
                   }
                 />
                 <DetailRow
-                  label="Deposit"
-                  value={formatINR(roomType.depositPaise, { withPaise: false })}
+                  label="Type"
+                  value={roomType.isAirConditioned ? 'Air conditioned' : 'Non-AC'}
                 />
 
-                {roomType.amenities.length > 0 && (
+                {roomType.facilities.length > 0 && (
                   <View style={styles.amenities}>
-                    {roomType.amenities.map((amenity) => (
+                    {roomType.facilities.map((amenity: string) => (
                       <View
                         key={amenity}
                         style={[styles.chip, { backgroundColor: theme.surfaceSubtle }]}

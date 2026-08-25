@@ -1,7 +1,7 @@
 import { router } from 'expo-router';
 import { StyleSheet, View } from 'react-native';
 
-import { isTenantExperience, useAuthStore } from '../../src/auth/authStore';
+import { isResidentExperience, useAuthStore } from '../../src/auth/authStore';
 import {
   Badge,
   Body,
@@ -29,7 +29,7 @@ export default function TenantHomeScreen() {
 
   // Staff and owners are pointed at the admin console rather than shown a
   // half-useful phone version of it. See the brief's §1.
-  if (!isTenantExperience(user)) {
+  if (!isResidentExperience(user)) {
     return (
       <Screen>
         <PageHeading title={`Hello, ${user.fullName}`} />

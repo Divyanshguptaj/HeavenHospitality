@@ -1,12 +1,11 @@
 import type { Prisma } from '@prisma/client';
 
 import { prisma } from '../../lib/prisma.js';
-import type { PropertyRecord } from './public.mapper.js';
 
 /**
- * Only ACTIVE, publicly-listed properties are visible. Both conditions are applied
- * in the query itself rather than filtered afterwards, so an unlisted property
- * cannot leak through a code path that forgets the check.
+ * Only ACTIVE, publicly-listed properties are visible. Both conditions live in
+ * the query itself rather than being filtered afterwards, so an unlisted
+ * property cannot leak through a code path that forgets the check.
  */
 const PUBLIC_FILTER = {
   isPubliclyListed: true,
@@ -33,52 +32,48 @@ const PUBLIC_SELECT = {
   longitude: true,
   contactPhone: true,
   contactEmail: true,
-  photos: {
-    select: { url: true, caption: true },
-    orderBy: { sortOrder: 'asc' },
-  },
-  facilities: {
-    select: { label: true, icon: true },
-    orderBy: { sortOrder: 'asc' },
-  },
-  rules: {
-    select: { text: true },
-    orderBy: { sortOrder: 'asc' },
-  },
-  roomTypes: {
+  photos: { select: { url: true, caption: true }, orderBy: { sortOrder: 'asc' } },
+  facilities: { select: { label: true, icon: true }, orderBy: { sortOrder: 'asc' } },
+  rules: { select: { text: true }, orderBy: { sortOrder: 'asc' } },
+  rooms: {
+    // A room out of service is not on offer, so its beds must not be counted.
+    where: { status: 'ACTIVE' },
     select: {
-      id: true,
-      name: true,
-      sharingCapacity: true,
-      baseRentPaise: true,
-      depositPaise: true,
+      roomType: true,
+      capacity: true,
+      monthlyRentPaise: true,
+      isAirConditioned: true,
       description: true,
-      amenities: true,
-      rooms: {
-        // Rooms under maintenance are not offered, so their beds must not be
-        // counted as available.
-        where: { status: 'ACTIVE' },
-        // Only bed *status* is selected — no bed ids, labels, room numbers or
-        // floors ever reach the public mapper.
-        select: { beds: { select: { status: true } } },
-      },
+      facilities: true,
+      // Only bed STATUS — never bed ids, labels, room numbers or floors.
+      beds: { select: { status: true } },
     },
-    orderBy: { sortOrder: 'asc' },
   },
+  mealTimings: { select: { mealType: true, startsAt: true, endsAt: true } },
   menuItems: {
     select: { dayOfWeek: true, mealType: true, items: true },
     orderBy: [{ dayOfWeek: 'asc' }, { mealType: 'asc' }],
   },
+  settings: {
+    select: {
+      paymentDetailsArePublic: true,
+      bankAccountName: true,
+      bankAccountNumber: true,
+      bankIfsc: true,
+      bankName: true,
+      upiId: true,
+      upiQrImageUrl: true,
+    },
+  },
 } satisfies Prisma.PropertySelect;
 
-export async function findPublicPropertyBySlug(slug: string): Promise<PropertyRecord | null> {
-  return prisma.property.findFirst({
-    where: { slug, ...PUBLIC_FILTER },
-    select: PUBLIC_SELECT,
-  });
+export type PublicPropertyRecord = Prisma.PropertyGetPayload<{ select: typeof PUBLIC_SELECT }>;
+
+export async function findPublicPropertyBySlug(slug: string): Promise<PublicPropertyRecord | null> {
+  return prisma.property.findFirst({ where: { slug, ...PUBLIC_FILTER }, select: PUBLIC_SELECT });
 }
 
-export async function listPublicProperties(): Promise<PropertyRecord[]> {
+export async function listPublicProperties(): Promise<PublicPropertyRecord[]> {
   return prisma.property.findMany({
     where: PUBLIC_FILTER,
     select: PUBLIC_SELECT,

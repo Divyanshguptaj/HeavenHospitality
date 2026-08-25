@@ -3,77 +3,64 @@ import type {
   PublicPropertySummary,
   PublicRoomTypeView,
 } from '@heaven/contracts';
-import type { BedStatus, MealType } from '@prisma/client';
+import type { MealType } from '@prisma/client';
+
+import type { PublicPropertyRecord } from './public.repository.js';
 
 /**
- * Response shapes for the guest experience.
+ * Response mapping for the guest experience.
  *
- * This module has its OWN mappers and never reuses an admin or tenant serializer.
- * Reusing one is how tenant PII leaks: a column added for operations would
- * silently widen the public API. See docs/0004-authorization.md.
+ * This module has its OWN mappers and never reuses an owner or resident
+ * serializer. Reusing one is how resident PII leaks: a column added for
+ * operations would silently widen the public API. See docs/0004-authorization.md.
  *
  * Nothing here carries a database id. Properties are addressed by slug; rooms,
- * beds and tenants are never identified publicly at all.
+ * beds and residents are never identified publicly at all.
  */
 
-/** The shape the repository hands over. Narrower than the Prisma model on purpose. */
-export interface PropertyRecord {
-  slug: string;
-  name: string;
-  tagline: string | null;
-  description: string | null;
-  addressLine: string;
-  locality: string;
-  city: string;
-  state: string;
-  pincode: string;
-  latitude: { toString(): string } | null;
-  longitude: { toString(): string } | null;
-  contactPhone: string;
-  contactEmail: string | null;
-  photos: Array<{ url: string; caption: string | null }>;
-  facilities: Array<{ label: string; icon: string | null }>;
-  rules: Array<{ text: string }>;
-  roomTypes: Array<{
-    id: string;
-    name: string;
-    sharingCapacity: number;
-    baseRentPaise: number;
-    depositPaise: number;
-    description: string | null;
-    amenities: string[];
-    rooms: Array<{ beds: Array<{ status: BedStatus }> }>;
-  }>;
-  menuItems: Array<{ dayOfWeek: number; mealType: MealType; items: string[] }>;
+type RoomRecord = PublicPropertyRecord['rooms'][number];
+
+/**
+ * Individual rooms are collapsed into "room types" for the public view.
+ *
+ * A guest wants to know "what does a 3-sharing AC room cost and is one free?",
+ * not which specific rooms exist. Grouping also means the payload cannot be used
+ * to map the building.
+ */
+function groupRoomsIntoTypes(rooms: readonly RoomRecord[]): PublicRoomTypeView[] {
+  const groups = new Map<string, { room: RoomRecord; availableBeds: number }>();
+
+  for (const room of rooms) {
+    // Rooms differing in price or AC are genuinely different offerings even when
+    // they share a label, so all three form the key.
+    const key = `${room.roomType}|${String(room.isAirConditioned)}|${String(room.monthlyRentPaise)}`;
+    const available = room.beds.filter((bed) => bed.status === 'AVAILABLE').length;
+    const existing = groups.get(key);
+
+    if (existing === undefined) {
+      groups.set(key, { room, availableBeds: available });
+    } else {
+      existing.availableBeds += available;
+    }
+  }
+
+  return [...groups.values()]
+    .map(({ room, availableBeds }) => ({
+      name: room.roomType,
+      capacity: room.capacity,
+      isAirConditioned: room.isAirConditioned,
+      rentPaise: room.monthlyRentPaise,
+      description: room.description,
+      facilities: room.facilities,
+      availableBeds,
+    }))
+    .sort((a, b) => a.rentPaise - b.rentPaise);
 }
 
-function countAvailableBeds(roomType: PropertyRecord['roomTypes'][number]): number {
-  return roomType.rooms.reduce(
-    (total, room) => total + room.beds.filter((bed) => bed.status === 'AVAILABLE').length,
-    0,
-  );
-}
-
-function toRoomTypeView(roomType: PropertyRecord['roomTypes'][number]): PublicRoomTypeView {
-  return {
-    name: roomType.name,
-    sharingCapacity: roomType.sharingCapacity,
-    rentPaise: roomType.baseRentPaise,
-    depositPaise: roomType.depositPaise,
-    description: roomType.description,
-    amenities: roomType.amenities,
-    availableBeds: countAvailableBeds(roomType),
-  };
-}
-
-export type { PublicPropertyDetail, PublicPropertySummary, PublicRoomTypeView };
-
-export function toPublicPropertyDetail(property: PropertyRecord): PublicPropertyDetail {
-  const roomTypes = property.roomTypes.map(toRoomTypeView);
+export function toPublicPropertyDetail(property: PublicPropertyRecord): PublicPropertyDetail {
+  const roomTypes = groupRoomsIntoTypes(property.rooms);
   const availableBeds = roomTypes.reduce((total, type) => total + type.availableBeds, 0);
-
-  const rentQuotes = roomTypes.map((type) => type.rentPaise);
-  const startingRentPaise = rentQuotes.length > 0 ? Math.min(...rentQuotes) : null;
+  const rents = roomTypes.map((type) => type.rentPaise);
 
   const menuByDay = new Map<number, Array<{ mealType: MealType; items: string[] }>>();
   for (const item of property.menuItems) {
@@ -81,6 +68,8 @@ export function toPublicPropertyDetail(property: PropertyRecord): PublicProperty
     meals.push({ mealType: item.mealType, items: item.items });
     menuByDay.set(item.dayOfWeek, meals);
   }
+
+  const settings = property.settings;
 
   return {
     slug: property.slug,
@@ -90,7 +79,7 @@ export function toPublicPropertyDetail(property: PropertyRecord): PublicProperty
     locality: property.locality,
     city: property.city,
     coverPhotoUrl: property.photos[0]?.url ?? null,
-    startingRentPaise,
+    startingRentPaise: rents.length > 0 ? Math.min(...rents) : null,
     availableBeds,
     address: {
       line: property.addressLine,
@@ -111,13 +100,32 @@ export function toPublicPropertyDetail(property: PropertyRecord): PublicProperty
     facilities: property.facilities.map((f) => ({ label: f.label, icon: f.icon })),
     rules: property.rules.map((rule) => rule.text),
     roomTypes,
+    mealTimings: property.mealTimings.map((timing) => ({
+      mealType: timing.mealType,
+      startsAt: timing.startsAt,
+      endsAt: timing.endsAt,
+    })),
     menu: [...menuByDay.entries()]
       .sort(([a], [b]) => a - b)
       .map(([dayOfWeek, meals]) => ({ dayOfWeek, meals })),
+    // Bank and UPI details reach guests ONLY when the owner has explicitly
+    // published them. Null — not an empty object — so "not shared" is
+    // distinguishable from "not configured".
+    paymentDetails:
+      settings !== null && settings.paymentDetailsArePublic
+        ? {
+            bankAccountName: settings.bankAccountName,
+            bankAccountNumber: settings.bankAccountNumber,
+            bankIfsc: settings.bankIfsc,
+            bankName: settings.bankName,
+            upiId: settings.upiId,
+            upiQrImageUrl: settings.upiQrImageUrl,
+          }
+        : null,
   };
 }
 
-export function toPublicPropertySummary(property: PropertyRecord): PublicPropertySummary {
+export function toPublicPropertySummary(property: PublicPropertyRecord): PublicPropertySummary {
   const detail = toPublicPropertyDetail(property);
   return {
     slug: detail.slug,

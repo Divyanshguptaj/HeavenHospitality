@@ -1,9 +1,13 @@
-import { slugSchema, type ApiSuccess } from '@heaven/contracts';
+import {
+  slugSchema,
+  type ApiSuccess,
+  type PublicPropertyDetail,
+  type PublicPropertySummary,
+} from '@heaven/contracts';
 import { Router, type NextFunction, type Request, type Response } from 'express';
 import { z } from 'zod';
 
 import { getValidated, validate } from '../../middleware/validate.js';
-import type { PublicPropertyDetail, PublicPropertySummary } from './public.mapper.js';
 import { getPublicProperties, getPublicProperty } from './public.service.js';
 
 /**

@@ -1,10 +1,8 @@
+import type { PublicPropertyDetail, PublicPropertySummary } from '@heaven/contracts';
+
 import { AppError } from '../../errors/AppError.js';
-import {
-  toPublicPropertyDetail,
-  toPublicPropertySummary,
-  type PublicPropertyDetail,
-  type PublicPropertySummary,
-} from './public.mapper.js';
+
+import { toPublicPropertyDetail, toPublicPropertySummary } from './public.mapper.js';
 import { findPublicPropertyBySlug, listPublicProperties } from './public.repository.js';
 
 /**

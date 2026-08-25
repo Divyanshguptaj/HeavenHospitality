@@ -4,28 +4,28 @@ import { NavLink, Outlet, useNavigate } from 'react-router-dom';
 import { useAuthStore, userHasPermission } from '../auth/authStore';
 
 /**
- * Admin navigation.
+ * Console navigation.
  *
  * Entries are filtered by permission so an operator is not shown doors they
- * cannot open — a UX affordance, never the security boundary. `ready: false`
- * marks sections whose vertical slice has not landed; they render visibly
- * disabled rather than hidden, so the shape of the product is legible.
+ * cannot open — a UX affordance, never the security boundary. The server
+ * authorises every request independently.
  */
 const NAV_SECTIONS: ReadonlyArray<{
   readonly label: string;
   readonly to: string;
-  readonly ready: boolean;
   readonly permission: Permission;
+  readonly end?: boolean;
 }> = [
-  { label: 'Dashboard', to: '/', ready: false, permission: 'property:read' },
-  { label: 'Property', to: '/property', ready: false, permission: 'property:read' },
-  { label: 'Tenants', to: '/tenants', ready: false, permission: 'tenancy:read' },
-  { label: 'Billing', to: '/billing', ready: false, permission: 'invoice:read' },
-  { label: 'Electricity', to: '/electricity', ready: false, permission: 'electricity:read' },
-  { label: 'Mess', to: '/mess', ready: false, permission: 'mess:read' },
-  { label: 'Complaints', to: '/complaints', ready: false, permission: 'complaint:read' },
-  { label: 'Reports', to: '/reports', ready: false, permission: 'report:read' },
-  { label: 'System', to: '/system', ready: true, permission: 'property:read' },
+  { label: 'Dashboard', to: '/', permission: 'property:read', end: true },
+  { label: 'Occupancy', to: '/occupancy', permission: 'property:read' },
+  { label: 'Residents', to: '/residents', permission: 'resident:read' },
+  { label: 'Billing', to: '/billing', permission: 'invoice:read' },
+  { label: 'Payments', to: '/payments', permission: 'payment:read' },
+  { label: 'Electricity', to: '/electricity', permission: 'electricity:read' },
+  { label: 'Mess', to: '/mess', permission: 'mess:read' },
+  { label: 'Complaints', to: '/complaints', permission: 'complaint:read' },
+  { label: 'Operations', to: '/operations', permission: 'staff:manage' },
+  { label: 'Settings', to: '/settings', permission: 'settings:read' },
 ];
 
 export function AppShell() {
@@ -33,9 +33,7 @@ export function AppShell() {
   const user = useAuthStore((state) => state.user);
   const signOut = useAuthStore((state) => state.signOut);
 
-  const visibleSections = NAV_SECTIONS.filter((section) =>
-    userHasPermission(user, section.permission),
-  );
+  const visible = NAV_SECTIONS.filter((section) => userHasPermission(user, section.permission));
 
   async function handleSignOut(): Promise<void> {
     await signOut();
@@ -43,48 +41,39 @@ export function AppShell() {
   }
 
   return (
-    <div className="flex min-h-screen">
+    <div className="flex min-h-screen bg-[var(--color-canvas)]">
       <nav
         aria-label="Main"
-        className="flex w-56 shrink-0 flex-col border-r border-[var(--color-border)] bg-[var(--color-surface)] p-3"
+        className="flex w-52 shrink-0 flex-col border-r border-[var(--color-border)] bg-[var(--color-surface)] p-3"
       >
         <div className="px-2 pb-4 pt-1">
           <span className="text-md font-semibold text-[var(--color-text-primary)]">
             Heaven Hospitality
           </span>
-          <p className="text-xs text-[var(--color-text-muted)]">Operations</p>
+          <p className="text-xs text-[var(--color-text-muted)]">
+            {user?.memberships[0]?.propertyName ?? 'Operations'}
+          </p>
         </div>
 
         <ul className="flex flex-1 flex-col gap-0.5">
-          {visibleSections.map((section) =>
-            section.ready ? (
-              <li key={section.to}>
-                <NavLink
-                  to={section.to}
-                  className={({ isActive }) =>
-                    [
-                      'block rounded-md px-2 py-1.5 text-sm',
-                      isActive
-                        ? 'bg-[var(--color-primary-subtle)] font-medium text-[var(--color-primary)]'
-                        : 'text-[var(--color-text-secondary)] hover:bg-[var(--color-surface-hover)]',
-                    ].join(' ')
-                  }
-                >
-                  {section.label}
-                </NavLink>
-              </li>
-            ) : (
-              <li key={section.to}>
-                <span
-                  aria-disabled="true"
-                  title="Not built yet"
-                  className="block cursor-not-allowed rounded-md px-2 py-1.5 text-sm text-[var(--color-text-muted)] opacity-60"
-                >
-                  {section.label}
-                </span>
-              </li>
-            ),
-          )}
+          {visible.map((section) => (
+            <li key={section.to}>
+              <NavLink
+                to={section.to}
+                end={section.end ?? false}
+                className={({ isActive }) =>
+                  [
+                    'block rounded-md px-2 py-1.5 text-sm',
+                    isActive
+                      ? 'bg-[var(--color-primary-subtle)] font-medium text-[var(--color-primary)]'
+                      : 'text-[var(--color-text-secondary)] hover:bg-[var(--color-surface-hover)]',
+                  ].join(' ')
+                }
+              >
+                {section.label}
+              </NavLink>
+            </li>
+          ))}
         </ul>
 
         {user !== null && (
@@ -92,10 +81,7 @@ export function AppShell() {
             <p className="px-2 text-sm font-medium text-[var(--color-text-primary)]">
               {user.fullName}
             </p>
-            <p className="px-2 text-xs text-[var(--color-text-muted)]">
-              {user.primaryRole}
-              {user.memberships[0] !== undefined && ` · ${user.memberships[0].propertyName}`}
-            </p>
+            <p className="px-2 text-xs text-[var(--color-text-muted)]">{user.primaryRole}</p>
             <button
               type="button"
               onClick={() => void handleSignOut()}
@@ -107,7 +93,7 @@ export function AppShell() {
         )}
       </nav>
 
-      <main className="min-w-0 flex-1 p-6">
+      <main className="min-w-0 flex-1 overflow-x-hidden p-6">
         <Outlet />
       </main>
     </div>

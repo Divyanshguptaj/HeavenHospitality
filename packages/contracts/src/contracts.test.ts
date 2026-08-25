@@ -52,28 +52,25 @@ describe('role matrix', () => {
     }
   });
 
-  it('never grants a tenant an operational permission', () => {
-    const tenantPermissions = ROLE_PERMISSIONS.TENANT;
-    expect(tenantPermissions).toEqual(['self:read', 'self:write']);
-    expect(roleHasPermission('TENANT', 'invoice:write')).toBe(false);
-    expect(roleHasPermission('TENANT', 'tenancy:read')).toBe(false);
-  });
+  it('never grants a resident an operational permission', () => {
+    expect([...ROLE_PERMISSIONS.RESIDENT]).toEqual(['self:read', 'self:write']);
 
-  it('does not let staff move money or change settings', () => {
+    // A resident holds a real account at a real property and still cannot touch
+    // anything operational — this is the whole point of the two-role split.
     for (const permission of [
-      'payment:refund',
-      'deposit:adjust',
+      'invoice:write',
+      'payment:record',
+      'resident:read',
       'settings:write',
-      'staff:write',
-      'tenancy:settle',
+      'room:manage',
+      'audit:read',
     ] as const) {
-      expect(roleHasPermission('STAFF', permission)).toBe(false);
+      expect(roleHasPermission('RESIDENT', permission)).toBe(false);
     }
   });
 
-  it('does not let a manager read the audit log or manage staff accounts', () => {
-    expect(roleHasPermission('MANAGER', 'audit:read')).toBe(false);
-    expect(roleHasPermission('MANAGER', 'staff:write')).toBe(false);
+  it('defines exactly two roles — there is no staff hierarchy', () => {
+    expect(Object.keys(ROLE_PERMISSIONS).sort()).toEqual(['OWNER', 'RESIDENT']);
   });
 
   it('only ever references declared permissions', () => {

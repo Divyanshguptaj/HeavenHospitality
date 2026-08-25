@@ -110,10 +110,10 @@ export const useAuthStore = create<AuthState>((set) => ({
 }));
 
 /**
- * The mobile app serves tenants and guests. Owners, managers and staff belong in
- * the admin console — the brief's §1 splits the experiences deliberately, and
- * squeezing operations into a phone would produce a worse tool for both.
+ * The mobile app serves residents and guests. The owner belongs in the admin
+ * console — the two experiences are deliberately separate, and squeezing
+ * property operations into a phone would produce a worse tool for both.
  */
-export function isTenantExperience(user: AuthenticatedUser | null): boolean {
-  return user?.primaryRole === 'TENANT';
+export function isResidentExperience(user: AuthenticatedUser | null): boolean {
+  return user?.primaryRole === 'RESIDENT';
 }

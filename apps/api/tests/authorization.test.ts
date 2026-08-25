@@ -1,4 +1,4 @@
-import { ROLE_PERMISSIONS } from '@heaven/contracts';
+import { PERMISSIONS, ROLE_PERMISSIONS } from '@heaven/contracts';
 import { describe, expect, it } from 'vitest';
 
 import { AppError } from '../src/errors/AppError.js';
@@ -18,16 +18,16 @@ const actorAt = (propertyId: string, role: Actor['roles'][number]['role']): Acto
 });
 
 describe('assertPropertyAccess — the IDOR boundary', () => {
-  it('allows a manager to act on their own property', () => {
+  it('allows an owner to act on their own property', () => {
     expect(() =>
-      assertPropertyAccess(actorAt(PROPERTY_A, 'MANAGER'), PROPERTY_A, 'invoice:write'),
+      assertPropertyAccess(actorAt(PROPERTY_A, 'OWNER'), PROPERTY_A, 'invoice:write'),
     ).not.toThrow();
   });
 
-  it('refuses a manager acting on a property they do not belong to', () => {
+  it('refuses an owner acting on a property they do not own', () => {
     // The core IDOR case: a valid token, a real permission, the wrong property.
     expect(() =>
-      assertPropertyAccess(actorAt(PROPERTY_A, 'MANAGER'), PROPERTY_B, 'invoice:write'),
+      assertPropertyAccess(actorAt(PROPERTY_A, 'OWNER'), PROPERTY_B, 'invoice:write'),
     ).toThrow(AppError);
   });
 
@@ -35,7 +35,7 @@ describe('assertPropertyAccess — the IDOR boundary', () => {
     // A 403 confirms the record exists and lets an attacker enumerate other
     // properties. See docs/0004-authorization.md.
     try {
-      assertPropertyAccess(actorAt(PROPERTY_A, 'MANAGER'), PROPERTY_B, 'invoice:write');
+      assertPropertyAccess(actorAt(PROPERTY_A, 'OWNER'), PROPERTY_B, 'invoice:write');
       throw new Error('expected assertPropertyAccess to throw');
     } catch (error) {
       expect(error).toBeInstanceOf(AppError);
@@ -44,28 +44,31 @@ describe('assertPropertyAccess — the IDOR boundary', () => {
     }
   });
 
-  it('refuses a permission the role does not hold, even at the right property', () => {
-    // Staff may record a payment but must not issue a refund.
-    expect(() =>
-      assertPropertyAccess(actorAt(PROPERTY_A, 'STAFF'), PROPERTY_A, 'payment:record'),
-    ).not.toThrow();
-    expect(() =>
-      assertPropertyAccess(actorAt(PROPERTY_A, 'STAFF'), PROPERTY_A, 'payment:refund'),
-    ).toThrow(AppError);
-  });
-
-  it('never lets a tenant reach operational data', () => {
+  it('never lets a resident reach operational data', () => {
+    // This is the whole point of the role split: a resident holds a real account
+    // at a real property and still cannot read anyone else's operations.
     for (const permission of [
-      'tenancy:read',
+      'resident:read',
       'invoice:write',
       'payment:record',
       'report:read',
       'settings:write',
+      'room:manage',
+      'audit:read',
     ] as const) {
       expect(() =>
-        assertPropertyAccess(actorAt(PROPERTY_A, 'TENANT'), PROPERTY_A, permission),
+        assertPropertyAccess(actorAt(PROPERTY_A, 'RESIDENT'), PROPERTY_A, permission),
       ).toThrow(AppError);
     }
+  });
+
+  it('allows a resident their own self-scoped permissions', () => {
+    expect(() =>
+      assertPropertyAccess(actorAt(PROPERTY_A, 'RESIDENT'), PROPERTY_A, 'self:read'),
+    ).not.toThrow();
+    expect(() =>
+      assertPropertyAccess(actorAt(PROPERTY_A, 'RESIDENT'), PROPERTY_A, 'self:write'),
+    ).not.toThrow();
   });
 
   it('refuses an actor with no memberships at all', () => {
@@ -73,17 +76,18 @@ describe('assertPropertyAccess — the IDOR boundary', () => {
     expect(() => assertPropertyAccess(stranger, PROPERTY_A, 'property:read')).toThrow(AppError);
   });
 
-  it('scopes each membership independently for a multi-property actor', () => {
+  it('scopes each membership independently', () => {
+    // Owning one property must not confer ownership of another where the same
+    // person merely lives.
     const actor: Actor = {
       userId: 'user-1',
       sessionId: 'session-1',
       roles: [
-        { propertyId: PROPERTY_A, role: 'MANAGER' },
-        { propertyId: PROPERTY_B, role: 'TENANT' },
+        { propertyId: PROPERTY_A, role: 'OWNER' },
+        { propertyId: PROPERTY_B, role: 'RESIDENT' },
       ],
     };
 
-    // Being a manager somewhere must not confer manager rights everywhere.
     expect(() => assertPropertyAccess(actor, PROPERTY_A, 'invoice:write')).not.toThrow();
     expect(() => assertPropertyAccess(actor, PROPERTY_B, 'invoice:write')).toThrow(AppError);
   });
@@ -91,29 +95,34 @@ describe('assertPropertyAccess — the IDOR boundary', () => {
 
 describe('role capability matrix', () => {
   it('gives the owner every permission', () => {
-    expect(ROLE_PERMISSIONS.OWNER.length).toBeGreaterThan(ROLE_PERMISSIONS.MANAGER.length);
-  });
-
-  it('restricts staff to a strict subset of manager permissions', () => {
-    for (const permission of ROLE_PERMISSIONS.STAFF) {
-      expect(ROLE_PERMISSIONS.MANAGER, `staff has ${permission} but manager does not`).toContain(
-        permission,
-      );
+    for (const permission of PERMISSIONS) {
+      expect(ROLE_PERMISSIONS.OWNER).toContain(permission);
     }
-    expect(ROLE_PERMISSIONS.STAFF.length).toBeLessThan(ROLE_PERMISSIONS.MANAGER.length);
   });
 
-  it('grants a tenant only self-scoped permissions', () => {
-    expect([...ROLE_PERMISSIONS.TENANT]).toEqual(['self:read', 'self:write']);
+  it('grants a resident only self-scoped permissions', () => {
+    expect([...ROLE_PERMISSIONS.RESIDENT]).toEqual(['self:read', 'self:write']);
+  });
+
+  it('defines exactly two roles — there is no staff hierarchy', () => {
+    expect(Object.keys(ROLE_PERMISSIONS).sort()).toEqual(['OWNER', 'RESIDENT']);
+  });
+
+  it('only ever references declared permissions', () => {
+    for (const permissions of Object.values(ROLE_PERMISSIONS)) {
+      for (const permission of permissions) {
+        expect(PERMISSIONS).toContain(permission);
+      }
+    }
   });
 });
 
 describe('hasPermissionAnywhere', () => {
   it('is true when the permission is held at any property', () => {
-    expect(hasPermissionAnywhere(actorAt(PROPERTY_A, 'MANAGER'), 'invoice:write')).toBe(true);
+    expect(hasPermissionAnywhere(actorAt(PROPERTY_A, 'OWNER'), 'invoice:write')).toBe(true);
   });
 
   it('is false when no membership grants it', () => {
-    expect(hasPermissionAnywhere(actorAt(PROPERTY_A, 'TENANT'), 'invoice:write')).toBe(false);
+    expect(hasPermissionAnywhere(actorAt(PROPERTY_A, 'RESIDENT'), 'invoice:write')).toBe(false);
   });
 });

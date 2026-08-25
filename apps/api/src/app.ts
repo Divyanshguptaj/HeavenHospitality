@@ -12,7 +12,9 @@ import { generalLimiter, publicLimiter } from './middleware/rateLimit.js';
 import { requestId } from './middleware/requestId.js';
 import { authRouter } from './modules/auth/auth.routes.js';
 import { healthRouter } from './modules/health/health.routes.js';
+import { ownerRouter } from './modules/owner/owner.routes.js';
 import { publicRouter } from './modules/public/public.routes.js';
+import { residentRouter } from './modules/resident/resident.routes.js';
 
 const API_PREFIX = '/api/v1';
 
@@ -107,7 +109,10 @@ export function createApp(): Express {
   // how a client obtains the token they all require.
   app.use(`${API_PREFIX}/auth`, authRouter);
 
-  // Authenticated domain routers mount here as their vertical slices land.
+  // Owner operations and the resident's own view of their stay. Both routers
+  // authenticate; each route then declares the permission it needs.
+  app.use(`${API_PREFIX}/owner`, ownerRouter);
+  app.use(`${API_PREFIX}/me`, residentRouter);
 
   app.use(notFound);
   app.use(errorHandler);

@@ -42,7 +42,7 @@ describe('password hashing', () => {
 });
 
 describe('access tokens', () => {
-  const roles = [{ propertyId: 'prop-1', role: 'MANAGER' as const }];
+  const roles = [{ propertyId: 'prop-1', role: 'OWNER' as const }];
 
   it('round-trips subject, session and roles', async () => {
     const token = await signAccessToken('user-1', 'session-1', roles);

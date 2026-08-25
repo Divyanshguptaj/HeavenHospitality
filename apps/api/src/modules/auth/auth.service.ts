@@ -39,7 +39,7 @@ export interface AuthResult {
 }
 
 /** Most privileged first — used to pick a landing experience. */
-const ROLE_PRECEDENCE: readonly MembershipRole[] = ['OWNER', 'MANAGER', 'STAFF', 'TENANT'];
+const ROLE_PRECEDENCE: readonly MembershipRole[] = ['OWNER', 'RESIDENT'];
 
 type UserWithMemberships = User & {
   memberships: Array<{
@@ -60,7 +60,7 @@ function toUserView(user: UserWithMemberships): AuthenticatedUserView {
   }));
 
   const primaryRole =
-    ROLE_PRECEDENCE.find((role) => memberships.some((m) => m.role === role)) ?? 'TENANT';
+    ROLE_PRECEDENCE.find((role) => memberships.some((m) => m.role === role)) ?? 'RESIDENT';
 
   return {
     id: user.id,
