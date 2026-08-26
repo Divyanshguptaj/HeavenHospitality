@@ -80,6 +80,15 @@ export default function OwnerLayout() {
           ),
         }}
       />
+      <Tabs.Screen
+        name="account"
+        options={{
+          title: 'Account',
+          tabBarIcon: ({ color, size }) => (
+            <Ionicons name="person-circle-outline" color={color} size={size} />
+          ),
+        }}
+      />
     </Tabs>
   );
 }

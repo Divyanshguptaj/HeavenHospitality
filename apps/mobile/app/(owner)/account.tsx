@@ -14,7 +14,16 @@ import {
   Screen,
 } from '../../src/components/ui';
 
-export default function ProfileScreen() {
+/**
+ * The owner's account, and the way out of it.
+ *
+ * There is no "switch to resident" toggle anywhere in the app, and there should
+ * not be: the role comes from the account you signed in with, so being able to
+ * flip it client-side would hand anyone owner access. Switching means signing
+ * out and signing back in as the other person — which is what this screen is
+ * for.
+ */
+export default function OwnerAccountScreen() {
   const user = useAuthStore((state) => state.user);
   const signOut = useAuthStore((state) => state.signOut);
   const [signingOut, setSigningOut] = useState(false);
@@ -22,8 +31,6 @@ export default function ProfileScreen() {
   if (user === null) return null;
 
   function confirmSignOut(): void {
-    // Signing out is not destructive, but it is disruptive on a shared phone —
-    // worth one confirmation rather than a single mis-tap.
     Alert.alert('Sign out?', 'You will need your password to sign back in.', [
       { text: 'Cancel', style: 'cancel' },
       {
@@ -34,7 +41,7 @@ export default function ProfileScreen() {
           void signOut().finally(() => {
             setSigningOut(false);
             // Straight to the login screen rather than the public pages: the
-            // reason someone signs out is almost always to sign in as someone
+            // reason an owner signs out is almost always to sign in as someone
             // else.
             router.replace('/(auth)/login');
           });
@@ -45,7 +52,7 @@ export default function ProfileScreen() {
 
   return (
     <Screen>
-      <PageHeading title="Profile" />
+      <PageHeading title="Account" subtitle="Signed in as the property owner." />
 
       <Card>
         <CardTitle>Your details</CardTitle>
@@ -53,7 +60,6 @@ export default function ProfileScreen() {
         <DetailRow label="Email" value={user.email ?? '—'} />
         <DetailRow label="Phone" value={user.phone ?? '—'} />
         <DetailRow label="Role" value={user.primaryRole} />
-        <Muted>Contact the manager to correct any of these details.</Muted>
       </Card>
 
       {user.memberships.length > 0 && (
@@ -73,7 +79,8 @@ export default function ProfileScreen() {
         <CardTitle>Switching accounts</CardTitle>
         <Body>
           What you can see is decided by the account you signed in with, not by a setting in the
-          app. Sign out and sign back in with another account to use the app as that person.
+          app. To use the app as a resident, sign out and sign back in with that resident&apos;s
+          email and password.
         </Body>
         <Muted>
           Signing out revokes this device&apos;s session on the server, so it cannot be reused even
