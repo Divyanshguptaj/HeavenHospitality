@@ -22,7 +22,7 @@ export default function GuestLayout() {
    */
   const headerRight = () => (
     <Pressable
-      onPress={() => router.push(status === 'signedIn' ? '/(tenant)' : '/(auth)/login')}
+      onPress={() => router.push('/(auth)/login')}
       accessibilityRole="button"
       accessibilityLabel={status === 'signedIn' ? 'Open resident area' : 'Sign in'}
       hitSlop={12}
@@ -33,7 +33,7 @@ export default function GuestLayout() {
       }}
     >
       <Text style={{ color: theme.primary, fontWeight: '600', fontSize: layout.fontSize.md }}>
-        {status === 'signedIn' ? 'My stay' : 'Sign in'}
+        {status === 'signedIn' ? 'My account' : 'Sign in'}
       </Text>
     </Pressable>
   );

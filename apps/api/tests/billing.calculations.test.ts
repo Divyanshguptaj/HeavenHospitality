@@ -303,6 +303,24 @@ describe('applyPaymentToInvoices', () => {
     expect(result.unallocatedPaise).toBe(50_000);
   });
 
+  it('settles the invoice the owner directed the payment at, first', () => {
+    // The owner said "this ₹500 is for September". Ignoring that and paying down
+    // July instead leaves them looking at an invoice they just paid.
+    const result = applyPaymentToInvoices(500_000, invoices, 'sep');
+    expect(result.applications[0]).toEqual({ invoiceId: 'sep', amountPaise: 500_000 });
+  });
+
+  it('falls back to oldest-first for whatever is left over', () => {
+    const result = applyPaymentToInvoices(700_000, invoices, 'sep');
+    expect(result.applications[0]).toEqual({ invoiceId: 'sep', amountPaise: 500_000 });
+    expect(result.applications[1]).toEqual({ invoiceId: 'jul', amountPaise: 200_000 });
+  });
+
+  it('ignores a preferred invoice that has nothing outstanding', () => {
+    const result = applyPaymentToInvoices(100_000, invoices, 'does-not-exist');
+    expect(result.applications[0]).toEqual({ invoiceId: 'jul', amountPaise: 100_000 });
+  });
+
   it('never allocates more than the payment', () => {
     const result = applyPaymentToInvoices(999, invoices);
     expect(sumPaise(result.applications.map((a) => a.amountPaise))).toBe(999);

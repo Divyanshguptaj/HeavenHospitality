@@ -105,16 +105,13 @@ async function settlePayment(
     outstandingPaise: Math.max(0, invoice.totalPaise - invoice.amountPaidPaise),
   }));
 
-  // The owner may direct a payment at a specific invoice; otherwise oldest first.
-  const ordered =
-    params.preferredInvoiceId === undefined
-      ? payable
-      : [
-          ...payable.filter((invoice) => invoice.invoiceId === params.preferredInvoiceId),
-          ...payable.filter((invoice) => invoice.invoiceId !== params.preferredInvoiceId),
-        ];
-
-  const { applications, unallocatedPaise } = applyPaymentToInvoices(params.amountPaise, ordered);
+  // Ordering is the calculation's job — doing it here as well meant the sort
+  // inside applyPaymentToInvoices silently undid it.
+  const { applications, unallocatedPaise } = applyPaymentToInvoices(
+    params.amountPaise,
+    payable,
+    params.preferredInvoiceId,
+  );
 
   const payment = await tx.payment.create({
     data: {

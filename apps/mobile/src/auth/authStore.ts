@@ -34,6 +34,12 @@ interface AuthState {
   readonly user: AuthenticatedUser | null;
   readonly restore: () => Promise<void>;
   readonly signIn: (identifier: string, password: string) => Promise<void>;
+  readonly signUp: (input: {
+    fullName: string;
+    email: string;
+    password: string;
+    phone?: string;
+  }) => Promise<void>;
   readonly signOut: () => Promise<void>;
 }
 
@@ -91,6 +97,18 @@ export const useAuthStore = create<AuthState>((set) => ({
     set({ status: 'signedIn', user: await applySession(session) });
   },
 
+  /**
+   * Creates an account. The server decides the role — every new account is a
+   * resident, and there is no way to ask for anything else.
+   */
+  signUp: async (input) => {
+    const session = await apiRequest<SessionResponse>('/auth/register', {
+      method: 'POST',
+      body: { ...input, client: 'mobile' },
+    });
+    set({ status: 'signedIn', user: await applySession(session) });
+  },
+
   signOut: async () => {
     const refreshToken = await readRefreshToken();
     try {
@@ -116,4 +134,9 @@ export const useAuthStore = create<AuthState>((set) => ({
  */
 export function isResidentExperience(user: AuthenticatedUser | null): boolean {
   return user?.primaryRole === 'RESIDENT';
+}
+
+/** The owner runs the property; everyone else lives in it. */
+export function isOwner(user: AuthenticatedUser | null): boolean {
+  return user?.primaryRole === 'OWNER';
 }

@@ -108,7 +108,7 @@ export function Muted({ children }: { readonly children: ReactNode }) {
   return <Text style={[styles.muted, { color: theme.textMuted }]}>{children}</Text>;
 }
 
-type BadgeTone = 'neutral' | 'success' | 'warning' | 'danger';
+type BadgeTone = 'neutral' | 'success' | 'warning' | 'danger' | 'info';
 
 /**
  * Status is never communicated by colour alone — every badge carries a text
@@ -129,6 +129,7 @@ export function Badge({
     success: { background: theme.successSubtle, foreground: theme.success },
     warning: { background: theme.warningSubtle, foreground: theme.warning },
     danger: { background: theme.dangerSubtle, foreground: theme.danger },
+    info: { background: theme.infoSubtle, foreground: theme.info },
   };
   const { background, foreground } = palette[tone];
 

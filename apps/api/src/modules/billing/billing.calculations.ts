@@ -237,10 +237,29 @@ export interface PaymentApplicationResult {
 export function applyPaymentToInvoices(
   amountPaise: Paise,
   invoices: readonly PayableInvoice[],
+  /**
+   * When the owner records a payment against a specific invoice, that invoice is
+   * settled FIRST and the remainder falls through to the oldest-first rule.
+   *
+   * Without this the caller's intent was silently discarded: "apply ₹7,000 to
+   * August" would quietly pay down July instead, and the owner would see an
+   * invoice they had just paid still showing a balance.
+   */
+  preferredInvoiceId?: string,
 ): PaymentApplicationResult {
-  const ordered = [...invoices]
-    .filter((invoice) => invoice.outstandingPaise > 0)
-    .sort((a, b) => compareDates(a.dueDate, b.dueDate) || a.invoiceId.localeCompare(b.invoiceId));
+  const outstanding = invoices.filter((invoice) => invoice.outstandingPaise > 0);
+
+  const byOldestFirst = [...outstanding].sort(
+    (a, b) => compareDates(a.dueDate, b.dueDate) || a.invoiceId.localeCompare(b.invoiceId),
+  );
+
+  const ordered =
+    preferredInvoiceId === undefined
+      ? byOldestFirst
+      : [
+          ...byOldestFirst.filter((invoice) => invoice.invoiceId === preferredInvoiceId),
+          ...byOldestFirst.filter((invoice) => invoice.invoiceId !== preferredInvoiceId),
+        ];
 
   const applications: PaymentApplication[] = [];
   let remaining = amountPaise;

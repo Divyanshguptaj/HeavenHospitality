@@ -1,11 +1,11 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { Stack } from 'expo-router';
+import { Stack, router } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { useEffect } from 'react';
 import { ActivityIndicator, View } from 'react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 
-import { useAuthStore } from '../src/auth/authStore';
+import { isOwner, useAuthStore } from '../src/auth/authStore';
 import { ApiRequestError } from '../src/lib/apiClient';
 import { useTheme } from '../src/theme';
 
@@ -28,21 +28,33 @@ const queryClient = new QueryClient({
 });
 
 /**
- * Root layout.
+ * One app, three experiences, chosen by who is signed in.
  *
- * The app boots into the **guest** experience with no authentication, because
- * browsing the property must not require an account (the brief's §1 and §8).
- * Signing in is an explicit action that opens the resident area.
+ *   not signed in  → guest: browse the property, no account needed
+ *   RESIDENT       → their stay: rent, meals, complaints
+ *   OWNER          → the property: money, residents, rooms, issues
+ *
+ * The role comes from the account, so signing in is the only thing that decides
+ * what you see. Every screen behind these groups is authorised by the server
+ * independently — this routing is convenience, not security.
  */
 function RootNavigator() {
   const theme = useTheme();
   const status = useAuthStore((state) => state.status);
+  const user = useAuthStore((state) => state.user);
   const restore = useAuthStore((state) => state.restore);
 
   useEffect(() => {
     // Exchange any stored refresh token for a live session, once, at boot.
     void restore();
   }, [restore]);
+
+  // Send a signed-in user to the section matching their role.
+  useEffect(() => {
+    if (status === 'signedIn') {
+      router.replace(isOwner(user) ? '/(owner)' : '/(resident)');
+    }
+  }, [status, user]);
 
   if (status === 'restoring') {
     return (
@@ -64,8 +76,10 @@ function RootNavigator() {
   return (
     <Stack screenOptions={{ contentStyle: { backgroundColor: theme.canvas } }}>
       <Stack.Screen name="(guest)" options={{ headerShown: false }} />
-      <Stack.Screen name="(tenant)" options={{ headerShown: false }} />
-      <Stack.Screen name="(auth)/login" options={{ title: 'Sign in', presentation: 'modal' }} />
+      <Stack.Screen name="(resident)" options={{ headerShown: false }} />
+      <Stack.Screen name="(owner)" options={{ headerShown: false }} />
+      <Stack.Screen name="(auth)/login" options={{ title: 'Sign in' }} />
+      <Stack.Screen name="(auth)/signup" options={{ title: 'Create account' }} />
     </Stack>
   );
 }

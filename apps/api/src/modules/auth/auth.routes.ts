@@ -13,6 +13,7 @@ import {
   login,
   logout,
   refresh,
+  register,
   type AuthResult,
   type AuthenticatedUserView,
 } from './auth.service.js';
@@ -101,6 +102,45 @@ authRouter.post(
       identifier: body.identifier,
       password: body.password,
       deviceLabel: body.deviceLabel,
+      ipAddress: req.ip,
+    })
+      .then((result) => {
+        respondWithSession(res, result, body.client);
+      })
+      .catch(next);
+  },
+);
+
+const registerSchema = {
+  body: z.object({
+    fullName: z.string().trim().min(2).max(120),
+    email: z.string().trim().toLowerCase().email().max(254),
+    // Length is the strongest single password rule; composition rules mostly
+    // produce predictable substitutions.
+    password: z.string().min(8, 'Use at least 8 characters').max(200),
+    phone: z.string().trim().min(6).max(20).optional(),
+    client: clientSchema,
+  }),
+} as const;
+
+/**
+ * Public sign-up. Rate-limited like login, because it is equally attractive to
+ * abuse. The ROLE is never accepted from the client — every new account is a
+ * resident.
+ */
+authRouter.post(
+  '/register',
+  authLimiter,
+  validate(registerSchema),
+  (req: Request, res: Response, next: NextFunction) => {
+    const { body } = getValidated<typeof registerSchema>(req);
+
+    register({
+      fullName: body.fullName,
+      email: body.email,
+      password: body.password,
+      phone: body.phone,
+      deviceLabel: 'Mobile app',
       ipAddress: req.ip,
     })
       .then((result) => {

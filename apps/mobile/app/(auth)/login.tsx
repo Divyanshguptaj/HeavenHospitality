@@ -17,10 +17,10 @@ import { ApiRequestError } from '../../src/lib/apiClient';
 import { layout, useTheme } from '../../src/theme';
 
 /**
- * Tenant sign-in.
+ * Sign-in for everyone.
  *
- * Accounts are provisioned by staff — there is deliberately no self-registration,
- * because a resident is onboarded in person. See docs/0003-auth-and-sessions.md.
+ * One screen for both the owner and residents — the ROLE on the account decides
+ * which section of the app opens next, not which form you used to get in.
  */
 export default function LoginScreen() {
   const theme = useTheme();
@@ -40,6 +40,7 @@ export default function LoginScreen() {
 
     try {
       await signIn(identifier, password);
+      // The root layout routes by role once the session lands.
       router.replace('/');
     } catch (caught) {
       // The server deliberately reports "no such user" and "wrong password"
@@ -65,10 +66,7 @@ export default function LoginScreen() {
       behavior={Platform.OS === 'ios' ? 'padding' : undefined}
     >
       <ScrollView contentContainerStyle={styles.container} keyboardShouldPersistTaps="handled">
-        <PageHeading
-          title="Sign in"
-          subtitle="For residents of Heaven Hospitality. Ask the manager if you do not have an account."
-        />
+        <PageHeading title="Sign in" subtitle="Residents and the property owner sign in here." />
 
         <Card>
           <View style={styles.field}>
@@ -120,11 +118,21 @@ export default function LoginScreen() {
         </Card>
 
         <Pressable
-          onPress={() => router.replace('/')}
+          onPress={() => router.replace('/(auth)/signup')}
           accessibilityRole="button"
           style={styles.guestLink}
         >
           <Text style={[styles.guestLinkText, { color: theme.primary }]}>
+            New here? Create an account
+          </Text>
+        </Pressable>
+
+        <Pressable
+          onPress={() => router.replace('/(guest)')}
+          accessibilityRole="button"
+          style={styles.guestLink}
+        >
+          <Text style={[styles.guestLinkText, { color: theme.textSecondary }]}>
             Continue browsing as a guest
           </Text>
         </Pressable>

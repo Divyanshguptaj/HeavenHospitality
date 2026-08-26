@@ -7,16 +7,14 @@ import { layout, useTheme } from '../../src/theme';
 /**
  * The authenticated resident area.
  *
- * This guard is a UX affordance only — it decides what to *render*. Every
- * endpoint behind it authorises independently, so a user who reached these
- * screens some other way would still be refused by the API. Hiding a screen is
- * not authorization (docs/0004-authorization.md).
+ * This guard decides what to *render*. Every endpoint behind it authorises
+ * independently and resolves the subject from the token, so a resident who
+ * reached these screens some other way still could not see anyone else's data.
  */
-export default function TenantLayout() {
+export default function ResidentLayout() {
   const theme = useTheme();
   const status = useAuthStore((state) => state.status);
 
-  // Boot: the root layout shows a splash while the stored session is checked.
   if (status === 'restoring') return null;
   if (status === 'signedOut') return <Redirect href="/(auth)/login" />;
 
@@ -39,6 +37,33 @@ export default function TenantLayout() {
           title: 'Home',
           tabBarIcon: ({ color, size }) => (
             <Ionicons name="home-outline" color={color} size={size} />
+          ),
+        }}
+      />
+      <Tabs.Screen
+        name="rent"
+        options={{
+          title: 'Rent',
+          tabBarIcon: ({ color, size }) => (
+            <Ionicons name="receipt-outline" color={color} size={size} />
+          ),
+        }}
+      />
+      <Tabs.Screen
+        name="mess"
+        options={{
+          title: 'Mess',
+          tabBarIcon: ({ color, size }) => (
+            <Ionicons name="restaurant-outline" color={color} size={size} />
+          ),
+        }}
+      />
+      <Tabs.Screen
+        name="complaints"
+        options={{
+          title: 'Complaints',
+          tabBarIcon: ({ color, size }) => (
+            <Ionicons name="construct-outline" color={color} size={size} />
           ),
         }}
       />

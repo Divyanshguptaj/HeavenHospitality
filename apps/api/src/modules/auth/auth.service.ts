@@ -140,6 +140,100 @@ async function issueSession(
   };
 }
 
+/**
+ * Public sign-up.
+ *
+ * Anyone can create an account, and every new account is a RESIDENT — the role
+ * is decided by the server, never sent by the client. There is deliberately no
+ * way to sign up as an owner: the owner account is provisioned by the seed, and
+ * a self-service route to it would be a privilege-escalation hole.
+ *
+ * A new account has no Tenancy, so it can sign in but sees "no active stay"
+ * until the owner allocates a room. That is the correct order: a person exists
+ * before their stay does.
+ */
+export async function register(params: {
+  fullName: string;
+  email: string;
+  password: string;
+  phone?: string | undefined;
+  deviceLabel?: string | undefined;
+  ipAddress?: string | undefined;
+}): Promise<AuthResult> {
+  const email = params.email.trim().toLowerCase();
+
+  // Single-property build: new residents join the property that exists. When
+  // there are several this becomes an explicit choice or an invite code.
+  const property = await prisma.property.findFirst({
+    where: { status: 'ACTIVE' },
+    orderBy: { createdAt: 'asc' },
+    select: { id: true },
+  });
+
+  if (property === null) {
+    throw new AppError('INTERNAL_ERROR', 'No property is configured yet.');
+  }
+
+  const existing = await prisma.user.findUnique({
+    where: { email },
+    include: MEMBERSHIP_INCLUDE,
+  });
+
+  if (existing !== null && existing.passwordHash !== null) {
+    throw new AppError(
+      'ALREADY_EXISTS',
+      'An account with this email already exists. Try signing in instead.',
+    );
+  }
+
+  const passwordHash = await hashPassword(params.password);
+
+  const user = await prisma.$transaction(async (tx) => {
+    // The owner may have added this person already, in which case the account
+    // exists with no password. Signing up CLAIMS that account rather than
+    // creating a second one — otherwise their room and invoices would be
+    // stranded on the original.
+    const record =
+      existing === null
+        ? await tx.user.create({
+            data: {
+              fullName: params.fullName.trim(),
+              email,
+              phone: params.phone?.trim() ?? null,
+              passwordHash,
+              status: 'ACTIVE',
+            },
+          })
+        : await tx.user.update({
+            where: { id: existing.id },
+            data: {
+              passwordHash,
+              mustChangePassword: false,
+              status: 'ACTIVE',
+              fullName: params.fullName.trim(),
+              ...(params.phone === undefined ? {} : { phone: params.phone.trim() }),
+            },
+          });
+
+    await tx.propertyMembership.upsert({
+      where: { userId_propertyId: { userId: record.id, propertyId: property.id } },
+      // An existing membership is left alone: claiming an account must not
+      // downgrade an owner to a resident.
+      update: {},
+      create: { userId: record.id, propertyId: property.id, role: 'RESIDENT' },
+    });
+
+    return tx.user.findUniqueOrThrow({ where: { id: record.id }, include: MEMBERSHIP_INCLUDE });
+  });
+
+  logger.info({ userId: user.id, claimed: existing !== null }, 'Account registered');
+
+  return issueSession(user, newSessionFamilyId(), {
+    deviceLabel: params.deviceLabel,
+    ipAddress: params.ipAddress,
+  });
+}
+
 export async function login(params: {
   identifier: string;
   password: string;

@@ -12,6 +12,16 @@ import { logger } from './logger.js';
  */
 function createPrismaClient(): PrismaClient {
   const client = new PrismaClient({
+    // Prisma's default interactive-transaction timeout is 5s, which assumes a
+    // database on the same machine. Neon is a network hop away — from India to
+    // us-east that is ~400ms per round trip, and settling a payment legitimately
+    // makes a dozen (allocate, update each invoice, recompute, lock the receipt
+    // sequence, write the receipt). Those writes MUST stay in one transaction:
+    // a payment without a receipt, or an invoice whose paid amount disagrees
+    // with its payments, must not be able to exist even briefly.
+    //
+    // So the fix is headroom, not splitting the transaction.
+    transactionOptions: { timeout: 20_000, maxWait: 10_000 },
     log: [
       { emit: 'event', level: 'warn' },
       { emit: 'event', level: 'error' },
