@@ -326,8 +326,9 @@ async function assertBedAssignable(
 export interface CreateResidentInput {
   existingUserId?: string | undefined;
   fullName: string;
-  email: string;
-  phone?: string | undefined;
+  /** The login identity. Required, and already normalised to E.164 by the schema. */
+  phone: string;
+  email?: string | undefined;
   joiningDate: DateOnly;
   expectedExitDate?: DateOnly | undefined;
   bedId?: string | undefined;
@@ -351,11 +352,13 @@ export async function createResident(
   const { propertyId } = await getPropertyContext(actor, 'resident:write');
 
   const tenancyId = await prisma.$transaction(async (tx) => {
-    const email = input.email.toLowerCase();
+    const email = input.email?.toLowerCase() ?? null;
+    // Matched on phone, not email: the phone number is the login identity and
+    // the unique one, so it is what decides "have we met this person before?".
     const existing =
       input.existingUserId !== undefined
         ? await tx.user.findUnique({ where: { id: input.existingUserId } })
-        : await tx.user.findUnique({ where: { email } });
+        : await tx.user.findUnique({ where: { phone: input.phone } });
 
     if (input.existingUserId !== undefined && existing === null) {
       throw new AppError('NOT_FOUND', 'That user account no longer exists.');
@@ -383,7 +386,7 @@ export async function createResident(
         data: {
           fullName: input.fullName,
           email,
-          phone: input.phone ?? null,
+          phone: input.phone,
           // No password yet: the owner shares an invite, and the resident sets
           // one on first sign-in. An account with no password cannot log in.
           passwordHash: null,
@@ -430,7 +433,7 @@ export async function createResident(
       propertyId,
       summary: `${user.fullName} added as a resident`,
       actorUserId: actor.userId,
-      actorRole: 'OWNER',
+      actorRole: 'ADMIN',
     });
 
     return tenancy.id;
@@ -477,7 +480,7 @@ export async function updateResident(
         where: { id: tenancy.userId },
         data: {
           ...(input.fullName === undefined ? {} : { fullName: input.fullName }),
-          ...(input.phone === undefined ? {} : { phone: input.phone }),
+          ...(input.phone === undefined || input.phone === null ? {} : { phone: input.phone }),
         },
       });
     }
@@ -584,7 +587,7 @@ export async function moveResident(
           ? `${tenancy.user.fullName} assigned to room ${destination.room.number} bed ${destination.label}`
           : `${tenancy.user.fullName} moved from room ${current.bed.room.number} bed ${current.bed.label} to room ${destination.room.number} bed ${destination.label}`,
       actorUserId: actor.userId,
-      actorRole: 'OWNER',
+      actorRole: 'ADMIN',
     });
   });
 
@@ -640,7 +643,7 @@ export async function exitResident(
       propertyId,
       summary: `${tenancy.user.fullName} moved out on ${input.actualExitDate}`,
       actorUserId: actor.userId,
-      actorRole: 'OWNER',
+      actorRole: 'ADMIN',
       after: { reason: input.reason ?? null },
     });
   });

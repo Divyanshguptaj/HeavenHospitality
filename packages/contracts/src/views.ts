@@ -53,7 +53,8 @@ export interface SettingsView {
     readonly bankName: string | null;
     readonly upiId: string | null;
     readonly upiQrImageUrl: string | null;
-    readonly paymentDetailsArePublic: boolean;
+    readonly showBankDetailsPublicly: boolean;
+    readonly showUpiPublicly: boolean;
   };
   readonly mess: {
     readonly mealCutoffLocalTime: string;

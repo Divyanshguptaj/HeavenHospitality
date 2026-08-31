@@ -54,8 +54,9 @@ model JobRun {
 // ---------------------------------------------------------------------------
 // Identity and access
 //
-// Three user types only (spec §2): OWNER, RESIDENT, and guests — who are simply
-// unauthenticated and have no row anywhere.
+// Three authenticated roles — ADMIN, RESIDENT, NON_RESIDENT — plus guests, who
+// are simply unauthenticated and have no row anywhere. A guest and a signed-in
+// NON_RESIDENT see the same public information; the account only adds a profile.
 // ---------------------------------------------------------------------------
 
 enum UserStatus {
@@ -65,19 +66,48 @@ enum UserStatus {
   DEACTIVATED
 }
 
-enum MembershipRole {
-  OWNER
+/// The authorisation role an account holds.
+///
+/// ADMIN is the person who runs the property. RESIDENT lives here. NON_RESIDENT
+/// is a registered account that is not (or is no longer) a tenant — the default
+/// for every account created through the public signup flow, and where a tenancy
+/// returns an account when it ends.
+///
+/// NON_RESIDENT is deliberately powerless: everything such an account can see is
+/// already served by the unauthenticated public endpoints. Promotion to RESIDENT
+/// or ADMIN is an admin action on the server; no public route can reach it.
+enum UserRole {
+  ADMIN
   RESIDENT
+  NON_RESIDENT
 }
 
 /// A person. Exists once, forever. Someone who leaves and returns gets a second
-/// Tenancy under the same User — which is why contact phone numbers are not
-/// globally unique and only login identity is.
+/// Tenancy under the same User, which is exactly why the phone number is unique:
+/// it is how we recognise a returning resident as the same person.
 model User {
   id String @id @default(uuid(7)) @db.Uuid
 
+  /// The login identifier, always stored E.164 (+919876543210). Unique, because
+  /// two rows for one number would mean two accounts for one person — and the
+  /// second could never be logged into. Normalisation happens in the contract
+  /// schema, so nothing reaches Prisma in another shape.
+  phone String @unique
+
+  /// Optional and NOT a login identifier: kept for receipts and notices only.
   email String? @unique
-  phone String?
+
+  /// Null until the number has been proven by OTP. An account without this is
+  /// not allowed to hold a password, so it cannot be signed in to.
+  phoneVerifiedAt DateTime? @db.Timestamptz(3)
+
+  /// The authorisation role, and the one the access token carries.
+  ///
+  /// PropertyMembership also records a role, but that answers a different
+  /// question: *which properties* this user is attached to. This field answers
+  /// "what may this account do at all", which is what route guards need before
+  /// any property is in scope. The seed keeps the two consistent.
+  role UserRole @default(NON_RESIDENT)
 
   fullName     String
   passwordHash String?
@@ -103,15 +133,59 @@ model User {
   complaints  Complaint[]
 
   @@index([status])
+  @@index([role])
+}
+
+enum OtpPurpose {
+  SIGNUP
+  PASSWORD_RESET
+}
+
+/// A one-time code sent to a phone number, and the state that makes it safe.
+///
+/// Server-side by necessity: a code the client could inspect or re-use is not a
+/// verification of anything. The row carries its own expiry, attempt counter and
+/// consumed flag so that "is this code still usable" is answerable from the row
+/// alone, without a cache or a scheduler.
+model OtpVerification {
+  id String @id @default(uuid(7)) @db.Uuid
+
+  /// E.164. Not a foreign key: signup verifies a number BEFORE any User exists.
+  phone   String
+  purpose OtpPurpose
+
+  /// SHA-256 of the code. A six-digit code has too little entropy for Argon2 to
+  /// be worth its cost here — the protection comes from the attempt limit and
+  /// the short expiry, not from the hash. Hashing still means a database leak
+  /// does not hand over live codes.
+  codeHash String
+
+  attempts   Int       @default(0)
+  expiresAt  DateTime  @db.Timestamptz(3)
+  /// Set the moment the code is accepted; a consumed code is never valid again.
+  consumedAt DateTime? @db.Timestamptz(3)
+
+  /// Proof-of-verification handed to the client, so the next step (set password)
+  /// can be authorised without re-sending the code. Hashed for the same reason
+  /// the code is. Null until the code is verified.
+  verificationTokenHash String?   @unique
+  verificationExpiresAt DateTime? @db.Timestamptz(3)
+
+  createdAt DateTime @default(now()) @db.Timestamptz(3)
+
+  /// Serves the resend cooldown and the "most recent code wins" lookup.
+  @@index([phone, purpose, createdAt])
 }
 
 model PropertyMembership {
-  id         String         @id @default(uuid(7)) @db.Uuid
-  userId     String         @db.Uuid
-  user       User           @relation(fields: [userId], references: [id], onDelete: Cascade)
-  propertyId String         @db.Uuid
-  property   Property       @relation(fields: [propertyId], references: [id], onDelete: Cascade)
-  role       MembershipRole
+  id         String   @id @default(uuid(7)) @db.Uuid
+  userId     String   @db.Uuid
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  propertyId String   @db.Uuid
+  property   Property @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+  /// Only ADMIN and RESIDENT are meaningful here: a membership records where an
+  /// account holds authority, and a non-resident holds none anywhere.
+  role       UserRole
 
   createdAt DateTime @default(now()) @db.Timestamptz(3)
 
@@ -223,12 +297,32 @@ model Property {
   latitude    Decimal? @db.Decimal(9, 6)
   longitude   Decimal? @db.Decimal(9, 6)
 
-  contactPhone String
-  contactEmail String?
+  contactPhone  String
+  /// Separate from contactPhone: many properties publish a WhatsApp-only number.
+  /// Null means "no WhatsApp channel", not "same as the phone" — guessing wrong
+  /// would send enquiries into a void.
+  whatsappPhone String?
+  contactEmail  String?
+
+  /// The single image the public home screen leads with. A URL rather than a
+  /// PropertyPhoto foreign key: the hero is a presentation choice the owner
+  /// makes once, and coupling it to a gallery row means deleting a photo can
+  /// silently blank the landing screen.
+  heroImageUrl String?
+
+  /// Short scannable selling points ("Walk to Karve Road", "Meals included").
+  /// Owner-editable text, so it belongs in the database rather than in a
+  /// component — changing it must never require a mobile release.
+  highlights String[]
+
+  /// Free text shown on the public property page: visiting hours, what to bring,
+  /// notice periods. Prose, because every property words this differently.
+  checkInInfo String?
 
   createdAt DateTime @default(now()) @db.Timestamptz(3)
   updatedAt DateTime @updatedAt @db.Timestamptz(3)
 
+  menuOverrides    MenuOverride[]
   settings         PropertySettings?
   memberships      PropertyMembership[]
   photos           PropertyPhoto[]
@@ -277,8 +371,18 @@ model PropertySettings {
   bankName          String?
   upiId             String?
   upiQrImageUrl     String?
-  /// Whether guests, not just residents, may see the payment details.
-  paymentDetailsArePublic Boolean @default(false)
+
+  /// Two independent switches, because they are two different disclosures.
+  ///
+  /// A UPI id is a payment handle and is routinely printed on a counter; a bank
+  /// account number plus IFSC is the pair used to spoof a payment request. An
+  /// owner who wants the first published almost never wants the second, so a
+  /// single flag would force a choice nobody wants to make.
+  ///
+  /// Both default to false, and the public API filters on them at the QUERY, not
+  /// in the client — a value that is not published never leaves the database.
+  showBankDetailsPublicly Boolean @default(false)
+  showUpiPublicly         Boolean @default(false)
 
   // --- Mess ---
   /// Local time-of-day after which a resident may no longer change an absence.
@@ -288,37 +392,78 @@ model PropertySettings {
   updatedAt DateTime @updatedAt @db.Timestamptz(3)
 }
 
+/// The public gallery: image METADATA in PostgreSQL, bytes in object storage.
+///
+/// The row is the record; the file is a blob addressed by `storageKey`. Storing
+/// the key rather than only a URL is what lets the bucket, CDN or signing scheme
+/// change later without rewriting rows — `url` is the currently-resolvable
+/// address, `storageKey` is the identity.
 model PropertyPhoto {
   id         String   @id @default(uuid(7)) @db.Uuid
   propertyId String   @db.Uuid
   property   Property @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+
+  /// Where the bytes live in the configured object store, e.g.
+  /// "property/<id>/gallery/<uuid>.jpg". Null for images seeded or entered as a
+  /// plain external URL, which is the development path.
+  storageKey String?
   url        String
   caption    String?
-  sortOrder  Int      @default(0)
 
-  @@index([propertyId, sortOrder])
+  /// Unpublishing is reversible; deleting is not. The owner will want to take a
+  /// photo down during renovation and put it back, so the public read filters on
+  /// this rather than expecting a delete.
+  isActive  Boolean @default(true)
+  sortOrder Int     @default(0)
+
+  createdAt DateTime @default(now()) @db.Timestamptz(3)
+  updatedAt DateTime @updatedAt @db.Timestamptz(3)
+
+  @@index([propertyId, isActive, sortOrder])
 }
 
 model Facility {
   id         String   @id @default(uuid(7)) @db.Uuid
   propertyId String   @db.Uuid
   property   Property @relation(fields: [propertyId], references: [id], onDelete: Cascade)
-  label      String
-  icon       String?
-  sortOrder  Int      @default(0)
 
-  @@unique([propertyId, label])
-  @@index([propertyId, sortOrder])
+  name        String
+  description String?
+
+  /// A SEMANTIC key ("wifi", "power-backup"), never a component or icon-font
+  /// name. The client owns a fixed map from key to glyph, so the database can
+  /// never name something the client will render blindly, and an unknown key
+  /// degrades to a neutral default instead of breaking the screen.
+  iconKey String?
+
+  isActive  Boolean @default(true)
+  sortOrder Int     @default(0)
+
+  createdAt DateTime @default(now()) @db.Timestamptz(3)
+  updatedAt DateTime @updatedAt @db.Timestamptz(3)
+
+  @@unique([propertyId, name])
+  @@index([propertyId, isActive, sortOrder])
 }
 
+/// A house rule. Split into a scannable title and the detail behind it, because
+/// a wall of prose is not read — "Entry cutoff" with "Doors close at 11:00 PM…"
+/// is, and it also gives staff and residents a stable name to refer to.
 model PropertyRule {
   id         String   @id @default(uuid(7)) @db.Uuid
   propertyId String   @db.Uuid
   property   Property @relation(fields: [propertyId], references: [id], onDelete: Cascade)
-  text       String
-  sortOrder  Int      @default(0)
 
-  @@index([propertyId, sortOrder])
+  title       String
+  description String
+
+  isActive  Boolean @default(true)
+  sortOrder Int     @default(0)
+
+  createdAt DateTime @default(now()) @db.Timestamptz(3)
+  updatedAt DateTime @updatedAt @db.Timestamptz(3)
+
+  @@index([propertyId, isActive, sortOrder])
 }
 
 /// A floor is a real, owner-managed entity (spec §4): created, renamed and
@@ -357,7 +502,7 @@ model Room {
   floorId    String   @db.Uuid
   floor      Floor    @relation(fields: [floorId], references: [id], onDelete: Restrict)
 
-  number String
+  number           String
   /// Display label used for public grouping, e.g. "3 Sharing".
   roomType         String
   capacity         Int
@@ -428,7 +573,7 @@ model Tenancy {
 
   /// Overrides the room rent when set — otherwise the room's rent applies.
   monthlyRentOverridePaise Int?
-  securityDepositPaise     Int @default(0)
+  securityDepositPaise     Int  @default(0)
 
   emergencyContactName  String?
   emergencyContactPhone String?
@@ -527,10 +672,10 @@ model Invoice {
 }
 
 model InvoiceItem {
-  id        String          @id @default(uuid(7)) @db.Uuid
-  invoiceId String          @db.Uuid
-  invoice   Invoice         @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
-  kind      InvoiceItemKind
+  id          String          @id @default(uuid(7)) @db.Uuid
+  invoiceId   String          @db.Uuid
+  invoice     Invoice         @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+  kind        InvoiceItemKind
   /// Shown on the invoice, e.g. "Electricity — 60 units @ ₹13.00".
   description String
   amountPaise Int
@@ -695,7 +840,7 @@ model ElectricityShare {
   tenancyId String       @db.Uuid
   tenancy   Tenancy      @relation(fields: [tenancyId], references: [id], onDelete: Cascade)
 
-  sharePaise Int
+  sharePaise   Int
   /// Recorded so the split is explainable months later.
   occupiedDays Int
 
@@ -715,27 +860,77 @@ enum MealType {
   DINNER
 }
 
+/// One meal on one weekday — the repeating menu, the thing the kitchen cooks in
+/// an ordinary week.
+///
+/// `items` is a list, not a sentence: the UI renders dishes as separate lines,
+/// and a list is what the owner will edit. `description` is for the note beside
+/// them ("sweet dish on request"), never for the dishes themselves.
 model WeeklyMenuItem {
-  id         String   @id @default(uuid(7)) @db.Uuid
-  propertyId String   @db.Uuid
-  property   Property @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+  id          String   @id @default(uuid(7)) @db.Uuid
+  propertyId  String   @db.Uuid
+  property    Property @relation(fields: [propertyId], references: [id], onDelete: Cascade)
   /// ISO-8601: 1 = Monday … 7 = Sunday.
-  dayOfWeek  Int
-  mealType   MealType
-  items      String[]
+  dayOfWeek   Int
+  mealType    MealType
+  items       String[]
+  description String?
+
+  /// Lets the owner take a meal off the published menu (a mess that serves no
+  /// Sunday breakfast) without deleting the row and losing what it used to be.
+  isActive Boolean @default(true)
+
+  createdAt DateTime @default(now()) @db.Timestamptz(3)
+  updatedAt DateTime @updatedAt @db.Timestamptz(3)
 
   @@unique([propertyId, dayOfWeek, mealType])
   @@index([propertyId, dayOfWeek])
 }
 
+/// A one-off menu for a specific DATE, replacing the weekly item for that meal.
+///
+/// Kept as a separate table rather than as edits to WeeklyMenuItem so a festival
+/// special on the 30th does not destroy what "Sunday dinner" normally is. The
+/// weekly menu stays the standing answer; this is the exception, and it expires
+/// on its own the moment the date passes.
+///
+/// Deliberately not a scheduling system: one date, one meal, one row.
+model MenuOverride {
+  id         String   @id @default(uuid(7)) @db.Uuid
+  propertyId String   @db.Uuid
+  property   Property @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+
+  /// A business date in the property's timezone, not a timestamp.
+  date        DateTime @db.Date
+  mealType    MealType
+  items       String[]
+  description String?
+
+  /// A cancelled special reverts to the weekly menu rather than showing nothing.
+  isActive Boolean @default(true)
+
+  createdAt DateTime @default(now()) @db.Timestamptz(3)
+  updatedAt DateTime @updatedAt @db.Timestamptz(3)
+
+  /// One override per meal per day — two "specials" for the same dinner is not a
+  /// state the kitchen or the screen can resolve.
+  @@unique([propertyId, date, mealType])
+  @@index([propertyId, date])
+}
+
+/// When each meal is served. Read from the database by every screen that shows a
+/// time, so the owner changing dinner to 8:30 needs no release.
 model MealTiming {
   id         String   @id @default(uuid(7)) @db.Uuid
   propertyId String   @db.Uuid
   property   Property @relation(fields: [propertyId], references: [id], onDelete: Cascade)
   mealType   MealType
-  /// Local times, e.g. "08:00" / "09:30".
+  /// Local times in the property's timezone, "HH:mm" — e.g. "08:00" / "09:30".
   startsAt   String
   endsAt     String
+
+  createdAt DateTime @default(now()) @db.Timestamptz(3)
+  updatedAt DateTime @updatedAt @db.Timestamptz(3)
 
   @@unique([propertyId, mealType])
 }
@@ -782,14 +977,14 @@ enum ComplaintStatus {
 }
 
 model Complaint {
-  id         String   @id @default(uuid(7)) @db.Uuid
-  propertyId String   @db.Uuid
-  property   Property @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+  id             String   @id @default(uuid(7)) @db.Uuid
+  propertyId     String   @db.Uuid
+  property       Property @relation(fields: [propertyId], references: [id], onDelete: Cascade)
   /// The resident who raised it. Ownership is what stops one resident reading
   /// another's complaint.
-  raisedByUserId String  @db.Uuid
-  raisedBy       User    @relation(fields: [raisedByUserId], references: [id], onDelete: Cascade)
-  tenancyId      String? @db.Uuid
+  raisedByUserId String   @db.Uuid
+  raisedBy       User     @relation(fields: [raisedByUserId], references: [id], onDelete: Cascade)
+  tenancyId      String?  @db.Uuid
 
   title       String
   description String
@@ -826,9 +1021,9 @@ model ComplaintEvent {
 }
 
 model Notice {
-  id         String   @id @default(uuid(7)) @db.Uuid
-  propertyId String   @db.Uuid
-  property   Property @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+  id         String    @id @default(uuid(7)) @db.Uuid
+  propertyId String    @db.Uuid
+  property   Property  @relation(fields: [propertyId], references: [id], onDelete: Cascade)
   title      String
   body       String
   /// Inclusive window during which residents see it.

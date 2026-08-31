@@ -1,7 +1,7 @@
 import { Ionicons } from '@expo/vector-icons';
 import { Redirect, Tabs } from 'expo-router';
 
-import { isOwner, useAuthStore } from '../../src/auth/authStore';
+import { isAdmin, useAuthStore } from '../../src/auth/authStore';
 import { layout, useTheme } from '../../src/theme';
 
 /**
@@ -19,8 +19,9 @@ export default function OwnerLayout() {
 
   if (status === 'restoring') return null;
   if (status === 'signedOut') return <Redirect href="/(auth)/login" />;
-  // A resident who somehow lands here goes to their own section.
-  if (!isOwner(user)) return <Redirect href="/(resident)" />;
+  // Anyone who is not an admin goes back to what their account actually opens:
+  // a resident to their stay, a non-resident to the public section.
+  if (!isAdmin(user)) return <Redirect href="/(public)" />;
 
   return (
     <Tabs

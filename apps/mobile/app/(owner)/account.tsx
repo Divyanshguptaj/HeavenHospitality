@@ -40,10 +40,9 @@ export default function OwnerAccountScreen() {
           setSigningOut(true);
           void signOut().finally(() => {
             setSigningOut(false);
-            // Straight to the login screen rather than the public pages: the
-            // reason an owner signs out is almost always to sign in as someone
-            // else.
-            router.replace('/(auth)/login');
+            // Back to the public section, which is what the app is for
+            // everyone else. Signing in again is one tap away from there.
+            router.replace('/(public)');
           });
         },
       },
@@ -59,7 +58,7 @@ export default function OwnerAccountScreen() {
         <DetailRow label="Name" value={user.fullName} />
         <DetailRow label="Email" value={user.email ?? '—'} />
         <DetailRow label="Phone" value={user.phone ?? '—'} />
-        <DetailRow label="Role" value={user.primaryRole} />
+        <DetailRow label="Role" value={user.role} />
       </Card>
 
       {user.memberships.length > 0 && (

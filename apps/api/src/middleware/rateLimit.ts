@@ -52,6 +52,20 @@ export const authLimiter = buildLimiter({
 });
 
 /**
+ * Sending one-time codes.
+ *
+ * Tighter than `authLimiter`, and it counts SUCCESSES too — the abuse here is
+ * not guessing, it is making us send SMS. Every send costs money and lands on
+ * someone's phone, so a caller that succeeds ten times in an hour is the exact
+ * pattern worth stopping. The per-phone resend cooldown in the database is the
+ * layer that survives an IP rotation; this one bounds the total.
+ */
+export const otpSendLimiter = buildLimiter({
+  windowMs: 60 * MINUTE_MS,
+  limit: 10,
+});
+
+/**
  * Unauthenticated guest endpoints. Tighter than authenticated traffic because
  * there is no account to hold accountable, and scraping is the expected abuse.
  */

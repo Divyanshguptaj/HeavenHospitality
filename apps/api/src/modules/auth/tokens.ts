@@ -22,6 +22,9 @@ const accessSecret = new TextEncoder().encode(env.JWT_ACCESS_SECRET);
 export interface AccessTokenClaims extends JWTPayload {
   readonly sub: string;
   readonly sid: string;
+  /** The account's authorisation role — what `requireRole` reads. */
+  readonly role: Role;
+  /** Where the account holds authority, for property-scoped checks. */
   readonly roles: ReadonlyArray<{ readonly propertyId: string; readonly role: Role }>;
 }
 
@@ -44,9 +47,10 @@ export const REFRESH_TOKEN_SECONDS = durationToSeconds(env.REFRESH_TOKEN_TTL);
 export async function signAccessToken(
   userId: string,
   sessionId: string,
-  roles: AccessTokenClaims['roles'],
+  role: Role,
+  scope: { memberships: AccessTokenClaims['roles'] },
 ): Promise<string> {
-  return new SignJWT({ sid: sessionId, roles })
+  return new SignJWT({ sid: sessionId, role, roles: scope.memberships })
     .setProtectedHeader({ alg: 'HS256' })
     .setSubject(userId)
     .setIssuer(ISSUER)

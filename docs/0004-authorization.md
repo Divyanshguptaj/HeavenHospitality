@@ -4,10 +4,30 @@
 
 ## Roles
 
-`OWNER` · `MANAGER` · `STAFF` · `TENANT`
+`ADMIN` · `RESIDENT` · `NON_RESIDENT`
+
+`ADMIN` is the person who runs the property. `RESIDENT` lives here. `NON_RESIDENT`
+is a registered account that is not a tenant.
 
 "Guest" is **not a role** — it is the absence of authentication. There are no guest
 users, no guest rows, and no fake accounts created to view public information.
+
+### NON_RESIDENT holds no permissions, deliberately
+
+`ROLE_PERMISSIONS.NON_RESIDENT` is empty, and public signup writes **no
+`PropertyMembership` row**. An account created through `POST /auth/signup/*` can
+therefore reach exactly what an unauthenticated caller can reach, and nothing
+more.
+
+This is what makes registration safe to leave open. Everything a non-resident
+sees is served by `/api/v1/public/*`, which needs no token at all — so there is
+no privilege for signup to grant, and no request field that could ask for one.
+The role is chosen server-side (`DEFAULT_SIGNUP_ROLE`); a `role` in the request
+body is not read.
+
+Promotion `NON_RESIDENT → RESIDENT` happens when an admin accepts someone as a
+tenant, and the reverse when a tenancy ends. Neither is reachable from a public
+route.
 
 ### Permissions are a code constant, not a database table
 
@@ -24,8 +44,13 @@ affordance only** — see below.
 
 ## Property scoping
 
-`PropertyMembership(userId, propertyId, role)` grants staff access. `OWNER` is
-carried on `User.systemRole` and implies access to all properties.
+`PropertyMembership(userId, propertyId, role)` records where an account holds
+authority. Only `ADMIN` and `RESIDENT` are meaningful there — a non-resident holds
+authority nowhere, so it has no row.
+
+`User.role` answers a different question: "what may this account do at all",
+which is what a route guard needs before any property is in scope. It is the
+value the access token carries and the one `requireRole` reads.
 
 **Every property-scoped request resolves access through exactly one helper:**
 
@@ -96,14 +121,27 @@ Reconsider **only** if a second application ever connects to this database.
 What we do instead: `propertyId` is a required argument in the repository layer,
 and negative-path authorization tests are mandatory for every scoped module.
 
-## Public / guest endpoints
+## Public endpoints
 
 Everything under `/api/v1/public/*` is unauthenticated and lives in its own module
-with **its own mappers**. It never reuses an admin or tenant serializer.
+with **its own mappers**. It never reuses an admin or resident serializer.
 
-**Never exposed:** bed ids, room-to-tenant mapping, tenant names, phone numbers,
-documents, occupancy history, complaint data, payment data, staff data, internal
-ids of any operational record.
+The same endpoints serve a guest, a signed-in `NON_RESIDENT` and a `RESIDENT` —
+the response does not vary by caller, because none of them is identified. That is
+what lets one set of screens serve all three without being forked by role.
+
+The property is implicit: the MVP runs one property, so no path carries a slug or
+an id and there is nothing for a caller to enumerate.
+
+**Never exposed:** database ids of any kind, bed ids, room-to-tenant mapping,
+resident names, resident phone numbers, documents, occupancy history, complaint
+data, payment records, staff data, object-storage keys, or any private
+configuration.
+
+**Bank and UPI details are governed by two independent switches** —
+`showBankDetailsPublicly` and `showUpiPublicly`. A detail the owner has not
+published is absent from the response entirely, not nulled out and not hidden by
+the client: it is filtered at the query, so it never leaves the database.
 
 **Availability is deliberately coarse** — "3 beds available in 3-sharing rooms",
 never a bed list. Precise availability is an occupancy map of where people live.
@@ -113,6 +151,12 @@ Protections:
 - Per-IP rate limiting, tighter than authenticated routes
 - A short in-memory response cache (seconds). **No Redis** — a small TTL map is
   sufficient and is discarded on restart without consequence
+- Every read uses an explicit Prisma `select`, never `include`. A `select` fails
+  closed — a column added to a model later stays private until someone
+  deliberately lists it
+- `isActive` / `status` filters live in the `WHERE` clause, never in the mapper,
+  so an unpublished record is never loaded at all
+- Bounded query validation and pagination on every parameterised endpoint
 - Contract tests assert that no PII field name can appear in a public response
 
 ## Audit

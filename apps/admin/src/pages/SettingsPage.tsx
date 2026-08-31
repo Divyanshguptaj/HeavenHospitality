@@ -209,7 +209,8 @@ function PaymentSection({ settings }: { readonly settings: Settings }) {
     bankName: settings.payment.bankName ?? '',
     upiId: settings.payment.upiId ?? '',
     upiQrImageUrl: settings.payment.upiQrImageUrl ?? '',
-    paymentDetailsArePublic: settings.payment.paymentDetailsArePublic,
+    showBankDetailsPublicly: settings.payment.showBankDetailsPublicly,
+    showUpiPublicly: settings.payment.showUpiPublicly,
   };
 
   const [form, setForm] = useState(initial);
@@ -228,7 +229,8 @@ function PaymentSection({ settings }: { readonly settings: Settings }) {
         bankName: orNull(form.bankName),
         upiId: orNull(form.upiId),
         upiQrImageUrl: orNull(form.upiQrImageUrl),
-        paymentDetailsArePublic: form.paymentDetailsArePublic,
+        showBankDetailsPublicly: form.showBankDetailsPublicly,
+        showUpiPublicly: form.showUpiPublicly,
       });
     } catch (caught) {
       setError(caught instanceof ApiRequestError ? caught.message : 'Could not save.');
@@ -282,20 +284,43 @@ function PaymentSection({ settings }: { readonly settings: Settings }) {
           />
         </Field>
 
+        {/* Two switches, not one. A UPI handle is the sort of thing that gets
+            printed on a counter; an account number with an IFSC is the pair
+            someone needs to impersonate a payment request from you. Most owners
+            want the first published and the second not, and a single control
+            would force them to choose both or neither.
+
+            A detail left unticked is not sent by the public API at all — it is
+            not hidden in the app, it never leaves the database. */}
         <label className="flex items-start gap-2 text-sm text-[var(--color-text-primary)] sm:col-span-2">
           <input
             type="checkbox"
             className="mt-0.5"
-            checked={form.paymentDetailsArePublic}
+            checked={form.showUpiPublicly}
+            onChange={(event) => setForm({ ...form, showUpiPublicly: event.target.checked })}
+          />
+          <span>
+            Show the UPI ID publicly
+            <span className="block text-xs text-[var(--color-text-muted)]">
+              Residents always see it. Tick this to also show it to anyone browsing the app.
+            </span>
+          </span>
+        </label>
+
+        <label className="flex items-start gap-2 text-sm text-[var(--color-text-primary)] sm:col-span-2">
+          <input
+            type="checkbox"
+            className="mt-0.5"
+            checked={form.showBankDetailsPublicly}
             onChange={(event) =>
-              setForm({ ...form, paymentDetailsArePublic: event.target.checked })
+              setForm({ ...form, showBankDetailsPublicly: event.target.checked })
             }
           />
           <span>
-            Show these to guests as well as residents
+            Show the bank account details publicly
             <span className="block text-xs text-[var(--color-text-muted)]">
-              Residents always see them. Tick this only if you want anyone browsing the app to see
-              your account details too.
+              Account number and IFSC. Leave this off unless you have a reason — published together
+              they are what someone needs to fake a payment request in your name.
             </span>
           </span>
         </label>

@@ -1,19 +1,32 @@
-import type { ApiSuccess } from '@heaven/contracts';
+import {
+  loginSchema as sharedLoginSchema,
+  passwordSchema,
+  requestOtpSchema,
+  resetPasswordSchema,
+  setPasswordSchema,
+  verifyOtpSchema,
+  type ApiSuccess,
+} from '@heaven/contracts';
 import { Router, type NextFunction, type Request, type Response } from 'express';
 import { z } from 'zod';
 
 import { isProduction } from '../../config/env.js';
 import { AppError } from '../../errors/AppError.js';
 import { getActor, requireAuth } from '../../middleware/authenticate.js';
-import { authLimiter } from '../../middleware/rateLimit.js';
+import { authLimiter, otpSendLimiter } from '../../middleware/rateLimit.js';
 import { getValidated, validate } from '../../middleware/validate.js';
 import {
   changePassword,
+  completeSignup,
   getUserView,
   login,
   logout,
   refresh,
-  register,
+  resetPassword,
+  startPasswordReset,
+  startSignup,
+  verifyPasswordResetOtp,
+  verifySignupOtp,
   type AuthResult,
   type AuthenticatedUserView,
 } from './auth.service.js';
@@ -79,13 +92,8 @@ function respondWithSession(res: Response, result: AuthResult, client: string | 
 
 const clientSchema = z.enum(['web', 'mobile']).optional();
 
-const loginSchema = {
-  body: z.object({
-    /// Email or phone; the server resolves which without the client saying.
-    identifier: z.string().trim().min(3).max(254),
-    // Only a length floor is enforced on login — complexity rules belong on
-    // password *creation*, and rejecting here would leak policy to an attacker.
-    password: z.string().min(1).max(200),
+const loginBodySchema = {
+  body: sharedLoginSchema.extend({
     deviceLabel: z.string().trim().max(80).optional(),
     client: clientSchema,
   }),
@@ -94,12 +102,12 @@ const loginSchema = {
 authRouter.post(
   '/login',
   authLimiter,
-  validate(loginSchema),
+  validate(loginBodySchema),
   (req: Request, res: Response, next: NextFunction) => {
-    const { body } = getValidated<typeof loginSchema>(req);
+    const { body } = getValidated<typeof loginBodySchema>(req);
 
     login({
-      identifier: body.identifier,
+      phone: body.phone,
       password: body.password,
       deviceLabel: body.deviceLabel,
       ipAddress: req.ip,
@@ -111,40 +119,126 @@ authRouter.post(
   },
 );
 
-const registerSchema = {
-  body: z.object({
-    fullName: z.string().trim().min(2).max(120),
-    email: z.string().trim().toLowerCase().email().max(254),
-    // Length is the strongest single password rule; composition rules mostly
-    // produce predictable substitutions.
-    password: z.string().min(8, 'Use at least 8 characters').max(200),
-    phone: z.string().trim().min(6).max(20).optional(),
-    client: clientSchema,
-  }),
+// ---------------------------------------------------------------------------
+// Signup: request a code, verify it, then choose a password.
+//
+// Split into three routes rather than one because each step has a different
+// precondition, and collapsing them would mean an account could exist before
+// its phone number was proven.
+// ---------------------------------------------------------------------------
+
+const requestOtpBodySchema = { body: requestOtpSchema } as const;
+const verifyOtpBodySchema = { body: verifyOtpSchema } as const;
+
+authRouter.post(
+  '/signup/request-otp',
+  otpSendLimiter,
+  validate(requestOtpBodySchema),
+  (req: Request, res: Response, next: NextFunction) => {
+    const { body } = getValidated<typeof requestOtpBodySchema>(req);
+
+    startSignup(body.phone)
+      .then((result) => {
+        res.status(200).json({ success: true, data: result });
+      })
+      .catch(next);
+  },
+);
+
+authRouter.post(
+  '/signup/verify-otp',
+  authLimiter,
+  validate(verifyOtpBodySchema),
+  (req: Request, res: Response, next: NextFunction) => {
+    const { body } = getValidated<typeof verifyOtpBodySchema>(req);
+
+    verifySignupOtp(body.phone, body.code)
+      .then((result) => {
+        res.status(200).json({ success: true, data: result });
+      })
+      .catch(next);
+  },
+);
+
+const setPasswordBodySchema = {
+  body: setPasswordSchema.extend({ client: clientSchema }),
 } as const;
 
-/**
- * Public sign-up. Rate-limited like login, because it is equally attractive to
- * abuse. The ROLE is never accepted from the client — every new account is a
- * resident.
- */
 authRouter.post(
-  '/register',
+  '/signup/set-password',
   authLimiter,
-  validate(registerSchema),
+  validate(setPasswordBodySchema),
   (req: Request, res: Response, next: NextFunction) => {
-    const { body } = getValidated<typeof registerSchema>(req);
+    const { body } = getValidated<typeof setPasswordBodySchema>(req);
 
-    register({
-      fullName: body.fullName,
-      email: body.email,
-      password: body.password,
+    completeSignup({
       phone: body.phone,
-      deviceLabel: 'Mobile app',
+      verificationToken: body.verificationToken,
+      fullName: body.fullName,
+      password: body.password,
+      deviceLabel: body.client === 'mobile' ? 'Mobile app' : 'Web',
       ipAddress: req.ip,
     })
       .then((result) => {
         respondWithSession(res, result, body.client);
+      })
+      .catch(next);
+  },
+);
+
+// ---------------------------------------------------------------------------
+// Forgot password: the same three steps, against an existing account.
+// ---------------------------------------------------------------------------
+
+authRouter.post(
+  '/forgot-password/request-otp',
+  otpSendLimiter,
+  validate(requestOtpBodySchema),
+  (req: Request, res: Response, next: NextFunction) => {
+    const { body } = getValidated<typeof requestOtpBodySchema>(req);
+
+    startPasswordReset(body.phone)
+      .then((result) => {
+        res.status(200).json({ success: true, data: result });
+      })
+      .catch(next);
+  },
+);
+
+authRouter.post(
+  '/forgot-password/verify-otp',
+  authLimiter,
+  validate(verifyOtpBodySchema),
+  (req: Request, res: Response, next: NextFunction) => {
+    const { body } = getValidated<typeof verifyOtpBodySchema>(req);
+
+    verifyPasswordResetOtp(body.phone, body.code)
+      .then((result) => {
+        res.status(200).json({ success: true, data: result });
+      })
+      .catch(next);
+  },
+);
+
+const resetPasswordBodySchema = { body: resetPasswordSchema } as const;
+
+authRouter.post(
+  '/forgot-password/reset',
+  authLimiter,
+  validate(resetPasswordBodySchema),
+  (req: Request, res: Response, next: NextFunction) => {
+    const { body } = getValidated<typeof resetPasswordBodySchema>(req);
+
+    resetPassword({
+      phone: body.phone,
+      verificationToken: body.verificationToken,
+      password: body.password,
+    })
+      .then(() => {
+        // Every session died with the reset, this one included. The client must
+        // sign in with the new password, which is the point.
+        clearRefreshCookie(res);
+        res.status(200).json({ success: true, data: { ok: true } });
       })
       .catch(next);
   },
@@ -223,9 +317,9 @@ authRouter.get('/me', requireAuth(), (req: Request, res: Response, next: NextFun
 const changePasswordSchema = {
   body: z.object({
     currentPassword: z.string().min(1).max(200),
-    // Length is the single strongest password rule; composition rules mostly
-    // produce predictable substitutions.
-    newPassword: z.string().min(10, 'Use at least 10 characters').max(200),
+    // The same rules signup applies — one definition, so a password that was
+    // acceptable at signup cannot be rejected here for a different reason.
+    newPassword: passwordSchema,
   }),
 } as const;
 

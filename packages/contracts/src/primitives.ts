@@ -1,6 +1,8 @@
 import { MAX_AMOUNT_PAISE } from '@heaven/money';
 import { z } from 'zod';
 
+import { normalizeIndianPhone } from './phone.js';
+
 /**
  * Primary keys are UUIDv7: non-guessable (so ids are not an enumeration vector)
  * but time-ordered, which keeps B-tree index locality reasonable in PostgreSQL.
@@ -19,14 +21,28 @@ export const emailSchema = z.string().trim().toLowerCase().email().max(254);
  * on contact fields, because a parent's number legitimately repeats across
  * tenancies. See docs/0005-billing-rules.md.
  */
+/**
+ * A phone number, normalised to E.164.
+ *
+ * Delegates to `normalizeIndianPhone` rather than carrying its own regex, so
+ * there is exactly one definition of what a valid number is. Two
+ * implementations would eventually disagree, and the one that disagreed with
+ * the unique index would be the one that produced duplicate accounts.
+ */
 export const phoneSchema = z
   .string()
   .trim()
-  .transform((value) => value.replace(/[\s()-]/g, ''))
-  .refine((value) => /^(?:\+91|91|0)?[6-9]\d{9}$/.test(value), {
-    message: 'Must be a valid Indian mobile number',
-  })
-  .transform((value) => `+91${value.slice(-10)}`);
+  .transform((value, ctx) => {
+    const normalized = normalizeIndianPhone(value);
+    if (normalized === null) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'Must be a valid Indian mobile number',
+      });
+      return z.NEVER;
+    }
+    return normalized;
+  });
 
 /**
  * A monetary amount in whole paise. See docs/0002-money.md.

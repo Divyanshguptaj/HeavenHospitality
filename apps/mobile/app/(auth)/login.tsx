@@ -1,3 +1,4 @@
+import { normalizeIndianPhone } from '@heaven/contracts';
 import { router } from 'expo-router';
 import { useState } from 'react';
 import {
@@ -7,44 +8,53 @@ import {
   ScrollView,
   StyleSheet,
   Text,
-  TextInput,
   View,
 } from 'react-native';
 
 import { useAuthStore } from '../../src/auth/authStore';
-import { Body, Button, Card, PageHeading } from '../../src/components/ui';
+import { FieldError, FieldLabel, PasswordField, PhoneField } from '../../src/components/authFields';
+import { Button, Card, PageHeading } from '../../src/components/ui';
 import { ApiRequestError } from '../../src/lib/apiClient';
 import { layout, useTheme } from '../../src/theme';
 
 /**
  * Sign-in for everyone.
  *
- * One screen for both the owner and residents — the ROLE on the account decides
+ * One screen for the owner and for residents — the ROLE on the account decides
  * which section of the app opens next, not which form you used to get in.
  */
 export default function LoginScreen() {
   const theme = useTheme();
   const signIn = useAuthStore((state) => state.signIn);
 
-  const [identifier, setIdentifier] = useState('');
+  const [phone, setPhone] = useState('');
   const [password, setPassword] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const canSubmit = identifier.trim().length > 0 && password.length > 0 && !submitting;
+  const normalized = normalizeIndianPhone(phone);
+  const canSubmit = normalized !== null && password.length > 0 && !submitting;
 
   async function handleSubmit(): Promise<void> {
-    if (!canSubmit) return;
+    if (normalized === null) {
+      setError('Enter a valid 10-digit mobile number.');
+      return;
+    }
+    if (password.length === 0) {
+      setError('Enter your password.');
+      return;
+    }
+
     setSubmitting(true);
     setError(null);
 
     try {
-      await signIn(identifier, password);
+      await signIn(normalized, password);
       // The root layout routes by role once the session lands.
       router.replace('/');
     } catch (caught) {
-      // The server deliberately reports "no such user" and "wrong password"
-      // identically; the UI must not try to be more specific than that.
+      // The server reports "no such number" and "wrong password" identically;
+      // the UI must not try to be more specific than that.
       setError(
         caught instanceof ApiRequestError
           ? caught.message
@@ -55,89 +65,62 @@ export default function LoginScreen() {
     }
   }
 
-  const inputStyle = [
-    styles.input,
-    { backgroundColor: theme.surface, borderColor: theme.border, color: theme.textPrimary },
-  ];
-
   return (
     <KeyboardAvoidingView
       style={{ flex: 1, backgroundColor: theme.canvas }}
       behavior={Platform.OS === 'ios' ? 'padding' : undefined}
     >
       <ScrollView contentContainerStyle={styles.container} keyboardShouldPersistTaps="handled">
-        <PageHeading title="Sign in" subtitle="Residents and the property owner sign in here." />
+        <PageHeading title="Sign in" subtitle="Use the mobile number registered with us." />
 
         <Card>
           <View style={styles.field}>
-            <Text style={[styles.label, { color: theme.textSecondary }]}>Email or phone</Text>
-            <TextInput
-              value={identifier}
-              onChangeText={setIdentifier}
-              style={inputStyle}
-              placeholder="you@example.com"
-              placeholderTextColor={theme.textMuted}
-              autoCapitalize="none"
-              autoCorrect={false}
-              keyboardType="email-address"
-              textContentType="username"
-              accessibilityLabel="Email or phone number"
-              editable={!submitting}
-            />
+            <FieldLabel>Mobile number</FieldLabel>
+            <PhoneField value={phone} onChangeText={setPhone} editable={!submitting} autoFocus />
           </View>
 
-          <View style={styles.field}>
-            <Text style={[styles.label, { color: theme.textSecondary }]}>Password</Text>
-            <TextInput
-              value={password}
-              onChangeText={setPassword}
-              style={inputStyle}
-              secureTextEntry
-              placeholderTextColor={theme.textMuted}
-              textContentType="password"
-              accessibilityLabel="Password"
-              editable={!submitting}
-              onSubmitEditing={() => void handleSubmit()}
-              returnKeyType="go"
-            />
-          </View>
+          <PasswordField
+            label="Password"
+            value={password}
+            onChangeText={setPassword}
+            editable={!submitting}
+            onSubmitEditing={() => void handleSubmit()}
+          />
 
-          {error !== null && (
-            <View
-              accessibilityRole="alert"
-              style={[styles.errorBox, { backgroundColor: theme.dangerSubtle }]}
-            >
-              <Text style={[styles.errorText, { color: theme.danger }]}>{error}</Text>
-            </View>
-          )}
+          <FieldError message={error} />
 
           <Button
             label={submitting ? 'Signing in…' : 'Sign in'}
             onPress={() => void handleSubmit()}
+            accessibilityLabel={canSubmit ? 'Sign in' : 'Sign in — complete the form first'}
           />
+
+          <Pressable
+            onPress={() => router.push('/(auth)/forgot-phone')}
+            accessibilityRole="button"
+            style={styles.link}
+          >
+            <Text style={[styles.linkText, { color: theme.primary }]}>Forgot your password?</Text>
+          </Pressable>
         </Card>
 
         <Pressable
-          onPress={() => router.replace('/(auth)/signup')}
+          onPress={() => router.replace('/(auth)/signup-phone')}
           accessibilityRole="button"
-          style={styles.guestLink}
+          style={styles.link}
         >
-          <Text style={[styles.guestLinkText, { color: theme.primary }]}>
+          <Text style={[styles.linkText, { color: theme.primary }]}>
             New here? Create an account
           </Text>
         </Pressable>
 
         <Pressable
-          onPress={() => router.replace('/(guest)')}
+          onPress={() => router.replace('/(public)')}
           accessibilityRole="button"
-          style={styles.guestLink}
+          style={styles.link}
         >
-          <Text style={[styles.guestLinkText, { color: theme.textSecondary }]}>
-            Continue browsing as a guest
-          </Text>
+          <Text style={[styles.linkText, { color: theme.textSecondary }]}>Continue as a guest</Text>
         </Pressable>
-
-        <Body>Forgot your password? Please contact the property manager to have it reset.</Body>
       </ScrollView>
     </KeyboardAvoidingView>
   );
@@ -146,16 +129,6 @@ export default function LoginScreen() {
 const styles = StyleSheet.create({
   container: { padding: layout.spacing[5], gap: layout.spacing[5] },
   field: { gap: layout.spacing[2] },
-  label: { fontSize: layout.fontSize.sm, fontWeight: '600' },
-  input: {
-    minHeight: layout.minTouchTarget,
-    borderWidth: 1,
-    borderRadius: layout.radius.lg,
-    paddingHorizontal: layout.spacing[4],
-    fontSize: layout.fontSize.md,
-  },
-  errorBox: { padding: layout.spacing[4], borderRadius: layout.radius.lg },
-  errorText: { fontSize: layout.fontSize.sm },
-  guestLink: { minHeight: layout.minTouchTarget, justifyContent: 'center', alignItems: 'center' },
-  guestLinkText: { fontSize: layout.fontSize.md, fontWeight: '600' },
+  link: { minHeight: layout.minTouchTarget, justifyContent: 'center', alignItems: 'center' },
+  linkText: { fontSize: layout.fontSize.md, fontWeight: '600' },
 });

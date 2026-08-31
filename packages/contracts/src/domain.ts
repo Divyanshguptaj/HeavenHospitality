@@ -1,6 +1,12 @@
 import { z } from 'zod';
 
-import { dateOnlySchema, idSchema, nonNegativePaiseSchema, periodKeySchema } from './primitives.js';
+import {
+  dateOnlySchema,
+  idSchema,
+  nonNegativePaiseSchema,
+  periodKeySchema,
+  phoneSchema,
+} from './primitives.js';
 
 /**
  * Domain enums and request/response contracts shared by the API and both
@@ -150,7 +156,15 @@ export const paymentSettingsSchema = z.object({
     .regex(/^[\w.-]{2,256}@[a-zA-Z]{2,64}$/, 'Not a valid UPI id')
     .nullable(),
   upiQrImageUrl: z.string().trim().url().nullable(),
-  paymentDetailsArePublic: z.boolean(),
+  /**
+   * Two switches, not one. A UPI handle is printed on a counter; an account
+   * number with an IFSC is the pair used to impersonate a payment request. An
+   * owner routinely wants the first public and the second not, and the public
+   * API filters on these at the query — a detail that is not published is never
+   * loaded, let alone sent.
+   */
+  showBankDetailsPublicly: z.boolean(),
+  showUpiPublicly: z.boolean(),
 });
 
 export const messSettingsSchema = z.object({
@@ -210,8 +224,10 @@ export const createResidentSchema = z.object({
   /// Supplied when assigning an already-registered person.
   existingUserId: idSchema.optional(),
   fullName: z.string().trim().min(2).max(120),
-  email: z.string().trim().toLowerCase().email().max(254),
-  phone: z.string().trim().min(6).max(20).optional(),
+  /// Required: it is the login identity, so an account without one could never
+  /// be signed in to. Email is optional and is not used to sign in.
+  phone: phoneSchema,
+  email: z.string().trim().toLowerCase().email().max(254).optional(),
   joiningDate: dateOnlySchema,
   expectedExitDate: dateOnlySchema.optional(),
   bedId: idSchema.optional(),
@@ -223,7 +239,8 @@ export const createResidentSchema = z.object({
 
 export const updateResidentSchema = z.object({
   fullName: z.string().trim().min(2).max(120).optional(),
-  phone: z.string().trim().min(6).max(20).nullable().optional(),
+  /// Changeable, but never removable — it is how the person signs in.
+  phone: phoneSchema.optional(),
   expectedExitDate: dateOnlySchema.nullable().optional(),
   monthlyRentOverridePaise: nonNegativePaiseSchema.nullable().optional(),
   securityDepositPaise: nonNegativePaiseSchema.optional(),

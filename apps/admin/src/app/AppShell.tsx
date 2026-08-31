@@ -81,7 +81,7 @@ export function AppShell() {
             <p className="px-2 text-sm font-medium text-[var(--color-text-primary)]">
               {user.fullName}
             </p>
-            <p className="px-2 text-xs text-[var(--color-text-muted)]">{user.primaryRole}</p>
+            <p className="px-2 text-xs text-[var(--color-text-muted)]">{user.role}</p>
             <button
               type="button"
               onClick={() => void handleSignOut()}

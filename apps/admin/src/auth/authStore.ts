@@ -6,10 +6,12 @@ import { apiRequest, setAccessToken } from '../lib/apiClient';
 export interface AuthenticatedUser {
   readonly id: string;
   readonly fullName: string;
+  /** The login identity, E.164. */
+  readonly phone: string;
   readonly email: string | null;
-  readonly phone: string | null;
+  readonly role: Role;
+  readonly phoneVerified: boolean;
   readonly mustChangePassword: boolean;
-  readonly primaryRole: Role;
   readonly memberships: ReadonlyArray<{
     readonly propertyId: string;
     readonly propertySlug: string;
@@ -30,7 +32,7 @@ interface AuthState {
   readonly status: AuthStatus;
   readonly user: AuthenticatedUser | null;
   readonly restore: () => Promise<void>;
-  readonly signIn: (identifier: string, password: string) => Promise<AuthenticatedUser>;
+  readonly signIn: (phone: string, password: string) => Promise<AuthenticatedUser>;
   readonly signOut: () => Promise<void>;
 }
 
@@ -64,10 +66,10 @@ export const useAuthStore = create<AuthState>((set) => ({
     }
   },
 
-  signIn: async (identifier: string, password: string) => {
+  signIn: async (phone: string, password: string) => {
     const { data } = await apiRequest<SessionResponse>('/auth/login', {
       method: 'POST',
-      body: { identifier, password, client: 'web', deviceLabel: 'Admin console' },
+      body: { phone, password, client: 'web', deviceLabel: 'Admin console' },
     });
     setAccessToken(data.accessToken);
     set({ status: 'signedIn', user: data.user });
@@ -93,7 +95,8 @@ export const useAuthStore = create<AuthState>((set) => ({
  * rejects their requests regardless.
  */
 export function canAccessConsole(user: AuthenticatedUser | null): boolean {
-  return user !== null && user.memberships.some((m) => m.role === 'OWNER');
+  // The account role, matching what `requireRole('ADMIN')` enforces server-side.
+  return user !== null && user.role === 'ADMIN';
 }
 
 /**

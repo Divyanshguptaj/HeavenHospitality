@@ -33,10 +33,9 @@ export default function ProfileScreen() {
           setSigningOut(true);
           void signOut().finally(() => {
             setSigningOut(false);
-            // Straight to the login screen rather than the public pages: the
-            // reason someone signs out is almost always to sign in as someone
-            // else.
-            router.replace('/(auth)/login');
+            // Back to the public section rather than a login wall: signing out
+            // returns you to what a guest sees, which is still the whole app.
+            router.replace('/(public)');
           });
         },
       },
@@ -52,7 +51,7 @@ export default function ProfileScreen() {
         <DetailRow label="Name" value={user.fullName} />
         <DetailRow label="Email" value={user.email ?? '—'} />
         <DetailRow label="Phone" value={user.phone ?? '—'} />
-        <DetailRow label="Role" value={user.primaryRole} />
+        <DetailRow label="Role" value={user.role} />
         <Muted>Contact the manager to correct any of these details.</Muted>
       </Card>
 
@@ -68,6 +67,23 @@ export default function ProfileScreen() {
           ))}
         </Card>
       )}
+
+      {/* The public pages are not a separate product for guests — they are the
+          property's own information, and a resident wants the menu, the rules
+          and the contact number as much as anyone deciding whether to move in.
+          Linking rather than duplicating is what keeps one copy of them. */}
+      <Card>
+        <CardTitle>About the property</CardTitle>
+        <Body>
+          The mess menu, house rules, facilities and contact details are the same pages anyone can
+          see — no need to sign out to read them.
+        </Body>
+        <Button
+          label="Browse the property pages"
+          variant="secondary"
+          onPress={() => router.push('/(public)')}
+        />
+      </Card>
 
       <Card>
         <CardTitle>Switching accounts</CardTitle>

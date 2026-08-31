@@ -7,10 +7,12 @@ import { clearRefreshToken, readRefreshToken, saveRefreshToken } from '../lib/se
 export interface AuthenticatedUser {
   readonly id: string;
   readonly fullName: string;
+  /** The login identity, E.164. */
+  readonly phone: string;
   readonly email: string | null;
-  readonly phone: string | null;
+  readonly role: Role;
+  readonly phoneVerified: boolean;
   readonly mustChangePassword: boolean;
-  readonly primaryRole: Role;
   readonly memberships: ReadonlyArray<{
     readonly propertyId: string;
     readonly propertySlug: string;
@@ -33,12 +35,13 @@ interface AuthState {
   readonly status: AuthStatus;
   readonly user: AuthenticatedUser | null;
   readonly restore: () => Promise<void>;
-  readonly signIn: (identifier: string, password: string) => Promise<void>;
-  readonly signUp: (input: {
+  readonly signIn: (phone: string, password: string) => Promise<void>;
+  /** Finishes signup once the phone number has been verified by OTP. */
+  readonly completeSignup: (input: {
+    phone: string;
+    verificationToken: string;
     fullName: string;
-    email: string;
     password: string;
-    phone?: string;
   }) => Promise<void>;
   readonly signOut: () => Promise<void>;
 }
@@ -89,20 +92,22 @@ export const useAuthStore = create<AuthState>((set) => ({
     }
   },
 
-  signIn: async (identifier: string, password: string) => {
+  signIn: async (phone: string, password: string) => {
     const session = await apiRequest<SessionResponse>('/auth/login', {
       method: 'POST',
-      body: { identifier, password, client: 'mobile', deviceLabel: 'Mobile app' },
+      body: { phone, password, client: 'mobile', deviceLabel: 'Mobile app' },
     });
     set({ status: 'signedIn', user: await applySession(session) });
   },
 
   /**
-   * Creates an account. The server decides the role — every new account is a
-   * resident, and there is no way to ask for anything else.
+   * The last step of signup. The server decides the role — every new account is
+   * a NON_RESIDENT, and there is no field here that could ask for anything
+   * else. Becoming a RESIDENT is something the owner does, not something a
+   * client can request.
    */
-  signUp: async (input) => {
-    const session = await apiRequest<SessionResponse>('/auth/register', {
+  completeSignup: async (input) => {
+    const session = await apiRequest<SessionResponse>('/auth/signup/set-password', {
       method: 'POST',
       body: { ...input, client: 'mobile' },
     });
@@ -128,15 +133,28 @@ export const useAuthStore = create<AuthState>((set) => ({
 }));
 
 /**
- * The mobile app serves residents and guests. The owner belongs in the admin
- * console — the two experiences are deliberately separate, and squeezing
- * property operations into a phone would produce a worse tool for both.
+ * Which section of the app an account opens.
+ *
+ * These shape the UI only. Every endpoint authorises independently, so an
+ * account that reached the wrong section would still be refused by the server.
  */
-export function isResidentExperience(user: AuthenticatedUser | null): boolean {
-  return user?.primaryRole === 'RESIDENT';
+
+/** The PG owner. Runs the property. */
+export function isAdmin(user: AuthenticatedUser | null): boolean {
+  return user?.role === 'ADMIN';
 }
 
-/** The owner runs the property; everyone else lives in it. */
-export function isOwner(user: AuthenticatedUser | null): boolean {
-  return user?.primaryRole === 'OWNER';
+/** Currently lives here, so has rent, meals and complaints of their own. */
+export function isResident(user: AuthenticatedUser | null): boolean {
+  return user?.role === 'RESIDENT';
+}
+
+/**
+ * Registered, but not a tenant — what every public signup produces.
+ *
+ * A non-resident sees exactly the public experience plus a profile, so there is
+ * no separate section for this role and nothing here to guard.
+ */
+export function isNonResident(user: AuthenticatedUser | null): boolean {
+  return user?.role === 'NON_RESIDENT';
 }

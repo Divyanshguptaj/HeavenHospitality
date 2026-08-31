@@ -8,6 +8,9 @@ import { verifyAccessToken } from '../modules/auth/tokens.js';
 export interface Actor {
   readonly userId: string;
   readonly sessionId: string;
+  /** The account role — what the account may do at all. */
+  readonly role: Role;
+  /** Where it holds authority, for property-scoped checks. */
   readonly roles: ReadonlyArray<{ readonly propertyId: string; readonly role: Role }>;
 }
 
@@ -37,7 +40,15 @@ export function requireAuth(): RequestHandler {
 
     verifyAccessToken(token)
       .then((claims) => {
-        req.actor = { userId: claims.sub, sessionId: claims.sid, roles: claims.roles };
+        req.actor = {
+          userId: claims.sub,
+          sessionId: claims.sid,
+          // Tokens issued before `role` existed have none. Treating that as
+          // the least privilege is the only safe default: NON_RESIDENT holds no
+          // permissions at all, so an old token grants exactly what a guest has.
+          role: claims.role ?? 'NON_RESIDENT',
+          roles: claims.roles ?? [],
+        };
         next();
       })
       .catch(next);
@@ -51,6 +62,31 @@ export function getActor(req: Request): Actor {
     );
   }
   return req.actor;
+}
+
+/**
+ * Requires one of `allowed` as the actor's account role.
+ *
+ * This is the coarse "may this kind of account touch this route at all" gate —
+ * `requireRole('ADMIN')` on an admin-only endpoint. It is enforced here, on the
+ * server, because hiding a button in the client hides nothing: the endpoint is
+ * still one curl away.
+ */
+export function requireRole(...allowed: readonly Role[]): RequestHandler {
+  return (req: Request, _res: Response, next: NextFunction): void => {
+    const actor = getActor(req);
+
+    if (!allowed.includes(actor.role)) {
+      next(
+        new AppError('INSUFFICIENT_PERMISSION', 'You do not have access to perform this action.', {
+          context: { required: allowed, actual: actor.role, userId: actor.userId },
+        }),
+      );
+      return;
+    }
+
+    next();
+  };
 }
 
 /**

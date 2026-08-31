@@ -77,7 +77,8 @@ export async function getSettings(actor: Actor): Promise<SettingsView> {
       bankName: s.bankName,
       upiId: s.upiId,
       upiQrImageUrl: s.upiQrImageUrl,
-      paymentDetailsArePublic: s.paymentDetailsArePublic,
+      showBankDetailsPublicly: s.showBankDetailsPublicly,
+      showUpiPublicly: s.showUpiPublicly,
     },
     mess: {
       mealCutoffLocalTime: s.mealCutoffLocalTime,
@@ -136,7 +137,7 @@ export async function updateSettings(
       propertyId,
       summary: `Settings updated: ${Object.keys(changed).join(', ')}`,
       actorUserId: actor.userId,
-      actorRole: 'OWNER',
+      actorRole: 'ADMIN',
       after: changed as Prisma.InputJsonValue,
     });
   });
@@ -166,7 +167,7 @@ export async function updatePropertyProfile(
         propertyId,
         summary: `Property details updated: ${Object.keys(data).join(', ')}`,
         actorUserId: actor.userId,
-        actorRole: 'OWNER',
+        actorRole: 'ADMIN',
       });
     });
   }

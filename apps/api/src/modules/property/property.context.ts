@@ -26,7 +26,7 @@ export interface PropertyContext {
 function resolvePropertyId(actor: Actor, requested?: string): string {
   if (requested !== undefined) return requested;
 
-  const owned = actor.roles.filter((assignment) => assignment.role === 'OWNER');
+  const owned = actor.roles.filter((assignment) => assignment.role === 'ADMIN');
   const first = owned[0];
 
   if (first === undefined) {

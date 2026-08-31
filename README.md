@@ -1,20 +1,33 @@
 # Heaven Hospitality
 
 A property-management system for a PG/hostel: rent, invoices, payments, receipts,
-electricity, mess, complaints and occupancy — with an admin web console, a tenant
-mobile app, and a public guest experience that needs no account.
+electricity, mess, complaints and occupancy — with an admin web console, a
+resident mobile app, and a public experience that needs no account at all.
 
 ## Status
 
 **Phase 2 (Foundation) complete.** Workspace, tooling, API, database, design
 tokens and both client shells build, run and are tested.
 
-**Slice 1 — Property + Guest experience complete.** Property/RoomType/Room/Bed
-are modelled and migrated, the public API serves the guest payload, and the
-mobile app has its six guest tabs (Explore, Rooms, Facilities, Food, Rules,
-Contact) working against real data. No authentication is involved anywhere in it.
+**Public + NON_RESIDENT experience complete.** Three roles — `ADMIN`,
+`RESIDENT`, `NON_RESIDENT` — with every public signup producing a
+zero-permission `NON_RESIDENT`; the frontend cannot ask for anything else.
 
-Next: authentication, then tenancy and bed allocation.
+The public API (`/api/v1/public/*`) is unauthenticated and serves property,
+rooms, availability, today's and the week's menu, facilities, gallery, rules,
+contact and location — all from PostgreSQL, all through public-only DTOs.
+
+The mobile app opens straight into it: five bottom tabs (Home, Rooms, Menu,
+Explore, Profile) with the secondary pages behind Explore. A guest and a
+signed-in non-resident see the same screens; the account only adds a profile.
+
+Everything the owner can reasonably change — the menu and its timings, meal
+overrides for a specific date, prices, availability, facilities, rules, gallery,
+contact details and the public bank/UPI switches — lives in the database. None of
+it requires a new mobile build.
+
+Next: tenancy management (`NON_RESIDENT → RESIDENT`), then admin CRUD over the
+same entities the public API already reads.
 
 See [docs/](./docs) for the decisions that shape the code, and
 [docs/README.md](./docs/README.md) for where to start reading.
@@ -39,7 +52,7 @@ pnpm install
 cp .env.example .env      # then fill in the Neon URLs and generate JWT secrets
 pnpm db:generate
 pnpm db:migrate
-pnpm db:seed              # one fully-populated property for the guest experience
+pnpm db:seed              # one fully-populated property, and one account per role
 
 pnpm dev:api              # http://localhost:4000
 pnpm dev:admin            # http://localhost:5173
@@ -48,6 +61,32 @@ pnpm dev:mobile           # Expo
 
 `.env` lives at the repository root and is found by every app. **It is never
 committed** — put real values there, never in `.env.example`.
+
+### Signing in
+
+Everyone signs in with a **mobile number and password**. The role on the account
+decides what opens; there is no separate admin login.
+
+`pnpm db:seed` prints the development accounts it created. As shipped:
+
+| Role           | Mobile number   | Password          |
+| -------------- | --------------- | ----------------- |
+| `ADMIN`        | `+919999999999` | `HeavenDemo#2026` |
+| `RESIDENT`     | `+919000000004` | `HeavenDemo#2026` |
+| `NON_RESIDENT` | `+919000000020` | `HeavenDemo#2026` |
+
+Development only — change `BOOTSTRAP_OWNER_*` before deploying anything. **Quote
+the password in `.env`**: an unquoted `#` starts a comment, so `Secret#2026`
+silently becomes `Secret`.
+
+Signing up in the app is self-service and always produces a `NON_RESIDENT` — an
+account with no permissions at all. Only the seed or an admin can grant
+`RESIDENT` or `ADMIN`.
+
+Signup and password reset both verify the number by SMS code. No SMS is actually
+sent in development: `OTP_PROVIDER=mock` logs the code, and `OTP_DEV_FIXED_CODE`
+(default `123456`) makes every code the same so there is no log to read. Both
+are startup errors in production.
 
 Object storage for file uploads is only needed once that work starts:
 
@@ -87,7 +126,7 @@ Pointing migrations at the pooled URL fails in ways that look like network error
 apps/
   api/        Express API, scheduled jobs, webhooks (modular monolith)
   admin/      React + Vite operations console
-  mobile/     Expo app — public guest area + authenticated tenant area
+  mobile/     Expo app — public area (no account needed) + resident and owner areas
 packages/
   contracts/  Zod schemas, inferred types, error codes, role matrix
   money/      Integer-paise arithmetic

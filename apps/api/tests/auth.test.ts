@@ -42,27 +42,28 @@ describe('password hashing', () => {
 });
 
 describe('access tokens', () => {
-  const roles = [{ propertyId: 'prop-1', role: 'OWNER' as const }];
+  const roles = [{ propertyId: 'prop-1', role: 'ADMIN' as const }];
 
   it('round-trips subject, session and roles', async () => {
-    const token = await signAccessToken('user-1', 'session-1', roles);
+    const token = await signAccessToken('user-1', 'session-1', 'ADMIN', { memberships: roles });
     const claims = await verifyAccessToken(token);
 
     expect(claims.sub).toBe('user-1');
     expect(claims.sid).toBe('session-1');
+    expect(claims.role).toBe('ADMIN');
     expect(claims.roles).toEqual(roles);
   });
 
   it('carries no permission list', async () => {
     // Permissions are resolved server-side per request, so revoking one takes
     // effect immediately instead of waiting for the token to expire.
-    const token = await signAccessToken('user-1', 'session-1', roles);
+    const token = await signAccessToken('user-1', 'session-1', 'ADMIN', { memberships: roles });
     const claims = await verifyAccessToken(token);
     expect(claims).not.toHaveProperty('permissions');
   });
 
   it('rejects a tampered token', async () => {
-    const token = await signAccessToken('user-1', 'session-1', roles);
+    const token = await signAccessToken('user-1', 'session-1', 'ADMIN', { memberships: roles });
     const [header, payload, signature] = token.split('.');
 
     // Re-encode the payload with an escalated role, keeping the original
@@ -71,7 +72,7 @@ describe('access tokens', () => {
       JSON.stringify({
         sub: 'user-1',
         sid: 'session-1',
-        roles: [{ propertyId: 'prop-1', role: 'OWNER' }],
+        roles: [{ propertyId: 'prop-1', role: 'ADMIN' }],
       }),
     ).toString('base64url');
 

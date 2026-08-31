@@ -10,7 +10,7 @@
  *
  *   pnpm db:seed
  */
-import { MealType, MembershipRole, PrismaClient } from '@prisma/client';
+import { MealType, PrismaClient, UserRole } from '@prisma/client';
 
 import {
   calculateElectricity,
@@ -35,6 +35,32 @@ const prisma = new PrismaClient();
 const SLUG = 'heaven-hospitality-kothrud';
 const TIMEZONE = 'Asia/Kolkata';
 const DEMO_PASSWORD = 'HeavenDemo#2026';
+
+/**
+ * The bootstrap owner.
+ *
+ * Configurable through the environment so a real deployment never ships with a
+ * known password, and defaulted here so `pnpm db:seed` works on a fresh clone
+ * with no setup. The defaults are development credentials and are documented as
+ * such in README and .env.example — they are not secrets, and nothing real
+ * should ever use them.
+ */
+const OWNER_PHONE = process.env['BOOTSTRAP_OWNER_PHONE'] ?? '+919999999999';
+const OWNER_PASSWORD = process.env['BOOTSTRAP_OWNER_PASSWORD'] ?? DEMO_PASSWORD;
+const OWNER_NAME = process.env['BOOTSTRAP_OWNER_NAME'] ?? 'Asha Menon';
+
+/** The demo resident, quoted in the sign-in summary the seed prints. */
+const TENANT_PHONE = '+919000000004';
+
+/**
+ * A demo NON_RESIDENT — someone who has an account but does not live here.
+ *
+ * Seeded so the "registered but not a tenant" experience can be opened without
+ * going through signup: it is the role every real signup produces, and the one
+ * whose profile screen must show no rent, no room and no bills.
+ */
+const PROSPECT_PHONE = '+919000000020';
+const PROSPECT_NAME = 'Nikhil Deshpande';
 
 /** Rent is written in rupees for readability and converted once, on the way in. */
 const rupees = (amount: number): number => Math.round(amount * 100);
@@ -164,24 +190,141 @@ const RESIDENTS = [
   },
 ];
 
+/**
+ * `iconKey` values come from FACILITY_ICON_KEYS in @heaven/contracts — a closed
+ * list the client maps to glyphs. Anything outside it renders as a neutral
+ * default rather than as nothing.
+ */
 const FACILITIES = [
-  { label: 'High-speed Wi-Fi', icon: 'wifi' },
-  { label: 'Three meals a day', icon: 'utensils' },
-  { label: 'Laundry service', icon: 'shirt' },
-  { label: 'Housekeeping', icon: 'sparkles' },
-  { label: 'Power backup', icon: 'zap' },
-  { label: 'CCTV & biometric entry', icon: 'shield' },
-  { label: 'Hot water', icon: 'droplet' },
-  { label: 'Common study room', icon: 'book' },
+  {
+    name: 'High-speed Wi-Fi',
+    iconKey: 'wifi',
+    description: '100 Mbps fibre, one line per floor, no fair-usage cap.',
+  },
+  {
+    name: 'Three meals a day',
+    iconKey: 'meals',
+    description: 'Home-style vegetarian cooking, with egg and chicken twice a week.',
+  },
+  {
+    name: 'Laundry service',
+    iconKey: 'laundry',
+    description: 'Machines on every floor; ironing on request.',
+  },
+  {
+    name: 'Daily housekeeping',
+    iconKey: 'housekeeping',
+    description: 'Rooms cleaned every morning, common areas twice a day.',
+  },
+  {
+    name: 'Power backup',
+    iconKey: 'power-backup',
+    description: 'Inverter covers lights, fans and Wi-Fi through any outage.',
+  },
+  {
+    name: 'CCTV and biometric entry',
+    iconKey: 'security',
+    description: 'Cameras on every landing; the main door opens to your fingerprint.',
+  },
+  {
+    name: 'RO drinking water',
+    iconKey: 'water',
+    description: 'Filtered and chilled, on all three floors.',
+  },
+  {
+    name: 'Hot water',
+    iconKey: 'hot-water',
+    description: 'Geysers in every bathroom, running all day in winter.',
+  },
+  {
+    name: 'Common study room',
+    iconKey: 'study',
+    description: 'Quiet from 8 PM, with desk lamps and charging points.',
+  },
+  {
+    name: 'Two-wheeler parking',
+    iconKey: 'parking',
+    description: 'Covered parking inside the compound, free for residents.',
+  },
+  {
+    name: 'Lift',
+    iconKey: 'lift',
+    description: 'Serves all three floors.',
+  },
+  {
+    name: 'Air conditioning',
+    iconKey: 'ac',
+    description: 'In the single and 2-sharing rooms. Electricity is metered per room.',
+  },
 ];
 
+/**
+ * A scannable title plus the detail behind it. Nobody reads a wall of prose, and
+ * a named rule is one staff and residents can refer to in a conversation.
+ */
 const RULES = [
-  'Entry closes at 11:00 PM. Late entry needs prior intimation to the manager.',
-  'Visitors are allowed in the common area until 8:00 PM only.',
-  'Rent is due on the 5th of every month.',
-  'Smoking and alcohol are not permitted anywhere on the premises.',
-  'Please inform the kitchen a day in advance if you will miss a meal.',
-  'A one-month notice is required before vacating.',
+  {
+    title: 'Entry closes at 11:00 PM',
+    description:
+      'The main door locks at 11:00 PM. If you will be later than that, tell the manager during the day and it will be opened for you — it is a safety measure, not a curfew.',
+  },
+  {
+    title: 'Visitors until 8:00 PM, common areas only',
+    description:
+      'Friends and family are welcome in the common room until 8:00 PM. Rooms are shared, so visitors do not go upstairs. Overnight guests need the owner’s permission.',
+  },
+  {
+    title: 'Rent is due on the 5th',
+    description:
+      'Rent for the month is due on the 5th. There is a three-day grace period, after which a late fee of ₹100 per day applies, capped at ₹3,000.',
+  },
+  {
+    title: 'No smoking or alcohol on the premises',
+    description:
+      'This applies everywhere inside the building and the compound, including balconies and the terrace.',
+  },
+  {
+    title: 'Tell the kitchen a day ahead if you will miss a meal',
+    description:
+      'Food is cooked to a count. Letting the kitchen know by 9:00 PM the night before means less waste, and it is what your meal deduction is based on.',
+  },
+  {
+    title: 'One month’s notice before you leave',
+    description:
+      'Give a month’s written notice so the room can be filled. Your deposit is returned within seven days of moving out, less any dues.',
+  },
+  {
+    title: 'Keep the common areas usable',
+    description:
+      'Wash your own plates, keep the study room quiet after 8:00 PM, and park two-wheelers inside the marked area.',
+  },
+]; 
+
+/**
+ * Gallery placeholders.
+ *
+ * Development uses plain external URLs and leaves `storageKey` null: the point
+ * of the split is that business logic never depends on where the bytes live, so
+ * a seed with no object store configured must still produce a working gallery.
+ * Real uploads set both, and the public API only ever returns the URL.
+ */
+const GALLERY = [
+  { url: 'https://images.unsplash.com/photo-1522708323590-d24dbb6b0267?w=1200&q=70', caption: 'The common room' },
+  { url: 'https://images.unsplash.com/photo-1595526114035-0d45ed16cfbf?w=1200&q=70', caption: 'A 2-sharing room' },
+  { url: 'https://images.unsplash.com/photo-1540518614846-7eded433c457?w=1200&q=70', caption: 'Single occupancy room' },
+  { url: 'https://images.unsplash.com/photo-1567521464027-f127ff144326?w=1200&q=70', caption: 'The dining hall' },
+  { url: 'https://images.unsplash.com/photo-1556909212-d5b604d0c90d?w=1200&q=70', caption: 'Kitchen' },
+  { url: 'https://images.unsplash.com/photo-1497366216548-37526070297c?w=1200&q=70', caption: 'Study room' },
+  { url: 'https://images.unsplash.com/photo-1584622650111-993a426fbf0a?w=1200&q=70', caption: 'Bathrooms' },
+  { url: 'https://images.unsplash.com/photo-1600585154340-be6161a56a0c?w=1200&q=70', caption: 'Terrace' },
+];
+
+/** Short selling points for the landing screen. Owner-editable, so: database. */
+const HIGHLIGHTS = [
+  '5 minutes from Karve Road',
+  'Three home-style meals included',
+  'No brokerage, no lock-in',
+  'Walk to MIT and Cummins',
 ];
 
 const MENU: Array<[number, MealType, string[]]> = [
@@ -212,6 +355,24 @@ async function main(): Promise<void> {
   // A clean slate for the seeded property only. Cascades take the rest.
   await prisma.property.deleteMany({ where: { slug: SLUG } });
 
+  // Cascades do not reach User, so the accounts this seed owns are removed by
+  // name here. Scoped to exactly the identities below rather than a blanket
+  // wipe: anyone who signed up through the app keeps their account.
+  const seededPhones = [
+    OWNER_PHONE,
+    PROSPECT_PHONE,
+    ...RESIDENTS.map((resident) => resident.phone),
+  ];
+  const seededEmails = [
+    'owner@heavenhospitality.in',
+    'nikhil@example.in',
+    ...RESIDENTS.map((resident) => resident.email),
+  ];
+
+  await prisma.user.deleteMany({
+    where: { OR: [{ phone: { in: seededPhones } }, { email: { in: seededEmails } }] },
+  });
+
   const property = await prisma.property.create({
     data: {
       slug: SLUG,
@@ -231,7 +392,17 @@ async function main(): Promise<void> {
       latitude: '18.507600',
       longitude: '73.807600',
       contactPhone: '+919876543210',
+      // A separate WhatsApp line: most enquiries arrive there, and assuming it
+      // is the same number is how messages end up somewhere nobody watches.
+      whatsappPhone: '+919876543211',
       contactEmail: 'stay@heavenhospitality.in',
+      heroImageUrl:
+        'https://images.unsplash.com/photo-1522708323590-d24dbb6b0267?w=1600&q=75',
+      highlights: HIGHLIGHTS,
+      checkInInfo:
+        'Come and see the place any day between 9:00 AM and 8:00 PM — call ahead so someone ' +
+        'is free to show you around. Moving in needs one month’s rent as deposit, a photo ID ' +
+        'and one passport photograph. Rooms are furnished; bring your own bedding if you prefer.',
       settings: {
         create: {
           rentDueDay: 5,
@@ -246,14 +417,19 @@ async function main(): Promise<void> {
           bankName: 'HDFC Bank',
           upiId: 'heavenhospitality@okhdfcbank',
           upiQrImageUrl: null,
-          paymentDetailsArePublic: true,
+          // The realistic default: a UPI handle is fine on a public page, an
+          // account number and IFSC are not. Two switches, so the owner does not
+          // have to publish both to publish either.
+          showUpiPublicly: true,
+          showBankDetailsPublicly: false,
           mealCutoffLocalTime: '21:00',
         },
       },
       facilities: {
         create: FACILITIES.map((facility, index) => ({ ...facility, sortOrder: index })),
       },
-      rules: { create: RULES.map((text, index) => ({ text, sortOrder: index })) },
+      rules: { create: RULES.map((rule, index) => ({ ...rule, sortOrder: index })) },
+      photos: { create: GALLERY.map((photo, index) => ({ ...photo, sortOrder: index })) },
       menuItems: {
         create: MENU.map(([dayOfWeek, mealType, items]) => ({ dayOfWeek, mealType, items })),
       },
@@ -262,6 +438,26 @@ async function main(): Promise<void> {
           { mealType: MealType.BREAKFAST, startsAt: '08:00', endsAt: '09:30' },
           { mealType: MealType.LUNCH, startsAt: '12:30', endsAt: '14:00' },
           { mealType: MealType.DINNER, startsAt: '20:00', endsAt: '21:30' },
+        ],
+      },
+      // Two one-off specials, dated relative to today so they are always inside
+      // the week the app shows. They replace the weekly item for that ONE meal
+      // and leave the standing menu untouched — which is the whole reason
+      // overrides are a separate table.
+      menuOverrides: {
+        create: [
+          {
+            date: toPrismaDate(today),
+            mealType: MealType.DINNER,
+            items: ['Paneer Butter Masala', 'Puri', 'Gulab Jamun'],
+            description: 'Festival special',
+          },
+          {
+            date: toPrismaDate(addDays(today, 3)),
+            mealType: MealType.LUNCH,
+            items: ['Puran Poli', 'Katachi Amti', 'Rice'],
+            description: 'Maharashtrian thali',
+          },
         ],
       },
       notices: {
@@ -424,22 +620,55 @@ async function main(): Promise<void> {
   }
 
   // --- Owner ----------------------------------------------------------------
+  //
+  // The one account that cannot be created through any public route. It exists
+  // because the seed makes it, which is the whole reason `POST /auth/signup`
+  // has no role parameter to abuse.
   const passwordHash = await hashPassword(DEMO_PASSWORD);
+  const ownerPasswordHash = await hashPassword(OWNER_PASSWORD);
 
   const owner = await prisma.user.upsert({
-    where: { email: 'owner@heavenhospitality.in' },
-    update: { fullName: 'Asha Menon', passwordHash, status: 'ACTIVE' },
+    where: { phone: OWNER_PHONE },
+    update: {
+      fullName: OWNER_NAME,
+      passwordHash: ownerPasswordHash,
+      role: UserRole.ADMIN,
+      phoneVerifiedAt: new Date(),
+      status: 'ACTIVE',
+    },
     create: {
-      fullName: 'Asha Menon',
+      fullName: OWNER_NAME,
       email: 'owner@heavenhospitality.in',
-      phone: '+919000000001',
-      passwordHash,
+      phone: OWNER_PHONE,
+      passwordHash: ownerPasswordHash,
+      role: UserRole.ADMIN,
+      // Seeded accounts are verified by construction: the operator provisioning
+      // them is asserting the number, so there is nobody to send a code to.
+      phoneVerifiedAt: new Date(),
       status: 'ACTIVE',
     },
   });
 
   await prisma.propertyMembership.create({
-    data: { userId: owner.id, propertyId: property.id, role: MembershipRole.OWNER },
+    data: { userId: owner.id, propertyId: property.id, role: UserRole.ADMIN },
+  });
+
+  // --- A registered non-resident ---------------------------------------------
+  //
+  // What every public signup produces: an account, a verified number, and no
+  // authority anywhere. Deliberately given NO membership row — a membership
+  // records where an account holds authority, and this one holds none. Its
+  // profile screen must therefore show no room, no rent and no invoices.
+  await prisma.user.create({
+    data: {
+      fullName: PROSPECT_NAME,
+      phone: PROSPECT_PHONE,
+      email: 'nikhil@example.in',
+      passwordHash,
+      role: UserRole.NON_RESIDENT,
+      phoneVerifiedAt: new Date(),
+      status: 'ACTIVE',
+    },
   });
 
   // --- Residents ------------------------------------------------------------
@@ -458,19 +687,27 @@ async function main(): Promise<void> {
     const joinedOn = addDays(today, -resident.joinedMonthsAgo * 30);
 
     const user = await prisma.user.upsert({
-      where: { email: resident.email },
-      update: { fullName: resident.name, phone: resident.phone, passwordHash, status: 'ACTIVE' },
+      where: { phone: resident.phone },
+      update: {
+        fullName: resident.name,
+        passwordHash,
+        role: UserRole.RESIDENT,
+        phoneVerifiedAt: new Date(),
+        status: 'ACTIVE',
+      },
       create: {
         fullName: resident.name,
         email: resident.email,
         phone: resident.phone,
         passwordHash,
+        role: UserRole.RESIDENT,
+        phoneVerifiedAt: new Date(),
         status: 'ACTIVE',
       },
     });
 
     await prisma.propertyMembership.create({
-      data: { userId: user.id, propertyId: property.id, role: MembershipRole.RESIDENT },
+      data: { userId: user.id, propertyId: property.id, role: UserRole.RESIDENT },
     });
 
     const tenancy = await prisma.tenancy.create({
@@ -846,32 +1083,41 @@ async function main(): Promise<void> {
         propertyId: property.id,
         summary,
         actorUserId: owner.id,
-        actorRole: 'OWNER',
+        actorRole: 'ADMIN',
         createdAt: new Date(Date.now() - daysAgo * 86_400_000),
       },
     });
   }
 
   // --- Summary --------------------------------------------------------------
-  const [rooms, beds, available, residents, invoices, complaints] = await Promise.all([
-    prisma.room.count({ where: { propertyId: property.id } }),
-    prisma.bed.count({ where: { room: { propertyId: property.id } } }),
-    prisma.bed.count({ where: { room: { propertyId: property.id }, status: 'AVAILABLE' } }),
-    prisma.tenancy.count({ where: { propertyId: property.id, status: 'ACTIVE' } }),
-    prisma.invoice.count({ where: { propertyId: property.id } }),
-    prisma.complaint.count({ where: { propertyId: property.id } }),
-  ]);
+  const [rooms, beds, available, residents, invoices, complaints, photos, menuItems] =
+    await Promise.all([
+      prisma.room.count({ where: { propertyId: property.id } }),
+      prisma.bed.count({ where: { room: { propertyId: property.id } } }),
+      prisma.bed.count({ where: { room: { propertyId: property.id }, status: 'AVAILABLE' } }),
+      prisma.tenancy.count({ where: { propertyId: property.id, status: 'ACTIVE' } }),
+      prisma.invoice.count({ where: { propertyId: property.id } }),
+      prisma.complaint.count({ where: { propertyId: property.id } }),
+      prisma.propertyPhoto.count({ where: { propertyId: property.id } }),
+      prisma.weeklyMenuItem.count({ where: { propertyId: property.id } }),
+    ]);
 
   const lines = [
     `Seeded "${property.name}" (${SLUG})`,
     `  ${FLOORS.length} floors · ${rooms} rooms · ${beds} beds (${available} available)`,
     `  ${residents} residents · ${invoices} invoices · ${complaints} complaints`,
+    `  Public: ${FACILITIES.length} facilities · ${RULES.length} rules · ${photos} photos · ${menuItems} menu items`,
     `  Billing periods: ${twoPeriodsAgo} (paid) · ${lastPeriod} (overdue) · ${thisPeriod} (issued)`,
     '',
-    '  Sign in — DEVELOPMENT ONLY. Password for every account:',
-    `    ${DEMO_PASSWORD}`,
-    '    OWNER     owner@heavenhospitality.in     (admin console)',
-    '    RESIDENT  tenant@heavenhospitality.in    (mobile app)',
+    '  Sign in with MOBILE NUMBER + password — DEVELOPMENT ONLY.',
+    '',
+    `    ADMIN          ${OWNER_PHONE}   ${OWNER_PASSWORD}`,
+    `    RESIDENT       ${TENANT_PHONE}   ${DEMO_PASSWORD}`,
+    `    NON_RESIDENT   ${PROSPECT_PHONE}   ${DEMO_PASSWORD}`,
+    '',
+    `  Every other seeded resident uses ${DEMO_PASSWORD} too.`,
+    '  New accounts sign up in the app and are always NON_RESIDENT.',
+    '  The public pages need no account at all.',
     '',
   ];
   process.stdout.write(`${lines.join('\n')}\n`);

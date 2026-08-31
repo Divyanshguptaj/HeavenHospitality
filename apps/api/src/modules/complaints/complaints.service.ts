@@ -258,7 +258,7 @@ export async function updateComplaint(
           ? `Note added to "${complaint.title}"`
           : `"${complaint.title}" moved to ${input.status}`,
       actorUserId: actor.userId,
-      actorRole: 'OWNER',
+      actorRole: 'ADMIN',
       before: { status: complaint.status },
       after: { status: input.status ?? complaint.status },
     });

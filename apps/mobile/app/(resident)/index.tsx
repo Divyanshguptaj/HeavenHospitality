@@ -1,10 +1,10 @@
-import { MEAL_LABELS } from '@heaven/contracts';
+import { MEAL_LABELS, ROLE_LABELS } from '@heaven/contracts';
 import { formatINR } from '@heaven/money';
 import { router } from 'expo-router';
 import { StyleSheet, Text, View } from 'react-native';
 
 import { useResidentHome } from '../../src/api/resident';
-import { isResidentExperience, useAuthStore } from '../../src/auth/authStore';
+import { isResident, useAuthStore } from '../../src/auth/authStore';
 import {
   Badge,
   Body,
@@ -32,21 +32,23 @@ export default function ResidentHomeScreen() {
   const user = useAuthStore((state) => state.user);
   const { data, error, isPending, refetch, isRefetching } = useResidentHome();
 
-  // The owner has an account but no stay; point them at the console rather than
-  // showing an error.
-  if (user !== null && !isResidentExperience(user)) {
+  // An account without a tenancy has no stay to show. Rather than an error,
+  // send them where their account actually leads — which for a non-resident is
+  // the public section, the same one they were browsing before signing in.
+  if (user !== null && !isResident(user)) {
     return (
       <Screen>
         <PageHeading title={`Hello, ${user.fullName}`} />
         <Card>
           <View style={styles.row}>
-            <CardTitle>Owner account</CardTitle>
-            <Badge label={user.primaryRole} tone="warning" />
+            <CardTitle>No active stay</CardTitle>
+            <Badge label={ROLE_LABELS[user.role]} tone="warning" />
           </View>
           <Body>
-            This app is for residents. Property operations — residents, billing, occupancy and
-            reports — are managed from the admin console on a computer.
+            This section is for people currently living here. You can browse rooms, the menu and
+            everything else without an account at all.
           </Body>
+          <Button label="Back to browsing" onPress={() => router.replace('/(public)')} />
         </Card>
       </Screen>
     );

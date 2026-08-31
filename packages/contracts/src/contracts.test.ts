@@ -2,7 +2,13 @@ import { describe, expect, it } from 'vitest';
 
 import { ERROR_CODES, ERROR_STATUS } from './errors.js';
 import { buildPaginationMeta, paginationQuerySchema, MAX_PAGE_SIZE } from './http.js';
-import { PERMISSIONS, ROLES, ROLE_PERMISSIONS, roleHasPermission } from './roles.js';
+import {
+  DEFAULT_SIGNUP_ROLE,
+  PERMISSIONS,
+  ROLES,
+  ROLE_PERMISSIONS,
+  roleHasPermission,
+} from './roles.js';
 import { paiseSchema, periodKeySchema, phoneSchema, slugSchema } from './primitives.js';
 
 describe('error codes', () => {
@@ -46,9 +52,9 @@ describe('pagination', () => {
 });
 
 describe('role matrix', () => {
-  it('grants the owner every permission', () => {
+  it('grants the admin every permission', () => {
     for (const permission of PERMISSIONS) {
-      expect(roleHasPermission('OWNER', permission)).toBe(true);
+      expect(roleHasPermission('ADMIN', permission)).toBe(true);
     }
   });
 
@@ -56,7 +62,7 @@ describe('role matrix', () => {
     expect([...ROLE_PERMISSIONS.RESIDENT]).toEqual(['self:read', 'self:write']);
 
     // A resident holds a real account at a real property and still cannot touch
-    // anything operational — this is the whole point of the two-role split.
+    // anything operational — this is the whole point of the role split.
     for (const permission of [
       'invoice:write',
       'payment:record',
@@ -69,8 +75,21 @@ describe('role matrix', () => {
     }
   });
 
-  it('defines exactly two roles — there is no staff hierarchy', () => {
-    expect(Object.keys(ROLE_PERMISSIONS).sort()).toEqual(['OWNER', 'RESIDENT']);
+  it('gives a non-resident no permission whatsoever', () => {
+    // Every public signup lands here. If this list is ever non-empty, creating
+    // an account has become a privilege escalation.
+    expect([...ROLE_PERMISSIONS.NON_RESIDENT]).toEqual([]);
+  });
+
+  it('makes NON_RESIDENT the signup default', () => {
+    // The server picks the role; no request field reaches it. Asserted here so
+    // a change to the default is a deliberate, reviewed edit.
+    expect(DEFAULT_SIGNUP_ROLE).toBe('NON_RESIDENT');
+    expect(ROLE_PERMISSIONS[DEFAULT_SIGNUP_ROLE]).toEqual([]);
+  });
+
+  it('defines exactly three roles — there is no staff hierarchy', () => {
+    expect(Object.keys(ROLE_PERMISSIONS).sort()).toEqual(['ADMIN', 'NON_RESIDENT', 'RESIDENT']);
   });
 
   it('only ever references declared permissions', () => {

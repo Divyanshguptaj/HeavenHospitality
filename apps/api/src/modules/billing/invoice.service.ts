@@ -290,7 +290,7 @@ export async function generateInvoicesForPeriod(
         propertyId,
         summary: `Invoice ${number} issued to ${tenancy.user.fullName} for ${periodKey}`,
         actorUserId: actor.userId,
-        actorRole: 'OWNER',
+        actorRole: 'ADMIN',
       });
     });
 
@@ -445,7 +445,7 @@ export async function addInvoiceItem(
       propertyId,
       summary: `${input.kind === 'DISCOUNT' ? 'Discount' : 'Charge'} added: ${input.description}`,
       actorUserId: actor.userId,
-      actorRole: 'OWNER',
+      actorRole: 'ADMIN',
       after: { description: input.description, amountPaise },
     });
   });
@@ -480,7 +480,7 @@ export async function setLateFeeWaiver(
       propertyId,
       summary: waived ? 'Late fee waived' : 'Late fee waiver removed',
       actorUserId: actor.userId,
-      actorRole: 'OWNER',
+      actorRole: 'ADMIN',
     });
   });
 

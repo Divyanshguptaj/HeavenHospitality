@@ -2,7 +2,7 @@ import { DAY_NAMES, MEAL_LABELS, MEAL_TYPES, type MealTypeName } from '@heaven/c
 import { useState } from 'react';
 import { Alert, Pressable, StyleSheet, Text, View } from 'react-native';
 
-import { usePublicProperty } from '../../src/api/property';
+import { usePublicMenu } from '../../src/api/public';
 import { useAbsences, useMarkAbsence, useResidentHome } from '../../src/api/resident';
 import {
   Badge,
@@ -40,7 +40,9 @@ function weekdayOf(date: string): number {
 export default function MessScreen() {
   const theme = useTheme();
   const home = useResidentHome();
-  const property = usePublicProperty();
+  // The same published menu the public Menu tab renders — one source, so the
+  // kitchen never has to be told twice and the two screens cannot disagree.
+  const menu = usePublicMenu();
   const markAbsence = useMarkAbsence();
 
   // Today and the next six days: far enough to plan a trip, short enough to stay
@@ -73,8 +75,9 @@ export default function MessScreen() {
       .map((absence) => absence.mealType),
   );
 
-  const menuForSelected =
-    property.data?.menu.find((day) => day.dayOfWeek === weekdayOf(selectedDate))?.meals ?? [];
+  // Matched on the DATE, not the weekday: a date-specific override means "next
+  // Sunday" and "this Sunday" are legitimately different meals.
+  const menuForSelected = menu.data?.days.find((day) => day.date === selectedDate)?.meals ?? [];
 
   function toggle(mealType: MealTypeName): void {
     const next = new Set(absentOnSelected);
@@ -167,7 +170,7 @@ export default function MessScreen() {
         {MEAL_TYPES.map((mealType) => {
           const isAbsent = absentOnSelected.has(mealType);
           const items = menuForSelected.find((meal) => meal.mealType === mealType)?.items ?? [];
-          const timing = property.data?.mealTimings.find((t) => t.mealType === mealType);
+          const timing = menu.data?.timings.find((t) => t.mealType === mealType);
 
           return (
             <Pressable
@@ -222,15 +225,15 @@ export default function MessScreen() {
 
       <Card>
         <CardTitle>This week&apos;s menu</CardTitle>
-        {property.data === undefined ? (
+        {menu.data === undefined ? (
           <LoadingState />
-        ) : property.data.menu.length === 0 ? (
+        ) : menu.data.days.length === 0 ? (
           <EmptyState message="The menu has not been published yet." />
         ) : (
-          property.data.menu.map((day) => (
-            <View key={day.dayOfWeek} style={styles.menuDay}>
+          menu.data.days.map((day) => (
+            <View key={day.date ?? day.dayOfWeek} style={styles.menuDay}>
               <Text style={[styles.menuDayName, { color: theme.textPrimary }]}>
-                {DAY_NAMES[day.dayOfWeek]}
+                {day.dayName}
               </Text>
               {day.meals.map((meal) => (
                 <Body key={meal.mealType}>

@@ -272,7 +272,7 @@ export async function recordManualPayment(
       propertyId,
       summary: `₹${(input.amountPaise / 100).toFixed(2)} received from ${tenancy.user.fullName} via ${input.method} (receipt ${result.receiptNumber})`,
       actorUserId: actor.userId,
-      actorRole: 'OWNER',
+      actorRole: 'ADMIN',
       after: {
         method: input.method,
         amountPaise: input.amountPaise,

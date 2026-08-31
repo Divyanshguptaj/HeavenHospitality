@@ -16,6 +16,12 @@ export default defineConfig({
       JWT_REFRESH_SECRET: 'test-refresh-secret-that-is-long-enough-00000',
       LOG_LEVEL: 'silent',
       CORS_ALLOWED_ORIGINS: 'http://localhost:5173',
+      // Vite loads the repo-root `.env` into the test process. A developer who
+      // set OTP_DEV_FIXED_CODE for convenience would otherwise pin every
+      // generated code to the same value, and "a new code replaces the old one"
+      // would pass whether or not the code actually changed. Blanked here so the
+      // suite always exercises the real CSPRNG path.
+      OTP_DEV_FIXED_CODE: '',
     },
   },
 });

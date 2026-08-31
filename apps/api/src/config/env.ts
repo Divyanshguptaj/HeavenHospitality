@@ -81,6 +81,32 @@ const envSchema = z
     ACCOUNT_LOCKOUT_THRESHOLD: z.coerce.number().int().min(1).default(5),
     ACCOUNT_LOCKOUT_MINUTES: z.coerce.number().int().min(1).default(15),
 
+    // Phone verification. See docs/0003-auth-and-sessions.md.
+    //
+    // `mock` writes the code to the log instead of sending an SMS. It is refused
+    // in production below, so a missing SMS provider fails at boot rather than
+    // silently letting anyone verify any number.
+    OTP_PROVIDER: z.enum(['mock', 'sms']).default('mock'),
+    OTP_TTL_MINUTES: z.coerce.number().int().min(1).max(60).default(10),
+    OTP_MAX_ATTEMPTS: z.coerce.number().int().min(1).max(20).default(5),
+    OTP_RESEND_COOLDOWN_SECONDS: z.coerce.number().int().min(0).max(3_600).default(60),
+    /** How long "this phone was just verified" stays good for the next step. */
+    OTP_VERIFICATION_TTL_MINUTES: z.coerce.number().int().min(1).max(60).default(15),
+    /**
+     * A fixed code for local development, so there is no need to read the log on
+     * every signup. Production rejects this at boot — see the refinement below.
+     */
+    OTP_DEV_FIXED_CODE: z
+      .string()
+      .regex(/^\d{6}$/, 'Must be exactly 6 digits')
+      .optional(),
+
+    // The first owner. Without these the seed still runs, using its documented
+    // development defaults; production must set them explicitly.
+    BOOTSTRAP_OWNER_PHONE: z.string().optional(),
+    BOOTSTRAP_OWNER_PASSWORD: z.string().optional(),
+    BOOTSTRAP_OWNER_NAME: z.string().optional(),
+
     // Property defaults — business rules run in the property's timezone.
     DEFAULT_TIMEZONE: z.string().default('Asia/Kolkata'),
 
@@ -148,6 +174,35 @@ const envSchema = z
       });
     }
 
+    // A fixed OTP in production would mean anyone could verify anyone's number,
+    // which is the whole of signup and password reset. Refuse to start.
+    if (value.OTP_DEV_FIXED_CODE !== undefined) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['OTP_DEV_FIXED_CODE'],
+        message: 'OTP_DEV_FIXED_CODE must not be set when NODE_ENV=production',
+      });
+    }
+
+    // Likewise the mock provider: it logs the code instead of sending it.
+    if (value.OTP_PROVIDER !== 'sms') {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['OTP_PROVIDER'],
+        message: 'OTP_PROVIDER must be "sms" when NODE_ENV=production',
+      });
+    }
+
+    for (const key of ['BOOTSTRAP_OWNER_PHONE', 'BOOTSTRAP_OWNER_PASSWORD'] as const) {
+      if (value[key] === undefined || value[key] === '') {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: [key],
+          message: `${key} is required when NODE_ENV=production`,
+        });
+      }
+    }
+
     if (value.JWT_ACCESS_SECRET === value.JWT_REFRESH_SECRET) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
@@ -167,9 +222,22 @@ const envSchema = z
 
 export type Env = z.infer<typeof envSchema>;
 
+/**
+ * An empty environment variable means "not set", never "set to the empty string".
+ *
+ * `FOO=` in a .env file, an unset variable in a CI matrix and a deliberately
+ * blanked override all arrive here as `''`. Passing that through makes every
+ * optional field fail its own format check — an empty OTP code is not six
+ * digits, an empty DSN is not a URL — which turns "I did not configure this"
+ * into a startup crash.
+ */
+function withoutBlanks(source: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
+  return Object.fromEntries(Object.entries(source).filter(([, value]) => value !== ''));
+}
+
 function parseEnv(): Env {
   loadDotEnvIfPresent();
-  const result = envSchema.safeParse(process.env);
+  const result = envSchema.safeParse(withoutBlanks(process.env));
 
   if (!result.success) {
     // Deliberately not the logger: configuration failed, so the logger may not be

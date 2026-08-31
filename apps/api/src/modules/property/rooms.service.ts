@@ -75,7 +75,7 @@ export async function createFloor(
         propertyId,
         summary: `Floor "${created.name}" created`,
         actorUserId: actor.userId,
-        actorRole: 'OWNER',
+        actorRole: 'ADMIN',
       });
       return created;
     });
@@ -291,7 +291,7 @@ export async function createRoom(actor: Actor, input: CreateRoomInput): Promise<
         propertyId,
         summary: `Room ${created.number} created with ${input.capacity} bed(s)`,
         actorUserId: actor.userId,
-        actorRole: 'OWNER',
+        actorRole: 'ADMIN',
       });
 
       return created;
@@ -390,7 +390,7 @@ export async function updateRoom(
         propertyId,
         summary: `Room ${input.number ?? existing.number} updated`,
         actorUserId: actor.userId,
-        actorRole: 'OWNER',
+        actorRole: 'ADMIN',
         before: { capacity: existing.capacity, monthlyRentPaise: existing.monthlyRentPaise },
         after: {
           capacity: newCapacity,

@@ -4,11 +4,15 @@ import { useForm } from 'react-hook-form';
 import { useNavigate } from 'react-router-dom';
 import { z } from 'zod';
 
+import { phoneNumberSchema } from '@heaven/contracts';
+
 import { canAccessConsole, useAuthStore } from '../auth/authStore';
 import { ApiRequestError } from '../lib/apiClient';
 
+// The same phone schema the API validates with, so the console cannot accept a
+// format the server would reject — or normalise it differently.
 const loginSchema = z.object({
-  identifier: z.string().trim().min(3, 'Enter your email or phone number'),
+  phone: phoneNumberSchema,
   password: z.string().min(1, 'Enter your password'),
 });
 
@@ -35,7 +39,7 @@ export function LoginPage() {
   async function onSubmit(values: LoginForm): Promise<void> {
     setFormError(null);
     try {
-      const user = await signIn(values.identifier, values.password);
+      const user = await signIn(values.phone, values.password);
 
       // A resident has a valid account but no place in the operations console.
       // Signing them straight back out avoids a half-usable session.
@@ -78,24 +82,26 @@ export function LoginPage() {
         >
           <div className="flex flex-col gap-1.5">
             <label
-              htmlFor="identifier"
+              htmlFor="phone"
               className="text-sm font-medium text-[var(--color-text-secondary)]"
             >
-              Email or phone
+              Mobile number
             </label>
             <input
-              id="identifier"
-              type="text"
-              autoComplete="username"
+              id="phone"
+              type="tel"
+              inputMode="tel"
+              placeholder="+91 98765 43210"
+              autoComplete="tel"
               autoFocus
               className={fieldClass}
-              aria-invalid={errors.identifier !== undefined}
-              aria-describedby={errors.identifier !== undefined ? 'identifier-error' : undefined}
-              {...register('identifier')}
+              aria-invalid={errors.phone !== undefined}
+              aria-describedby={errors.phone !== undefined ? 'phone-error' : undefined}
+              {...register('phone')}
             />
-            {errors.identifier !== undefined && (
-              <p id="identifier-error" className="text-xs text-[var(--color-danger)]">
-                {errors.identifier.message}
+            {errors.phone !== undefined && (
+              <p id="phone-error" className="text-xs text-[var(--color-danger)]">
+                {errors.phone.message}
               </p>
             )}
           </div>

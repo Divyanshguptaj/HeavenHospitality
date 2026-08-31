@@ -222,7 +222,7 @@ export async function recordReading(
         `Room ${room.number} ${input.periodKey}: ${units} units = ₹${(amountPaise / 100).toFixed(2)}` +
         (existing === null ? '' : ' (corrected)'),
       actorUserId: actor.userId,
-      actorRole: 'OWNER',
+      actorRole: 'ADMIN',
       after: {
         previousReading: input.previousReading,
         currentReading: input.currentReading,

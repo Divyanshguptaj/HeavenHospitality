@@ -1,27 +1,86 @@
 # 0003 — Authentication and sessions
 
-**Status:** Accepted · **Date:** 2026-08-23
+**Status:** Accepted · **Date:** 2026-08-31 (supersedes the 2026-08-23 decision)
 
-## Decision: password authentication, not OTP
+## Decision: password login, OTP only to prove a phone number
 
-The brief specified phone → OTP → token. **Rejected for MVP.**
+An earlier revision of this document rejected OTP outright and made accounts
+admin-provisioned with email reset. That is **superseded**: the app now has
+public self-service signup, so a phone number has to be proven before an account
+can be attached to it.
+
+Every login is still **mobile number + password**. OTP is used at exactly two
+moments, and never as a routine login step:
+
+1. **Signup** — proving the number belongs to the person claiming it
+2. **Password reset** — proving it again, since a reset bypasses the password
+
+- Identifier: **mobile number** (E.164, unique). Email is optional profile data
+  and cannot be used to sign in
+- Hashing: **Argon2id**
+- Password rules: 8+ characters with a letter and a digit — length is what
+  resists guessing; composition rules mostly produce `Password1!`
+- Roles: `ADMIN`, `RESIDENT`, `NON_RESIDENT`. Public signup **always** produces
+  `NON_RESIDENT`, which holds no permissions at all
+- The first `ADMIN` comes from the seed / `BOOTSTRAP_OWNER_*`. No public route
+  can create one
+
+### SMS delivery is still not solved
 
 Transactional SMS in India requires TRAI **DLT registration** (entity, header and
 template registration through a telecom operator) — realistically 1–3 weeks of
-regulatory lead time — and no SMS provider is in the stack. WhatsApp OTP needs Meta
-business verification plus template approval, with comparable lead time.
+lead time. That has not happened, so `OtpProvider` currently resolves to
+`MockOtpProvider`, which logs the code instead of sending it.
 
-Hostel tenants are onboarded **in person by staff**, not by self-signup, so
-password auth is the honest fit and blocks nothing.
+This is safe only because it cannot reach production. Two independent guards:
 
-- Identifier: **email or phone** + password
-- Hashing: **Argon2id** (bcrypt acceptable fallback)
-- Accounts are **admin-provisioned**; there is no public registration endpoint
-- First login forces a password set via a single-use, expiring invite token
-- Password reset via **email** (already in the stack)
+- `MockOtpProvider`'s constructor throws when `NODE_ENV=production`
+- the environment schema rejects `OTP_PROVIDER=mock` and any value of
+  `OTP_DEV_FIXED_CODE` in production, so the API refuses to boot
 
-An `AuthChannel` seam keeps SMS/WhatsApp OTP addable later without touching the
-token layer.
+Replacing the mock with a real gateway is an edit to `otp.provider.ts` alone —
+expiry, attempt limits, one-time use and resend cooldown are ours and live in
+`otp.service.ts`, so no vendor gets to reimplement them.
+
+### What makes a code worth anything
+
+A code that could be replayed, brute-forced or requested in a loop would prove
+nothing. Each is closed deliberately:
+
+| Property                          | How                                                          |
+| --------------------------------- | ------------------------------------------------------------ |
+| Unguessable                       | `randomInt` (CSPRNG), never `Math.random`                    |
+| Not readable from a database dump | stored as SHA-256, compared in constant time                 |
+| Expires                           | `OTP_TTL_MINUTES`, default 10                                |
+| Survives limited guessing         | `OTP_MAX_ATTEMPTS`, default 5, then the code is burned       |
+| Cannot be replayed                | `consumedAt` set the moment it succeeds                      |
+| Cannot be spammed                 | per-phone cooldown in the database + per-IP `otpSendLimiter` |
+| Only one live at a time           | issuing a new code consumes every earlier one                |
+
+The attempt counter is incremented **before** the comparison, so a client that
+disconnects mid-request still spends its guess.
+
+### Verification tokens
+
+Verifying a code returns a short-lived opaque `verificationToken` (stored
+hashed), and the next step — set password — requires it. Without that, "set a
+password on this number" would need only the phone number itself.
+
+The token is bound to both the phone and the purpose, so a `SIGNUP` verification
+cannot be redeemed to reset an existing account's password. It is single-use:
+redeeming clears the hash under a `WHERE` on that same hash, so two concurrent
+redemptions cannot both win.
+
+### Password reset does not confirm the number exists
+
+`POST /auth/forgot-password/request-otp` returns the same response for a
+registered and an unregistered number, and only actually sends when an eligible
+account exists. Signup necessarily _does_ reveal existence — any usable signup
+form must — which is precisely why reset does not.
+
+A completed reset revokes every session for that user: a reset is how someone
+responds to a suspected compromise, so leaving the attacker signed in would
+defeat it. It also clears any lockout, which is how a locked-out user recovers.
 
 ## Tokens
 

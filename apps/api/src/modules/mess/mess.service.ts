@@ -244,7 +244,7 @@ export async function overrideAbsence(
       propertyId,
       summary: `Meal attendance corrected for ${tenancy.user.fullName} on ${input.date}`,
       actorUserId: actor.userId,
-      actorRole: 'OWNER',
+      actorRole: 'ADMIN',
       after: { absentMeals: input.absentMeals },
     });
   });

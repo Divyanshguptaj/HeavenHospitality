@@ -26,7 +26,12 @@ import {
 import { Router, type NextFunction, type Request, type Response } from 'express';
 import { z } from 'zod';
 
-import { getActor, requireAuth, requirePermission } from '../../middleware/authenticate.js';
+import {
+  getActor,
+  requireAuth,
+  requirePermission,
+  requireRole,
+} from '../../middleware/authenticate.js';
 import { getValidated, validate } from '../../middleware/validate.js';
 import {
   addInvoiceItem,
@@ -108,7 +113,11 @@ import {
  */
 export const ownerRouter: Router = Router();
 
-ownerRouter.use(requireAuth());
+// Two gates, and both are deliberate. `requireRole('ADMIN')` is the coarse one:
+// no resident account reaches ANY route below it, whatever the per-route
+// permission says. The per-route `requirePermission` then scopes what an owner
+// may do, and the service layer scopes it to the right property.
+ownerRouter.use(requireAuth(), requireRole('ADMIN'));
 
 /** Wraps an async handler so a rejection reaches the error middleware. */
 function handle<T>(

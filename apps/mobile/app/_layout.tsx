@@ -5,7 +5,7 @@ import { useEffect } from 'react';
 import { ActivityIndicator, View } from 'react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 
-import { isOwner, useAuthStore } from '../src/auth/authStore';
+import { isAdmin, isResident, useAuthStore } from '../src/auth/authStore';
 import { ApiRequestError } from '../src/lib/apiClient';
 import { useTheme } from '../src/theme';
 
@@ -28,15 +28,20 @@ const queryClient = new QueryClient({
 });
 
 /**
- * One app, three experiences, chosen by who is signed in.
+ * One app. The public section is the ground floor; a role opens a door off it.
  *
- *   not signed in  → guest: browse the property, no account needed
+ *   not signed in  → public: browse everything, no account needed
+ *   NON_RESIDENT   → the SAME public section, plus a profile
  *   RESIDENT       → their stay: rent, meals, complaints
- *   OWNER          → the property: money, residents, rooms, issues
+ *   ADMIN          → the property: money, residents, rooms, issues
  *
- * The role comes from the account, so signing in is the only thing that decides
- * what you see. Every screen behind these groups is authorised by the server
- * independently — this routing is convenience, not security.
+ * Public is the default destination, not a fallback. Someone deciding whether to
+ * live here must never meet a login wall, and signing up must not change what
+ * they can see — a NON_RESIDENT holds no permissions at all, so there would be
+ * nothing extra to show them.
+ *
+ * Every screen behind these groups is authorised by the server independently;
+ * this routing is convenience, not security.
  */
 function RootNavigator() {
   const theme = useTheme();
@@ -49,10 +54,14 @@ function RootNavigator() {
     void restore();
   }, [restore]);
 
-  // Send a signed-in user to the section matching their role.
+  // A resident or an admin is sent to their own section; everyone else — signed
+  // out, or signed in as a NON_RESIDENT — lands in the public one. Nobody is
+  // ever routed to a login screen by default.
   useEffect(() => {
     if (status === 'signedIn') {
-      router.replace(isOwner(user) ? '/(owner)' : '/(resident)');
+      router.replace(isAdmin(user) ? '/(owner)' : isResident(user) ? '/(resident)' : '/(public)');
+    } else if (status === 'signedOut') {
+      router.replace('/(public)');
     }
   }, [status, user]);
 
@@ -75,11 +84,15 @@ function RootNavigator() {
 
   return (
     <Stack screenOptions={{ contentStyle: { backgroundColor: theme.canvas } }}>
-      <Stack.Screen name="(guest)" options={{ headerShown: false }} />
+      <Stack.Screen name="(public)" options={{ headerShown: false }} />
       <Stack.Screen name="(resident)" options={{ headerShown: false }} />
       <Stack.Screen name="(owner)" options={{ headerShown: false }} />
+      <Stack.Screen name="(auth)/welcome" options={{ headerShown: false }} />
       <Stack.Screen name="(auth)/login" options={{ title: 'Sign in' }} />
-      <Stack.Screen name="(auth)/signup" options={{ title: 'Create account' }} />
+      <Stack.Screen name="(auth)/signup-phone" options={{ title: 'Create account' }} />
+      <Stack.Screen name="(auth)/verify-otp" options={{ title: 'Verify number' }} />
+      <Stack.Screen name="(auth)/set-password" options={{ title: 'Password' }} />
+      <Stack.Screen name="(auth)/forgot-phone" options={{ title: 'Reset password' }} />
     </Stack>
   );
 }

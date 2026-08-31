@@ -1,10 +1,17 @@
-import type { Role } from '@heaven/contracts';
-import type { MembershipRole, User } from '@prisma/client';
+import { DEFAULT_SIGNUP_ROLE, maskIndianPhone, type Role } from '@heaven/contracts';
+import type { User, UserRole } from '@prisma/client';
 
 import { env } from '../../config/env.js';
 import { AppError } from '../../errors/AppError.js';
 import { logger } from '../../lib/logger.js';
 import { prisma } from '../../lib/prisma.js';
+import {
+  consumeVerificationToken,
+  requestOtp,
+  verifyOtp,
+  type OtpRequestResult,
+  type OtpVerifyResult,
+} from './otp.service.js';
 import { hashPassword, performDummyVerification, verifyPassword } from './password.js';
 import {
   ACCESS_TOKEN_SECONDS,
@@ -18,8 +25,11 @@ import {
 export interface AuthenticatedUserView {
   readonly id: string;
   readonly fullName: string;
+  readonly phone: string;
   readonly email: string | null;
-  readonly phone: string | null;
+  /** The authorisation role. Single source of truth: the `role` column. */
+  readonly role: Role;
+  readonly phoneVerified: boolean;
   readonly mustChangePassword: boolean;
   readonly memberships: ReadonlyArray<{
     readonly propertyId: string;
@@ -27,8 +37,6 @@ export interface AuthenticatedUserView {
     readonly propertyName: string;
     readonly role: Role;
   }>;
-  /** Convenience for the clients: the highest-privilege role held anywhere. */
-  readonly primaryRole: Role;
 }
 
 export interface AuthResult {
@@ -38,40 +46,13 @@ export interface AuthResult {
   readonly refreshToken: string;
 }
 
-/** Most privileged first — used to pick a landing experience. */
-const ROLE_PRECEDENCE: readonly MembershipRole[] = ['OWNER', 'RESIDENT'];
-
 type UserWithMemberships = User & {
   memberships: Array<{
     propertyId: string;
-    role: MembershipRole;
+    role: UserRole;
     property: { slug: string; name: string };
   }>;
 };
-
-function toUserView(user: UserWithMemberships): AuthenticatedUserView {
-  const memberships = user.memberships.map((membership) => ({
-    propertyId: membership.propertyId,
-    propertySlug: membership.property.slug,
-    propertyName: membership.property.name,
-    // Prisma's MembershipRole and the contract's Role are the same closed set,
-    // so no cast is needed — and a cast would hide them drifting apart.
-    role: membership.role,
-  }));
-
-  const primaryRole =
-    ROLE_PRECEDENCE.find((role) => memberships.some((m) => m.role === role)) ?? 'RESIDENT';
-
-  return {
-    id: user.id,
-    fullName: user.fullName,
-    email: user.email,
-    phone: user.phone,
-    mustChangePassword: user.mustChangePassword,
-    memberships,
-    primaryRole,
-  };
-}
 
 const MEMBERSHIP_INCLUDE = {
   memberships: {
@@ -79,13 +60,31 @@ const MEMBERSHIP_INCLUDE = {
   },
 } as const;
 
+function toUserView(user: UserWithMemberships): AuthenticatedUserView {
+  return {
+    id: user.id,
+    fullName: user.fullName,
+    phone: user.phone,
+    email: user.email,
+    role: user.role,
+    phoneVerified: user.phoneVerifiedAt !== null,
+    mustChangePassword: user.mustChangePassword,
+    memberships: user.memberships.map((membership) => ({
+      propertyId: membership.propertyId,
+      propertySlug: membership.property.slug,
+      propertyName: membership.property.name,
+      role: membership.role,
+    })),
+  };
+}
+
 /**
- * Login and "wrong password" are reported identically, and both branches perform
- * the same Argon2 work — otherwise response timing alone reveals which phone
- * numbers and emails are registered.
+ * "No such number" and "wrong password" are reported identically, and both
+ * branches perform the same Argon2 work — otherwise response timing alone
+ * reveals which numbers are registered.
  */
 const GENERIC_CREDENTIAL_ERROR = () =>
-  new AppError('INVALID_CREDENTIALS', 'Incorrect credentials. Please try again.');
+  new AppError('INVALID_CREDENTIALS', 'Incorrect mobile number or password.');
 
 async function registerFailedAttempt(user: User): Promise<void> {
   const attempts = user.failedLoginAttempts + 1;
@@ -126,11 +125,9 @@ async function issueSession(
   });
 
   const view = toUserView(user);
-  const accessToken = await signAccessToken(
-    user.id,
-    session.id,
-    view.memberships.map((m) => ({ propertyId: m.propertyId, role: m.role })),
-  );
+  const accessToken = await signAccessToken(user.id, session.id, view.role, {
+    memberships: view.memberships.map((m) => ({ propertyId: m.propertyId, role: m.role })),
+  });
 
   return {
     user: view,
@@ -140,67 +137,92 @@ async function issueSession(
   };
 }
 
-/**
- * Public sign-up.
- *
- * Anyone can create an account, and every new account is a RESIDENT — the role
- * is decided by the server, never sent by the client. There is deliberately no
- * way to sign up as an owner: the owner account is provisioned by the seed, and
- * a self-service route to it would be a privilege-escalation hole.
- *
- * A new account has no Tenancy, so it can sign in but sees "no active stay"
- * until the owner allocates a room. That is the correct order: a person exists
- * before their stay does.
- */
-export async function register(params: {
-  fullName: string;
-  email: string;
-  password: string;
-  phone?: string | undefined;
-  deviceLabel?: string | undefined;
-  ipAddress?: string | undefined;
-}): Promise<AuthResult> {
-  const email = params.email.trim().toLowerCase();
+// ---------------------------------------------------------------------------
+// Signup — three steps, and no account exists until the third.
+//
+// The ordering is the security property: a phone number is proven before an
+// account is attached to it, so nobody can create an account on someone else's
+// number and nobody can hold a password against an unverified one.
+// ---------------------------------------------------------------------------
 
-  // Single-property build: new residents join the property that exists. When
-  // there are several this becomes an explicit choice or an invite code.
-  const property = await prisma.property.findFirst({
-    where: { status: 'ACTIVE' },
-    orderBy: { createdAt: 'asc' },
-    select: { id: true },
-  });
-
-  if (property === null) {
-    throw new AppError('INTERNAL_ERROR', 'No property is configured yet.');
-  }
-
+/** Step 1: prove you can receive SMS at this number. */
+export async function startSignup(phone: string): Promise<OtpRequestResult> {
   const existing = await prisma.user.findUnique({
-    where: { email },
-    include: MEMBERSHIP_INCLUDE,
+    where: { phone },
+    select: { passwordHash: true },
   });
 
+  // Signing up on a number that already has a usable account is a dead end, so
+  // say so rather than sending a code that could never complete. This does
+  // confirm the number is registered — unavoidable for any usable signup form,
+  // and the reason password reset (below) deliberately does NOT confirm it.
   if (existing !== null && existing.passwordHash !== null) {
     throw new AppError(
       'ALREADY_EXISTS',
-      'An account with this email already exists. Try signing in instead.',
+      'This mobile number already has an account. Please sign in instead.',
     );
   }
 
+  return requestOtp({ phone, purpose: 'SIGNUP' });
+}
+
+/** Step 2: exchange the code for a short-lived proof of verification. */
+export async function verifySignupOtp(phone: string, code: string): Promise<OtpVerifyResult> {
+  return verifyOtp({ phone, code, purpose: 'SIGNUP' });
+}
+
+/**
+ * Step 3: choose a password, and the account comes into being.
+ *
+ * The role is decided here, by the server, and is always NON_RESIDENT. There is
+ * no parameter for it and no request field that reaches it, so no client can ask
+ * to be an ADMIN or a RESIDENT — those are granted by an admin action, never
+ * claimed. A returning tenant is recognised by their phone number and keeps the
+ * role they already had (see the account-claiming branch below).
+ *
+ * NON_RESIDENT is a zero-permission role: signing up buys a profile and nothing
+ * else, because everything a non-resident can see is already public.
+ */
+export async function completeSignup(params: {
+  phone: string;
+  verificationToken: string;
+  fullName: string;
+  password: string;
+  deviceLabel?: string | undefined;
+  ipAddress?: string | undefined;
+}): Promise<AuthResult> {
+  await consumeVerificationToken({
+    phone: params.phone,
+    token: params.verificationToken,
+    purpose: 'SIGNUP',
+  });
+
   const passwordHash = await hashPassword(params.password);
+  const existing = await prisma.user.findUnique({ where: { phone: params.phone } });
+
+  // Re-checked after verification, not only at step 1: the window between the
+  // two is minutes long, and two people racing the same number must not both win.
+  if (existing !== null && existing.passwordHash !== null) {
+    throw new AppError(
+      'ALREADY_EXISTS',
+      'This mobile number already has an account. Please sign in instead.',
+    );
+  }
 
   const user = await prisma.$transaction(async (tx) => {
     // The owner may have added this person already, in which case the account
     // exists with no password. Signing up CLAIMS that account rather than
     // creating a second one — otherwise their room and invoices would be
-    // stranded on the original.
+    // stranded on the original. Their existing role is left untouched.
     const record =
       existing === null
         ? await tx.user.create({
             data: {
+              phone: params.phone,
               fullName: params.fullName.trim(),
-              email,
-              phone: params.phone?.trim() ?? null,
               passwordHash,
+              role: DEFAULT_SIGNUP_ROLE,
+              phoneVerifiedAt: new Date(),
               status: 'ACTIVE',
             },
           })
@@ -208,25 +230,28 @@ export async function register(params: {
             where: { id: existing.id },
             data: {
               passwordHash,
+              fullName: params.fullName.trim(),
+              phoneVerifiedAt: new Date(),
               mustChangePassword: false,
               status: 'ACTIVE',
-              fullName: params.fullName.trim(),
-              ...(params.phone === undefined ? {} : { phone: params.phone.trim() }),
+              // `role` is deliberately absent. The admin may have provisioned
+              // this person as a RESIDENT already; claiming the account must not
+              // demote them, and it must not promote anyone either.
             },
           });
 
-    await tx.propertyMembership.upsert({
-      where: { userId_propertyId: { userId: record.id, propertyId: property.id } },
-      // An existing membership is left alone: claiming an account must not
-      // downgrade an owner to a resident.
-      update: {},
-      create: { userId: record.id, propertyId: property.id, role: 'RESIDENT' },
-    });
+    // No membership is created here. A membership records where an account holds
+    // AUTHORITY, and a non-resident holds none anywhere — writing an empty one
+    // would be a row that means nothing and a claim the token would carry.
+    // The admin creates it when they accept this person as a tenant.
 
     return tx.user.findUniqueOrThrow({ where: { id: record.id }, include: MEMBERSHIP_INCLUDE });
   });
 
-  logger.info({ userId: user.id, claimed: existing !== null }, 'Account registered');
+  logger.info(
+    { userId: user.id, role: user.role, claimed: existing !== null, phone: maskIndianPhone(user.phone) },
+    'Account created',
+  );
 
   return issueSession(user, newSessionFamilyId(), {
     deviceLabel: params.deviceLabel,
@@ -234,18 +259,18 @@ export async function register(params: {
   });
 }
 
+// ---------------------------------------------------------------------------
+// Login
+// ---------------------------------------------------------------------------
+
 export async function login(params: {
-  identifier: string;
+  phone: string;
   password: string;
   deviceLabel?: string | undefined;
   ipAddress?: string | undefined;
 }): Promise<AuthResult> {
-  const identifier = params.identifier.trim();
-
-  // A single lookup on either identity column; the client does not have to say
-  // which kind of identifier it is sending.
-  const user = await prisma.user.findFirst({
-    where: { OR: [{ email: identifier.toLowerCase() }, { phone: identifier }] },
+  const user = await prisma.user.findUnique({
+    where: { phone: params.phone },
     include: MEMBERSHIP_INCLUDE,
   });
 
@@ -271,20 +296,29 @@ export async function login(params: {
     );
   }
 
-  const passwordMatches = await verifyPassword(user.passwordHash, params.password);
-  if (!passwordMatches) {
+  // An unverified number cannot hold a session. Signup always sets this, so in
+  // practice only an owner-provisioned account can be in this state.
+  if (user.phoneVerifiedAt === null) {
+    await performDummyVerification(params.password);
+    throw new AppError(
+      'PHONE_NOT_VERIFIED',
+      'This mobile number has not been verified. Please sign up to finish setting up your account.',
+    );
+  }
+
+  if (!(await verifyPassword(user.passwordHash, params.password))) {
     await registerFailedAttempt(user);
     throw GENERIC_CREDENTIAL_ERROR();
   }
 
-  // The counter resets only on a SUCCESSFUL login, so an attacker cannot reset it
-  // by interleaving guesses with anything else.
+  // The counter resets only on a SUCCESSFUL login, so an attacker cannot reset
+  // it by interleaving guesses with anything else.
   await prisma.user.update({
     where: { id: user.id },
     data: { failedLoginAttempts: 0, lockedUntil: null, lastLoginAt: new Date() },
   });
 
-  logger.info({ userId: user.id }, 'Login succeeded');
+  logger.info({ userId: user.id, role: user.role }, 'Login succeeded');
 
   return issueSession(user, newSessionFamilyId(), {
     deviceLabel: params.deviceLabel,
@@ -292,12 +326,99 @@ export async function login(params: {
   });
 }
 
+// ---------------------------------------------------------------------------
+// Forgot password
+// ---------------------------------------------------------------------------
+
+/**
+ * Step 1 of reset. Responds identically whether or not the number is registered.
+ *
+ * Unlike signup, this flow has no legitimate reason to confirm existence: a
+ * person resetting their own password already knows they have an account. So an
+ * unregistered number gets the same "code sent" response, and no SMS. Otherwise
+ * this endpoint would be a free membership-list lookup.
+ */
+export async function startPasswordReset(phone: string): Promise<OtpRequestResult> {
+  const user = await prisma.user.findUnique({
+    where: { phone },
+    select: { id: true, status: true, passwordHash: true },
+  });
+
+  const eligible = user !== null && user.status === 'ACTIVE' && user.passwordHash !== null;
+
+  if (!eligible) {
+    logger.info(
+      { phone: maskIndianPhone(phone) },
+      'Password reset requested for an unknown or ineligible number; responding as if sent',
+    );
+
+    return {
+      phone,
+      maskedPhone: maskIndianPhone(phone),
+      expiresInSeconds: env.OTP_TTL_MINUTES * 60,
+      resendAvailableInSeconds: env.OTP_RESEND_COOLDOWN_SECONDS,
+    };
+  }
+
+  return requestOtp({ phone, purpose: 'PASSWORD_RESET' });
+}
+
+export async function verifyPasswordResetOtp(
+  phone: string,
+  code: string,
+): Promise<OtpVerifyResult> {
+  return verifyOtp({ phone, code, purpose: 'PASSWORD_RESET' });
+}
+
+/**
+ * Step 3 of reset. Requires the verification token, so knowing a phone number is
+ * never enough on its own.
+ */
+export async function resetPassword(params: {
+  phone: string;
+  verificationToken: string;
+  password: string;
+}): Promise<void> {
+  await consumeVerificationToken({
+    phone: params.phone,
+    token: params.verificationToken,
+    purpose: 'PASSWORD_RESET',
+  });
+
+  const user = await prisma.user.findUnique({ where: { phone: params.phone } });
+  if (user === null) {
+    throw new AppError('NOT_FOUND', 'No account was found for this number.');
+  }
+
+  await prisma.user.update({
+    where: { id: user.id },
+    data: {
+      passwordHash: await hashPassword(params.password),
+      mustChangePassword: false,
+      // A reset is also how someone recovers a locked account.
+      failedLoginAttempts: 0,
+      lockedUntil: null,
+    },
+  });
+
+  // Every existing session dies. A reset is how a user responds to a suspected
+  // compromise, so leaving the attacker's session alive would defeat the point.
+  await revokeAllSessions(user.id);
+
+  logger.info({ userId: user.id }, 'Password reset; all sessions revoked');
+}
+
+// ---------------------------------------------------------------------------
+// Sessions
+// ---------------------------------------------------------------------------
+
 /**
  * Rotates a refresh token.
  *
  * Presenting an already-revoked token means it was replayed. That is the
- * signature of a stolen token, so the entire family is revoked — logging out that
- * device chain rather than letting an attacker ride along beside the real user.
+ * signature of a stolen token, so the entire family is revoked — logging out
+ * that device chain rather than letting an attacker ride along beside the real
+ * user.
  */
 export async function refresh(params: {
   refreshToken: string;
@@ -358,7 +479,7 @@ export async function logout(refreshToken: string): Promise<void> {
   });
 }
 
-/** Revokes every session for a user — used on password change and by staff. */
+/** Revokes every session for a user — used on password change and reset. */
 export async function revokeAllSessions(userId: string): Promise<void> {
   await prisma.refreshSession.updateMany({
     where: { userId, revokedAt: null },
@@ -398,7 +519,7 @@ export async function changePassword(params: {
     data: { passwordHash: await hashPassword(params.newPassword), mustChangePassword: false },
   });
 
-  // Every other device is signed out: a password change is how a user responds to
-  // a suspected compromise, so leaving old sessions alive would defeat it.
+  // Every other device is signed out: a password change is how a user responds
+  // to a suspected compromise, so leaving old sessions alive would defeat it.
   await revokeAllSessions(user.id);
 }
