@@ -100,10 +100,10 @@ export default function SetPasswordScreen() {
     >
       <ScrollView contentContainerStyle={styles.container} keyboardShouldPersistTaps="handled">
         <PageHeading
-          title={isSignup ? 'Choose a password' : 'Set a new password'}
+          title={isSignup ? 'Create your account' : 'Set a new password'}
           subtitle={
             isSignup
-              ? 'Almost done — this is what you will sign in with.'
+              ? 'Almost done — add your name and set a password to sign in with.'
               : 'You will be signed out everywhere else.'
           }
         />

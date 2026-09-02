@@ -75,6 +75,8 @@ export interface BedView {
     readonly tenancyId: string;
     readonly residentName: string;
     readonly expectedExitDate: string | null;
+    /** So a room screen can gate "remove from room" without a second request. */
+    readonly outstandingPaise: number;
   } | null;
 }
 

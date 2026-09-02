@@ -183,6 +183,9 @@ export async function getOccupancy(actor: Actor): Promise<OccupancyView> {
                       id: true,
                       expectedExitDate: true,
                       user: { select: { fullName: true } },
+                      invoices: {
+                        select: { totalPaise: true, amountPaidPaise: true, status: true },
+                      },
                     },
                   },
                 },

@@ -142,22 +142,29 @@ export default function OwnerOverviewScreen() {
         {data.unpaidResidents.length === 0 ? (
           <EmptyState message="Everyone has paid this month." />
         ) : (
-          data.unpaidResidents.slice(0, 6).map((resident) => (
-            <View key={resident.tenancyId} style={styles.listRow}>
-              <View style={styles.listMain}>
-                <Text style={[styles.name, { color: theme.textPrimary }]}>
-                  {resident.residentName}
+          <>
+            {data.unpaidResidents.slice(0, 6).map((resident) => (
+              <View key={resident.tenancyId} style={styles.listRow}>
+                <View style={styles.listMain}>
+                  <Text style={[styles.name, { color: theme.textPrimary }]}>
+                    {resident.residentName}
+                  </Text>
+                  <Muted>
+                    {resident.roomNumber === null ? 'No room' : `Room ${resident.roomNumber}`} · due{' '}
+                    {resident.dueDate}
+                  </Muted>
+                </View>
+                <Text style={[styles.amount, { color: theme.danger }]}>
+                  {formatINR(resident.outstandingPaise, { withPaise: false })}
                 </Text>
-                <Muted>
-                  {resident.roomNumber === null ? 'No room' : `Room ${resident.roomNumber}`} · due{' '}
-                  {resident.dueDate}
-                </Muted>
               </View>
-              <Text style={[styles.amount, { color: theme.danger }]}>
-                {formatINR(resident.outstandingPaise, { withPaise: false })}
-              </Text>
-            </View>
-          ))
+            ))}
+            <Button
+              label="See all"
+              variant="secondary"
+              onPress={() => router.push({ pathname: '/(owner)/residents', params: { filter: 'owing' } })}
+            />
+          </>
         )}
       </Card>
 

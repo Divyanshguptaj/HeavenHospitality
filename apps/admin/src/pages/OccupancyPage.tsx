@@ -296,9 +296,12 @@ function RoomCard({
     <div className="rounded-md border border-[var(--color-border)] p-3">
       <div className="flex items-start justify-between gap-2">
         <div>
-          <p className="text-sm font-semibold text-[var(--color-text-primary)]">
+          <Link
+            to={`/rooms/${room.id}`}
+            className="text-sm font-semibold text-[var(--color-primary)] hover:underline"
+          >
             Room {room.number}
-          </p>
+          </Link>
           <p className="text-xs text-[var(--color-text-muted)]">
             {room.roomType} · {room.isAirConditioned ? 'AC' : 'Non-AC'} ·{' '}
             {formatINR(room.monthlyRentPaise, { withPaise: false })}/mo
@@ -314,6 +317,9 @@ function RoomCard({
       </div>
 
       <div className="mt-3 flex gap-2 border-t border-[var(--color-border)] pt-2">
+        <Link to={`/rooms/${room.id}`}>
+          <Button variant="ghost">Manage residents</Button>
+        </Link>
         <Button variant="ghost" onClick={onEdit}>
           Edit
         </Button>

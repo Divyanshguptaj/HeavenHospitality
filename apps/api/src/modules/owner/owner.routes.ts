@@ -13,6 +13,7 @@ import {
   idSchema,
   markStaffAttendanceSchema,
   moveResidentSchema,
+  phoneSchema,
   recordPaymentSchema,
   updateBedStatusSchema,
   updateFloorSchema,
@@ -92,6 +93,7 @@ import {
   createResident,
   exitResident,
   findUserByEmail,
+  findUserByPhone,
   getResident,
   listResidents,
   moveResident,
@@ -335,6 +337,21 @@ ownerRouter.get(
   handle((req) => {
     const { query } = getValidated<typeof lookupQuery>(req);
     return findUserByEmail(getActor(req), query.email);
+  }),
+);
+
+const lookupPhoneQuery = { query: z.object({ phone: phoneSchema }) } as const;
+
+// A room is filled by phone, not email: it is the identity every resident
+// actually signs up with, so it is what finds someone who registered
+// themselves before ever being assigned a bed.
+ownerRouter.get(
+  '/residents/lookup-by-phone',
+  requirePermission('resident:read'),
+  validate(lookupPhoneQuery),
+  handle((req) => {
+    const { query } = getValidated<typeof lookupPhoneQuery>(req);
+    return findUserByPhone(getActor(req), query.phone);
   }),
 );
 

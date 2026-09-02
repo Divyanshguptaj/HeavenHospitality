@@ -267,6 +267,49 @@ export async function findUserByEmail(
 }
 
 /**
+ * Owner-facing lookup by phone — the identity a resident actually signs up
+ * with (spec: mobile number + password). This is what finds someone who
+ * registered themselves through the app, before they have ever been a
+ * resident: their account exists, but has no email on file to search by.
+ */
+export async function findUserByPhone(
+  actor: Actor,
+  phone: string,
+): Promise<{
+  id: string;
+  fullName: string;
+  email: string | null;
+  phone: string | null;
+  hasActiveTenancy: boolean;
+} | null> {
+  const { propertyId } = await getPropertyContext(actor, 'resident:read');
+
+  const user = await prisma.user.findUnique({
+    where: { phone },
+    select: {
+      id: true,
+      fullName: true,
+      email: true,
+      phone: true,
+      tenancies: {
+        where: { propertyId, status: { in: ['ACTIVE', 'NOTICE_PERIOD'] } },
+        select: { id: true },
+      },
+    },
+  });
+
+  if (user === null) return null;
+
+  return {
+    id: user.id,
+    fullName: user.fullName,
+    email: user.email,
+    phone: user.phone,
+    hasActiveTenancy: user.tenancies.length > 0,
+  };
+}
+
+/**
  * Opens an allocation, letting the DATABASE decide whether the bed was free.
  *
  * Two owners assigning the same bed at the same instant both pass any
@@ -598,10 +641,14 @@ export async function moveResident(
 }
 
 /**
- * Ends a stay: closes the allocation, frees the bed, marks the tenancy vacated.
+ * Ends a stay: closes the allocation, frees the bed, marks the tenancy
+ * vacated, and — once no active stay is left for this person here — returns
+ * their account to NON_RESIDENT.
  *
- * Outstanding invoices deliberately survive — someone leaving does not cancel
- * what they owe, and the owner can still see and collect it.
+ * Refused while rent is still owed (spec: a resident with a pending balance
+ * cannot be removed from their room). That is a deliberate change from
+ * merely letting debt survive the move-out: RESIDENT standing is now the
+ * thing that keeps a person collectible, so it is not given up first.
  */
 export async function exitResident(
   actor: Actor,
@@ -616,11 +663,22 @@ export async function exitResident(
       include: {
         user: { select: { fullName: true } },
         allocations: { where: { endedAt: null } },
+        invoices: { select: { totalPaise: true, amountPaidPaise: true, status: true } },
       },
     });
     if (tenancy === null) throw new AppError('NOT_FOUND', 'Resident not found.');
     if (tenancy.status === 'VACATED') {
       throw new AppError('TENANCY_NOT_ACTIVE', 'This stay has already ended.');
+    }
+
+    const outstanding = tenancy.invoices
+      .filter((invoice) => invoice.status !== 'CANCELLED')
+      .reduce((sum, invoice) => sum + Math.max(0, invoice.totalPaise - invoice.amountPaidPaise), 0);
+    if (outstanding > 0) {
+      throw new AppError(
+        'SETTLEMENT_REQUIRED',
+        `${tenancy.user.fullName} still has rent outstanding. Settle or waive it before removing them from the room.`,
+      );
     }
 
     for (const allocation of tenancy.allocations) {
@@ -635,6 +693,25 @@ export async function exitResident(
       where: { id: tenancyId },
       data: { status: 'VACATED', actualExitDate: toPrismaDate(input.actualExitDate) },
     });
+
+    // Downgrade only once no other stay keeps them RESIDENT here — a person
+    // moving beds via a fresh tenancy on the same day must not lose access
+    // between the two writes.
+    const otherActiveTenancy = await tx.tenancy.findFirst({
+      where: {
+        userId: tenancy.userId,
+        propertyId,
+        id: { not: tenancyId },
+        status: { in: ['ACTIVE', 'NOTICE_PERIOD'] },
+      },
+      select: { id: true },
+    });
+    if (otherActiveTenancy === null) {
+      await tx.propertyMembership.updateMany({
+        where: { userId: tenancy.userId, propertyId, role: 'RESIDENT' },
+        data: { role: 'NON_RESIDENT' },
+      });
+    }
 
     await writeAudit(tx, {
       action: 'RESIDENT_EXITED',

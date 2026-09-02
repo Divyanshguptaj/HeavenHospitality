@@ -34,7 +34,7 @@ const prisma = new PrismaClient();
 
 const SLUG = 'heaven-hospitality-kothrud';
 const TIMEZONE = 'Asia/Kolkata';
-const DEMO_PASSWORD = 'HeavenDemo#2026';
+const DEMO_PASSWORD = 'div123456';
 
 /**
  * The bootstrap owner.

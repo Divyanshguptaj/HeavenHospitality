@@ -1,5 +1,5 @@
 import type { BedView, FloorView, RoomView } from '@heaven/contracts';
-import { Prisma, type Bed, type Floor, type Room } from '@prisma/client';
+import { Prisma, type Bed, type Floor, type InvoiceStatus, type Room } from '@prisma/client';
 
 import { AppError } from '../../errors/AppError.js';
 import type { Loose } from '../../lib/types.js';
@@ -149,7 +149,12 @@ type RoomWithRelations = Room & {
   beds: Array<
     Bed & {
       allocations: Array<{
-        tenancy: { id: string; expectedExitDate: Date | null; user: { fullName: string } };
+        tenancy: {
+          id: string;
+          expectedExitDate: Date | null;
+          user: { fullName: string };
+          invoices: Array<{ totalPaise: number; amountPaidPaise: number; status: InvoiceStatus }>;
+        };
       }>;
     }
   >;
@@ -165,7 +170,14 @@ const ROOM_INCLUDE = {
         where: { endedAt: null },
         include: {
           tenancy: {
-            select: { id: true, expectedExitDate: true, user: { select: { fullName: true } } },
+            select: {
+              id: true,
+              expectedExitDate: true,
+              user: { select: { fullName: true } },
+              // So the room screen can show — and gate "remove from room" on —
+              // what the occupant still owes, with no second request.
+              invoices: { select: { totalPaise: true, amountPaidPaise: true, status: true } },
+            },
           },
         },
       },
@@ -190,6 +202,12 @@ export function toRoomView(room: RoomWithRelations): RoomView {
                 open.tenancy.expectedExitDate === null
                   ? null
                   : fromPrismaDate(open.tenancy.expectedExitDate),
+              outstandingPaise: open.tenancy.invoices
+                .filter((invoice) => invoice.status !== 'CANCELLED')
+                .reduce(
+                  (sum, invoice) => sum + Math.max(0, invoice.totalPaise - invoice.amountPaidPaise),
+                  0,
+                ),
             },
     };
   });

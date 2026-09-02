@@ -19,6 +19,7 @@ import { OperationsPage } from './pages/OperationsPage';
 import { PaymentsPage } from './pages/PaymentsPage';
 import { ResidentDetailPage } from './pages/ResidentDetailPage';
 import { ResidentsPage } from './pages/ResidentsPage';
+import { RoomDetailPage } from './pages/RoomDetailPage';
 import { SettingsPage } from './pages/SettingsPage';
 import './styles/global.css';
 
@@ -34,6 +35,7 @@ const router = createBrowserRouter([
     children: [
       { index: true, element: <DashboardPage /> },
       { path: 'occupancy', element: <OccupancyPage /> },
+      { path: 'rooms/:id', element: <RoomDetailPage /> },
       { path: 'residents', element: <ResidentsPage /> },
       { path: 'residents/:id', element: <ResidentDetailPage /> },
       { path: 'billing', element: <BillingPage /> },

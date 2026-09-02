@@ -58,6 +58,7 @@ export const keys = {
   settings: ['owner', 'settings'] as const,
   floors: ['owner', 'floors'] as const,
   rooms: ['owner', 'rooms'] as const,
+  room: (id: string) => ['owner', 'room', id] as const,
   residents: (filters?: unknown) => ['owner', 'residents', filters ?? null] as const,
   resident: (id: string) => ['owner', 'resident', id] as const,
   invoices: (filters?: unknown) => ['owner', 'invoices', filters ?? null] as const,
@@ -111,6 +112,12 @@ export const useFloors = (): UseQueryResult<FloorView[], Error> =>
 
 export const useRooms = (): UseQueryResult<RoomView[], Error> =>
   useQuery({ queryKey: keys.rooms, queryFn: ({ signal }) => get<RoomView[]>('/rooms', signal) });
+
+export const useRoom = (id: string): UseQueryResult<RoomView, Error> =>
+  useQuery({
+    queryKey: keys.room(id),
+    queryFn: ({ signal }) => get<RoomView>(`/rooms/${id}`, signal),
+  });
 
 export const useResidents = (filters: {
   status?: string;
@@ -241,7 +248,9 @@ function useOwnerMutation<TInput, TResult>(
   });
 }
 
-const OCCUPANCY_KEYS = [keys.floors, keys.rooms, keys.occupancy, keys.dashboard];
+// ['owner', 'room'] (no id) invalidates every single-room query by prefix —
+// the same partial-match trick used for ['owner', 'residents'] below.
+const OCCUPANCY_KEYS = [keys.floors, keys.rooms, ['owner', 'room'], keys.occupancy, keys.dashboard];
 
 export const useCreateFloor = () =>
   useOwnerMutation((body: unknown) => send<FloorView>('/floors', 'POST', body), OCCUPANCY_KEYS);
@@ -414,4 +423,19 @@ export async function lookupUserByEmail(email: string): Promise<{
   hasActiveTenancy: boolean;
 } | null> {
   return get(`/residents/lookup${toQuery({ email })}`);
+}
+
+/**
+ * Looks a person up by phone — the identity a resident actually signs up
+ * with. This is what finds someone who registered themselves in the app
+ * before ever being assigned a room.
+ */
+export async function lookupUserByPhone(phone: string): Promise<{
+  id: string;
+  fullName: string;
+  email: string | null;
+  phone: string | null;
+  hasActiveTenancy: boolean;
+} | null> {
+  return get(`/residents/lookup-by-phone${toQuery({ phone })}`);
 }
