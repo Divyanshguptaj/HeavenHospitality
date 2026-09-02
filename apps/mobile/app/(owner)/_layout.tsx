@@ -72,6 +72,8 @@ export default function OwnerLayout() {
           ),
         }}
       />
+      {/* Reachable from a room card on the Rooms tab, not a tab of its own. */}
+      <Tabs.Screen name="room/[id]" options={{ title: 'Room', href: null }} />
       <Tabs.Screen
         name="issues"
         options={{

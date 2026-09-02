@@ -1,8 +1,8 @@
 # Heaven Hospitality
 
 A property-management system for a PG/hostel: rent, invoices, payments, receipts,
-electricity, mess, complaints and occupancy — with an admin web console, a
-resident mobile app, and a public experience that needs no account at all.
+electricity, mess, complaints and occupancy — one mobile app for owner and
+resident alike, and a public experience that needs no account at all.
 
 ## Status
 
@@ -26,8 +26,11 @@ overrides for a specific date, prices, availability, facilities, rules, gallery,
 contact details and the public bank/UPI switches — lives in the database. None of
 it requires a new mobile build.
 
-Next: tenancy management (`NON_RESIDENT → RESIDENT`), then admin CRUD over the
-same entities the public API already reads.
+Tenancy management (`NON_RESIDENT → RESIDENT`) and room assignment live in the
+owner console inside the mobile app. There is deliberately no separate web
+console — everything an owner does happens in the same app a resident uses.
+Next: bringing the rest of the owner's admin work (billing, electricity,
+settings, staff and operations) into that same mobile owner console.
 
 See [docs/](./docs) for the decisions that shape the code, and
 [docs/README.md](./docs/README.md) for where to start reading.

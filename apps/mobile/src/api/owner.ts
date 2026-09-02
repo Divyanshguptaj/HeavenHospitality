@@ -2,11 +2,13 @@ import type {
   ComplaintDetailView,
   ComplaintSummaryView,
   DashboardView,
+  FloorView,
   InvoiceSummaryView,
   MealCountView,
   OccupancyView,
   PaymentView,
   ResidentSummaryView,
+  RoomView,
 } from '@heaven/contracts';
 import { useMutation, useQuery, useQueryClient, type UseQueryResult } from '@tanstack/react-query';
 
@@ -24,6 +26,8 @@ const OWNER = '/owner';
 export const ownerKeys = {
   dashboard: ['owner', 'dashboard'] as const,
   occupancy: ['owner', 'occupancy'] as const,
+  floors: ['owner', 'floors'] as const,
+  room: (id: string) => ['owner', 'room', id] as const,
   residents: (search?: string) => ['owner', 'residents', search ?? null] as const,
   invoices: (status?: string) => ['owner', 'invoices', status ?? null] as const,
   payments: ['owner', 'payments'] as const,
@@ -42,6 +46,18 @@ export const useOwnerOccupancy = (): UseQueryResult<OccupancyView, Error> =>
   useQuery({
     queryKey: ownerKeys.occupancy,
     queryFn: ({ signal }) => apiRequest<OccupancyView>(`${OWNER}/occupancy`, { signal }),
+  });
+
+export const useOwnerFloors = (): UseQueryResult<FloorView[], Error> =>
+  useQuery({
+    queryKey: ownerKeys.floors,
+    queryFn: ({ signal }) => apiRequest<FloorView[]>(`${OWNER}/floors`, { signal }),
+  });
+
+export const useOwnerRoom = (id: string): UseQueryResult<RoomView, Error> =>
+  useQuery({
+    queryKey: ownerKeys.room(id),
+    queryFn: ({ signal }) => apiRequest<RoomView>(`${OWNER}/rooms/${id}`, { signal }),
   });
 
 export const useOwnerResidents = (search?: string): UseQueryResult<ResidentSummaryView[], Error> =>
@@ -143,3 +159,95 @@ export const useRecordReading = () =>
     }) => apiRequest<unknown>(`${OWNER}/electricity`, { method: 'POST', body: input }),
     [['owner', 'invoices'], ownerKeys.dashboard],
   );
+
+// --- Floors, rooms, beds and residents ---------------------------------------
+//
+// Everything an owner does to the building — floors, rooms, beds and who is
+// assigned where — happens from the phone. There is no separate console.
+
+// ['owner', 'room'] with no id invalidates every single-room query by prefix,
+// the same partial-match trick used for ['owner', 'residents'] elsewhere here.
+const OCCUPANCY_KEYS = [
+  ownerKeys.dashboard,
+  ownerKeys.occupancy,
+  ownerKeys.floors,
+  ['owner', 'room'],
+];
+
+export const useCreateFloor = () =>
+  useOwnerMutation(
+    (input: { name: string; level: number }) =>
+      apiRequest<FloorView>(`${OWNER}/floors`, { method: 'POST', body: input }),
+    OCCUPANCY_KEYS,
+  );
+
+export const useDeleteFloor = () =>
+  useOwnerMutation(
+    (id: string) => apiRequest<unknown>(`${OWNER}/floors/${id}`, { method: 'DELETE' }),
+    OCCUPANCY_KEYS,
+  );
+
+export const useCreateRoom = () =>
+  useOwnerMutation(
+    (input: {
+      floorId: string;
+      number: string;
+      roomType: string;
+      capacity: number;
+      monthlyRentPaise: number;
+      isAirConditioned: boolean;
+    }) => apiRequest<RoomView>(`${OWNER}/rooms`, { method: 'POST', body: input }),
+    OCCUPANCY_KEYS,
+  );
+
+export const useUpdateRoom = () =>
+  useOwnerMutation(
+    ({ id, ...body }: { id: string } & Record<string, unknown>) =>
+      apiRequest<RoomView>(`${OWNER}/rooms/${id}`, { method: 'PATCH', body }),
+    OCCUPANCY_KEYS,
+  );
+
+export const useDeleteRoom = () =>
+  useOwnerMutation(
+    (id: string) => apiRequest<unknown>(`${OWNER}/rooms/${id}`, { method: 'DELETE' }),
+    OCCUPANCY_KEYS,
+  );
+
+export const useUpdateBedStatus = () =>
+  useOwnerMutation(
+    ({ id, status }: { id: string; status: string }) =>
+      apiRequest<RoomView>(`${OWNER}/beds/${id}/status`, { method: 'PATCH', body: { status } }),
+    OCCUPANCY_KEYS,
+  );
+
+/** Fills an empty bed — reuses an existing account when one is found. */
+export const useCreateResident = () =>
+  useOwnerMutation(
+    (body: unknown) => apiRequest<ResidentSummaryView>(`${OWNER}/residents`, { method: 'POST', body }),
+    [...OCCUPANCY_KEYS, ['owner', 'residents']],
+  );
+
+/**
+ * Takes a resident off a bed. The server refuses this while rent is
+ * outstanding and, once it succeeds, reverts the account to non-resident.
+ */
+export const useExitResident = () =>
+  useOwnerMutation(
+    ({ id, ...body }: { id: string; actualExitDate: string; reason?: string }) =>
+      apiRequest<ResidentSummaryView>(`${OWNER}/residents/${id}/exit`, { method: 'POST', body }),
+    [...OCCUPANCY_KEYS, ['owner', 'residents']],
+  );
+
+/**
+ * Looks a person up by phone — the identity a resident actually signs up
+ * with — so filling a bed reuses their account instead of inventing one.
+ */
+export async function lookupUserByPhone(phone: string): Promise<{
+  id: string;
+  fullName: string;
+  email: string | null;
+  phone: string | null;
+  hasActiveTenancy: boolean;
+} | null> {
+  return apiRequest(`${OWNER}/residents/lookup-by-phone?phone=${encodeURIComponent(phone)}`);
+}

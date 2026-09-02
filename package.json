@@ -18,7 +18,6 @@
     "format": "prettier --write .",
     "format:check": "prettier --check .",
     "dev:api": "pnpm --filter @heaven/api run dev",
-    "dev:admin": "pnpm --filter @heaven/admin run dev",
     "dev:mobile": "pnpm --filter @heaven/mobile run start",
     "storage:up": "docker compose up -d",
     "storage:down": "docker compose down",
