@@ -63,17 +63,18 @@ export default function OwnerLayout() {
           ),
         }}
       />
+      {/* "rooms" is a nested Stack (list + room detail), not a flat screen — its
+          own _layout.tsx supplies headers, so this one is turned off here. */}
       <Tabs.Screen
         name="rooms"
         options={{
           title: 'Rooms',
+          headerShown: false,
           tabBarIcon: ({ color, size }) => (
             <Ionicons name="bed-outline" color={color} size={size} />
           ),
         }}
       />
-      {/* Reachable from a room card on the Rooms tab, not a tab of its own. */}
-      <Tabs.Screen name="room/[id]" options={{ title: 'Room', href: null }} />
       <Tabs.Screen
         name="issues"
         options={{

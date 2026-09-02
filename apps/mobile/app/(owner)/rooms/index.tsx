@@ -3,7 +3,7 @@ import { Link } from 'expo-router';
 import { useState } from 'react';
 import { Alert, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 
-import { useCreateFloor, useCreateRoom, useOwnerOccupancy } from '../../src/api/owner';
+import { useCreateFloor, useCreateRoom, useOwnerOccupancy } from '../../../src/api/owner';
 import {
   Badge,
   Button,
@@ -15,9 +15,9 @@ import {
   Muted,
   PageHeading,
   Screen,
-} from '../../src/components/ui';
-import { ApiRequestError } from '../../src/lib/apiClient';
-import { layout, useTheme } from '../../src/theme';
+} from '../../../src/components/ui';
+import { ApiRequestError } from '../../../src/lib/apiClient';
+import { layout, useTheme } from '../../../src/theme';
 
 function bedTone(status: string): 'success' | 'info' | 'warning' {
   if (status === 'AVAILABLE') return 'success';
@@ -142,7 +142,7 @@ export default function OwnerRoomsScreen() {
               floor.rooms.map((room) => (
                 <Link
                   key={room.id}
-                  href={{ pathname: '/(owner)/room/[id]', params: { id: room.id } }}
+                  href={{ pathname: '/(owner)/rooms/[id]', params: { id: room.id } }}
                   asChild
                 >
                   <Pressable
