@@ -1,25 +1,77 @@
 import { colors } from '@heaven/tokens';
+import Matter from 'matter-js';
 import { useEffect, useRef } from 'react';
-import { Animated, Easing, Pressable, StyleSheet } from 'react-native';
+import { Animated, Dimensions, Easing, Pressable, StyleSheet } from 'react-native';
+import Svg, { Polygon } from 'react-native-svg';
 
-const STAGE_WIDTH = 168;
-const STAGE_HEIGHT = 130;
+const { width: SCREEN_W, height: SCREEN_H } = Dimensions.get('window');
 
-/** Starting offset for each shape, off the edge of the screen. */
-const OFFSCREEN = 600;
-
-/** One vivid hue per shape, distinct from the app's own theme palette. */
+/** One vivid hue per shape. */
 const HUE = {
-  roof: '#FF6B6B',
-  body: '#4D8AFF',
-  window: '#FFD23F',
-  door: '#B15DFF',
+  tower: '#FF6B6B',
+  square: '#4D8AFF',
+  base: '#FFD23F',
+  roof: '#B15DFF',
+  sun: '#FFB627',
 } as const;
 
 const backdrop = colors.dark;
 
-function degrees(value: Animated.Value) {
-  return value.interpolate({ inputRange: [-360, 360], outputRange: ['-360deg', '360deg'] });
+const TOWER_W = 44;
+const TOWER_H = 88;
+const SQUARE = 64;
+const BASE_W = 64;
+const BASE_H = 20;
+const ROOF_W = 64;
+const ROOF_H = 40;
+const SUN_R = 18;
+
+const GROUND_Y = SCREEN_H * 0.46;
+const HOUSE_LEFT = SCREEN_W / 2 - (TOWER_W + SQUARE) / 2;
+
+const squareTarget = { x: HOUSE_LEFT + TOWER_W + SQUARE / 2, y: GROUND_Y - SQUARE / 2 };
+const towerTarget = { x: HOUSE_LEFT + TOWER_W / 2, y: GROUND_Y - TOWER_H / 2 };
+const squareTop = GROUND_Y - SQUARE;
+const baseTarget = { x: squareTarget.x, y: squareTop - BASE_H / 2 };
+const baseTop = squareTop - BASE_H;
+const roofTarget = { x: squareTarget.x, y: baseTop - ROOF_H / 3 };
+const sunTarget = { x: squareTarget.x + SQUARE / 2 + 46, y: baseTop - ROOF_H - 6 };
+
+/** Isoceles triangle, apex up, centroid at (0, 0). */
+const ROOF_VERTICES = [
+  { x: -ROOF_W / 2, y: ROOF_H / 3 },
+  { x: ROOF_W / 2, y: ROOF_H / 3 },
+  { x: 0, y: -(2 * ROOF_H) / 3 },
+];
+
+const towerStart = { x: towerTarget.x - 90, y: -160 };
+const squareStart = { x: squareTarget.x + 90, y: -240 };
+const baseStart = { x: baseTarget.x + 10, y: -320 };
+const roofStart = { x: roofTarget.x - 70, y: -400 };
+const sunStart = { x: sunTarget.x - 60, y: -180 };
+
+function outlineBox(width: number, height: number, radius: number) {
+  return {
+    position: 'absolute' as const,
+    top: 0,
+    left: 0,
+    width,
+    height,
+    borderRadius: radius,
+    borderWidth: 4,
+    backgroundColor: 'transparent',
+  };
+}
+
+function haloBox(width: number, height: number) {
+  return {
+    position: 'absolute' as const,
+    left: -12,
+    top: -12,
+    width: width + 24,
+    height: height + 24,
+    borderRadius: Math.min(width, height) / 2 + 12,
+  };
 }
 
 function glowStyle(color: string) {
@@ -30,22 +82,35 @@ function glowStyle(color: string) {
     shadowOpacity: 0.9,
     shadowRadius: 18,
     shadowOffset: { width: 0, height: 0 },
-  } as const;
+  };
 }
 
-/** Animates four shapes in from four screen edges to form a house, then reveals the app. */
+function homingConstraint(body: Matter.Body, target: { x: number; y: number }) {
+  return Matter.Constraint.create({
+    bodyA: body,
+    pointB: target,
+    stiffness: 0.006,
+    damping: 0.4,
+    length: 0,
+  });
+}
+
+/**
+ * Drops five shapes (tower, square, base, roof, sun) from above the screen,
+ * lets them collide and bounce off each other under real physics, then
+ * assembles them into a house before revealing the app.
+ */
 export function AppIntro({ onFinish }: { readonly onFinish: () => void }) {
-  const roofXY = useRef(new Animated.ValueXY({ x: -60, y: -OFFSCREEN })).current;
-  const roofRotate = useRef(new Animated.Value(-50)).current;
-
-  const bodyXY = useRef(new Animated.ValueXY({ x: -OFFSCREEN, y: 40 })).current;
-  const bodyRotate = useRef(new Animated.Value(24)).current;
-
-  const windowXY = useRef(new Animated.ValueXY({ x: OFFSCREEN, y: -30 })).current;
-  const windowRotate = useRef(new Animated.Value(-30)).current;
-
-  const doorXY = useRef(new Animated.ValueXY({ x: 24, y: OFFSCREEN })).current;
-  const doorRotate = useRef(new Animated.Value(16)).current;
+  const towerX = useRef(new Animated.Value(towerStart.x - TOWER_W / 2)).current;
+  const towerY = useRef(new Animated.Value(towerStart.y - TOWER_H / 2)).current;
+  const squareX = useRef(new Animated.Value(squareStart.x - SQUARE / 2)).current;
+  const squareY = useRef(new Animated.Value(squareStart.y - SQUARE / 2)).current;
+  const baseX = useRef(new Animated.Value(baseStart.x - BASE_W / 2)).current;
+  const baseY = useRef(new Animated.Value(baseStart.y - BASE_H / 2)).current;
+  const roofX = useRef(new Animated.Value(roofStart.x - ROOF_W / 2)).current;
+  const roofY = useRef(new Animated.Value(roofStart.y - ROOF_H / 2)).current;
+  const sunX = useRef(new Animated.Value(sunStart.x - SUN_R)).current;
+  const sunY = useRef(new Animated.Value(sunStart.y - SUN_R)).current;
 
   const pulse = useRef(new Animated.Value(1)).current;
   const textOpacity = useRef(new Animated.Value(0)).current;
@@ -65,91 +130,206 @@ export function AppIntro({ onFinish }: { readonly onFinish: () => void }) {
     }).start(onFinish);
   }
 
-  useEffect(() => {
-    // Forces the reveal if the animation chain below is ever interrupted and
-    // never calls it itself.
-    const safetyNet = setTimeout(reveal, 3500);
-
-    const land = (xy: Animated.ValueXY, rotate: Animated.Value, friction: number, tension: number) =>
+  function runFinale(): void {
+    if (finished.current) return;
+    Animated.sequence([
+      Animated.timing(pulse, {
+        toValue: 1.1,
+        duration: 90,
+        easing: Easing.out(Easing.quad),
+        useNativeDriver: true,
+      }),
+      Animated.spring(pulse, { toValue: 1, friction: 3, tension: 140, useNativeDriver: true }),
+    ]).start(() => {
+      if (finished.current) return;
       Animated.parallel([
-        Animated.spring(xy, { toValue: { x: 0, y: 0 }, friction, tension, useNativeDriver: true }),
-        Animated.spring(rotate, { toValue: 0, friction: friction + 1, tension, useNativeDriver: true }),
-      ]);
-
-    const assemble = Animated.stagger(150, [
-      land(roofXY, roofRotate, 5, 38),
-      land(bodyXY, bodyRotate, 6, 32),
-      land(windowXY, windowRotate, 5, 44),
-      land(doorXY, doorRotate, 7, 30),
-    ]);
-
-    assemble.start(({ finished: allLanded }) => {
-      if (!allLanded || finished.current) return;
-
-      Animated.sequence([
-        Animated.timing(pulse, {
-          toValue: 1.1,
-          duration: 90,
+        Animated.timing(textOpacity, { toValue: 1, duration: 380, useNativeDriver: true }),
+        Animated.timing(textRise, {
+          toValue: 0,
+          duration: 380,
           easing: Easing.out(Easing.quad),
           useNativeDriver: true,
         }),
-        Animated.spring(pulse, { toValue: 1, friction: 3, tension: 140, useNativeDriver: true }),
       ]).start(() => {
         if (finished.current) return;
-        Animated.parallel([
-          Animated.timing(textOpacity, { toValue: 1, duration: 380, useNativeDriver: true }),
-          Animated.timing(textRise, {
-            toValue: 0,
-            duration: 380,
-            easing: Easing.out(Easing.quad),
-            useNativeDriver: true,
-          }),
-        ]).start(() => {
-          if (finished.current) return;
-          setTimeout(reveal, 650);
-        });
+        setTimeout(reveal, 650);
       });
     });
+  }
 
-    return () => clearTimeout(safetyNet);
+  useEffect(() => {
+    // Forces the reveal if the physics loop or the finale below never
+    // finishes on its own.
+    const safetyNet = setTimeout(reveal, 6000);
+
+    const engine = Matter.Engine.create({ gravity: { x: 0, y: 1 } });
+    const world = engine.world;
+
+    const towerBody = Matter.Bodies.rectangle(towerStart.x, towerStart.y, TOWER_W, TOWER_H, {
+      restitution: 0.5,
+      friction: 0.15,
+    });
+    const squareBody = Matter.Bodies.rectangle(squareStart.x, squareStart.y, SQUARE, SQUARE, {
+      restitution: 0.5,
+      friction: 0.15,
+    });
+    const baseBody = Matter.Bodies.rectangle(baseStart.x, baseStart.y, BASE_W, BASE_H, {
+      restitution: 0.5,
+      friction: 0.15,
+    });
+    const roofBody = Matter.Bodies.fromVertices(roofStart.x, roofStart.y, [ROOF_VERTICES], {
+      restitution: 0.5,
+      friction: 0.15,
+    });
+    for (const body of [towerBody, squareBody, baseBody, roofBody]) {
+      Matter.Body.setInertia(body, Infinity);
+    }
+
+    const floor = Matter.Bodies.rectangle(
+      HOUSE_LEFT + (TOWER_W + SQUARE) / 2,
+      GROUND_Y + 10,
+      TOWER_W + SQUARE + 60,
+      20,
+      { isStatic: true },
+    );
+    const leftWall = Matter.Bodies.rectangle(6, SCREEN_H / 2, 12, SCREEN_H * 2, { isStatic: true });
+    const rightWall = Matter.Bodies.rectangle(SCREEN_W - 6, SCREEN_H / 2, 12, SCREEN_H * 2, {
+      isStatic: true,
+    });
+    const safetyFloor = Matter.Bodies.rectangle(SCREEN_W / 2, GROUND_Y + 400, SCREEN_W * 2, 20, {
+      isStatic: true,
+    });
+
+    const towerConstraint = homingConstraint(towerBody, towerTarget);
+    const squareConstraint = homingConstraint(squareBody, squareTarget);
+    const baseConstraint = homingConstraint(baseBody, baseTarget);
+    const roofConstraint = homingConstraint(roofBody, roofTarget);
+
+    Matter.Composite.add(world, [
+      towerBody,
+      squareBody,
+      baseBody,
+      roofBody,
+      floor,
+      leftWall,
+      rightWall,
+      safetyFloor,
+      towerConstraint,
+      squareConstraint,
+      baseConstraint,
+      roofConstraint,
+    ]);
+
+    let sunBody: Matter.Body | null = null;
+
+    function tick() {
+      Matter.Engine.update(engine, 1000 / 60);
+
+      towerX.setValue(towerBody.position.x - TOWER_W / 2);
+      towerY.setValue(towerBody.position.y - TOWER_H / 2);
+      squareX.setValue(squareBody.position.x - SQUARE / 2);
+      squareY.setValue(squareBody.position.y - SQUARE / 2);
+      baseX.setValue(baseBody.position.x - BASE_W / 2);
+      baseY.setValue(baseBody.position.y - BASE_H / 2);
+      roofX.setValue(roofBody.position.x - ROOF_W / 2);
+      roofY.setValue(roofBody.position.y - ROOF_H / 2);
+      if (sunBody !== null) {
+        sunX.setValue(sunBody.position.x - SUN_R);
+        sunY.setValue(sunBody.position.y - SUN_R);
+      }
+
+      rafId = requestAnimationFrame(tick);
+    }
+
+    let rafId = requestAnimationFrame(tick);
+
+    const snapTimer = setTimeout(() => {
+      towerConstraint.stiffness = 0.25;
+      squareConstraint.stiffness = 0.25;
+      baseConstraint.stiffness = 0.25;
+      roofConstraint.stiffness = 0.25;
+    }, 900);
+
+    const spawnSunTimer = setTimeout(() => {
+      sunBody = Matter.Bodies.circle(sunStart.x, sunStart.y, SUN_R, {
+        restitution: 0.55,
+        friction: 0.1,
+      });
+      Matter.Body.setInertia(sunBody, Infinity);
+      const sunConstraint = homingConstraint(sunBody, sunTarget);
+      sunConstraint.stiffness = 0.015;
+      Matter.Composite.add(world, [sunBody, sunConstraint]);
+
+      setTimeout(() => {
+        sunConstraint.stiffness = 0.3;
+      }, 500);
+    }, 1500);
+
+    const stopTimer = setTimeout(() => {
+      cancelAnimationFrame(rafId);
+      runFinale();
+    }, 2600);
+
+    return () => {
+      clearTimeout(safetyNet);
+      cancelAnimationFrame(rafId);
+      clearTimeout(snapTimer);
+      clearTimeout(spawnSunTimer);
+      clearTimeout(stopTimer);
+    };
   }, []);
-
-  const roofTransform = [...roofXY.getTranslateTransform(), { rotate: degrees(roofRotate) }];
-  const bodyTransform = [...bodyXY.getTranslateTransform(), { rotate: degrees(bodyRotate) }];
-  const windowTransform = [...windowXY.getTranslateTransform(), { rotate: degrees(windowRotate) }];
-  const doorTransform = [...doorXY.getTranslateTransform(), { rotate: degrees(doorRotate) }];
 
   return (
     <Animated.View style={[styles.overlay, { opacity: overlayOpacity }]}>
       <Pressable style={StyleSheet.absoluteFill} onPress={reveal} accessibilityLabel="Skip intro" />
 
-      <Animated.View style={[styles.stage, { transform: [{ scale: pulse }] }]}>
-        <Animated.View style={[StyleSheet.absoluteFill, { transform: roofTransform }]}>
-          <Animated.View style={[styles.roofGlow, glowStyle(HUE.roof)]} />
-          <Animated.View style={[styles.roof, { borderBottomColor: HUE.roof }]} />
+      <Animated.View style={[StyleSheet.absoluteFill, { transform: [{ scale: pulse }] }]}>
+        <Animated.View
+          style={[styles.shapeWrap, { transform: [{ translateX: towerX }, { translateY: towerY }] }]}
+        >
+          <Animated.View style={[haloBox(TOWER_W, TOWER_H), glowStyle(HUE.tower)]} />
+          <Animated.View style={[outlineBox(TOWER_W, TOWER_H, 6), { borderColor: HUE.tower }]} />
         </Animated.View>
 
-        <Animated.View style={[StyleSheet.absoluteFill, { transform: bodyTransform }]}>
-          <Animated.View style={[styles.bodyGlow, glowStyle(HUE.body)]} />
-          <Animated.View style={[styles.body, { backgroundColor: HUE.body }]} />
+        <Animated.View
+          style={[styles.shapeWrap, { transform: [{ translateX: squareX }, { translateY: squareY }] }]}
+        >
+          <Animated.View style={[haloBox(SQUARE, SQUARE), glowStyle(HUE.square)]} />
+          <Animated.View style={[outlineBox(SQUARE, SQUARE, 10), { borderColor: HUE.square }]} />
         </Animated.View>
 
-        <Animated.View style={[StyleSheet.absoluteFill, { transform: windowTransform }]}>
-          <Animated.View style={[styles.windowGlow, glowStyle(HUE.window)]} />
-          <Animated.View style={[styles.window, { backgroundColor: HUE.window }]} />
+        <Animated.View
+          style={[styles.shapeWrap, { transform: [{ translateX: baseX }, { translateY: baseY }] }]}
+        >
+          <Animated.View style={[haloBox(BASE_W, BASE_H), glowStyle(HUE.base)]} />
+          <Animated.View style={[outlineBox(BASE_W, BASE_H, 4), { borderColor: HUE.base }]} />
         </Animated.View>
 
-        <Animated.View style={[StyleSheet.absoluteFill, { transform: doorTransform }]}>
-          <Animated.View style={[styles.doorGlow, glowStyle(HUE.door)]} />
-          <Animated.View style={[styles.door, { backgroundColor: HUE.door }]} />
+        <Animated.View
+          style={[styles.shapeWrap, { transform: [{ translateX: roofX }, { translateY: roofY }] }]}
+        >
+          <Animated.View style={[haloBox(ROOF_W, ROOF_H), glowStyle(HUE.roof)]} />
+          <Svg width={ROOF_W} height={ROOF_H} style={styles.svg}>
+            <Polygon
+              points={`${ROOF_W / 2},2 ${ROOF_W - 2},${ROOF_H - 2} 2,${ROOF_H - 2}`}
+              fill="none"
+              stroke={HUE.roof}
+              strokeWidth={4}
+              strokeLinejoin="round"
+            />
+          </Svg>
+        </Animated.View>
+
+        <Animated.View
+          style={[styles.shapeWrap, { transform: [{ translateX: sunX }, { translateY: sunY }] }]}
+        >
+          <Animated.View style={[haloBox(SUN_R * 2, SUN_R * 2), glowStyle(HUE.sun)]} />
+          <Animated.View style={[outlineBox(SUN_R * 2, SUN_R * 2, SUN_R), { borderColor: HUE.sun }]} />
         </Animated.View>
       </Animated.View>
 
       <Animated.Text
-        style={[
-          styles.title,
-          { opacity: textOpacity, transform: [{ translateY: textRise }] },
-        ]}
+        style={[styles.title, { opacity: textOpacity, transform: [{ translateY: textRise }] }]}
       >
         Heaven Hospitality
       </Animated.Text>
@@ -165,85 +345,24 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     backgroundColor: backdrop.canvas,
   },
-  stage: {
-    width: STAGE_WIDTH,
-    height: STAGE_HEIGHT,
-  },
-  roof: {
+  shapeWrap: {
     position: 'absolute',
     top: 0,
-    left: 36,
-    width: 0,
-    height: 0,
-    borderLeftWidth: 48,
-    borderRightWidth: 48,
-    borderBottomWidth: 50,
-    borderLeftColor: 'transparent',
-    borderRightColor: 'transparent',
+    left: 0,
   },
-  roofGlow: {
+  svg: {
     position: 'absolute',
-    top: -20,
-    left: 19,
-    width: 130,
-    height: 90,
-    borderRadius: 30,
-  },
-  body: {
-    position: 'absolute',
-    top: 50,
-    left: 36,
-    width: 96,
-    height: 80,
-    borderRadius: 6,
-  },
-  bodyGlow: {
-    position: 'absolute',
-    top: 35,
-    left: 19,
-    width: 130,
-    height: 110,
-    borderRadius: 26,
-  },
-  window: {
-    position: 'absolute',
-    top: 66,
-    left: 50,
-    width: 20,
-    height: 20,
-    borderRadius: 4,
-  },
-  windowGlow: {
-    position: 'absolute',
-    top: 48,
-    left: 32,
-    width: 56,
-    height: 56,
-    borderRadius: 28,
-  },
-  door: {
-    position: 'absolute',
-    top: 96,
-    left: 72,
-    width: 24,
-    height: 34,
-    borderRadius: 3,
-  },
-  doorGlow: {
-    position: 'absolute',
-    top: 78,
-    left: 54,
-    width: 60,
-    height: 70,
-    borderRadius: 24,
+    top: 0,
+    left: 0,
   },
   title: {
-    marginTop: 28,
+    position: 'absolute',
+    bottom: SCREEN_H * 0.32,
     fontSize: 20,
     fontWeight: '700',
     letterSpacing: 0.3,
     color: backdrop.textPrimary,
-    textShadowColor: HUE.window,
+    textShadowColor: HUE.sun,
     textShadowRadius: 14,
     textShadowOffset: { width: 0, height: 0 },
   },
