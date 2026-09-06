@@ -17,14 +17,14 @@ const HUE = {
 
 const backdrop = colors.dark;
 
-const TOWER_W = 44;
-const TOWER_H = 88;
-const SQUARE = 64;
-const BASE_W = 64;
-const BASE_H = 20;
-const ROOF_W = 64;
-const ROOF_H = 40;
-const SUN_R = 18;
+const TOWER_W = 56;
+const TOWER_H = 150;
+const SQUARE = 110;
+const BASE_W = 110;
+const BASE_H = 26;
+const ROOF_W = 140;
+const ROOF_H = 74;
+const SUN_R = 26;
 
 const GROUND_Y = SCREEN_H * 0.46;
 const HOUSE_LEFT = SCREEN_W / 2 - (TOWER_W + SQUARE) / 2;
@@ -35,7 +35,7 @@ const squareTop = GROUND_Y - SQUARE;
 const baseTarget = { x: squareTarget.x, y: squareTop - BASE_H / 2 };
 const baseTop = squareTop - BASE_H;
 const roofTarget = { x: squareTarget.x, y: baseTop - ROOF_H / 3 };
-const sunTarget = { x: squareTarget.x + SQUARE / 2 + 46, y: baseTop - ROOF_H - 6 };
+const sunTarget = { x: squareTarget.x + SQUARE / 2 + 90, y: baseTop - ROOF_H - 20 };
 
 /** Isoceles triangle, apex up, centroid at (0, 0). */
 const ROOF_VERTICES = [
@@ -44,11 +44,11 @@ const ROOF_VERTICES = [
   { x: 0, y: -(2 * ROOF_H) / 3 },
 ];
 
-const towerStart = { x: towerTarget.x - 90, y: -160 };
-const squareStart = { x: squareTarget.x + 90, y: -240 };
-const baseStart = { x: baseTarget.x + 10, y: -320 };
-const roofStart = { x: roofTarget.x - 70, y: -400 };
-const sunStart = { x: sunTarget.x - 60, y: -180 };
+const towerStart = { x: towerTarget.x - 130, y: -220 };
+const squareStart = { x: squareTarget.x + 130, y: -320 };
+const baseStart = { x: baseTarget.x + 15, y: -420 };
+const roofStart = { x: roofTarget.x - 110, y: -520 };
+const sunStart = { x: sunTarget.x - 90, y: -260 };
 
 function outlineBox(width: number, height: number, radius: number) {
   return {
@@ -58,30 +58,8 @@ function outlineBox(width: number, height: number, radius: number) {
     width,
     height,
     borderRadius: radius,
-    borderWidth: 4,
+    borderWidth: 5,
     backgroundColor: 'transparent',
-  };
-}
-
-function haloBox(width: number, height: number) {
-  return {
-    position: 'absolute' as const,
-    left: -12,
-    top: -12,
-    width: width + 24,
-    height: height + 24,
-    borderRadius: Math.min(width, height) / 2 + 12,
-  };
-}
-
-function glowStyle(color: string) {
-  return {
-    backgroundColor: color,
-    opacity: 0.4,
-    shadowColor: color,
-    shadowOpacity: 0.9,
-    shadowRadius: 18,
-    shadowOffset: { width: 0, height: 0 },
   };
 }
 
@@ -287,34 +265,30 @@ export function AppIntro({ onFinish }: { readonly onFinish: () => void }) {
         <Animated.View
           style={[styles.shapeWrap, { transform: [{ translateX: towerX }, { translateY: towerY }] }]}
         >
-          <Animated.View style={[haloBox(TOWER_W, TOWER_H), glowStyle(HUE.tower)]} />
           <Animated.View style={[outlineBox(TOWER_W, TOWER_H, 6), { borderColor: HUE.tower }]} />
         </Animated.View>
 
         <Animated.View
           style={[styles.shapeWrap, { transform: [{ translateX: squareX }, { translateY: squareY }] }]}
         >
-          <Animated.View style={[haloBox(SQUARE, SQUARE), glowStyle(HUE.square)]} />
           <Animated.View style={[outlineBox(SQUARE, SQUARE, 10), { borderColor: HUE.square }]} />
         </Animated.View>
 
         <Animated.View
           style={[styles.shapeWrap, { transform: [{ translateX: baseX }, { translateY: baseY }] }]}
         >
-          <Animated.View style={[haloBox(BASE_W, BASE_H), glowStyle(HUE.base)]} />
           <Animated.View style={[outlineBox(BASE_W, BASE_H, 4), { borderColor: HUE.base }]} />
         </Animated.View>
 
         <Animated.View
           style={[styles.shapeWrap, { transform: [{ translateX: roofX }, { translateY: roofY }] }]}
         >
-          <Animated.View style={[haloBox(ROOF_W, ROOF_H), glowStyle(HUE.roof)]} />
           <Svg width={ROOF_W} height={ROOF_H} style={styles.svg}>
             <Polygon
               points={`${ROOF_W / 2},2 ${ROOF_W - 2},${ROOF_H - 2} 2,${ROOF_H - 2}`}
               fill="none"
               stroke={HUE.roof}
-              strokeWidth={4}
+              strokeWidth={5}
               strokeLinejoin="round"
             />
           </Svg>
@@ -323,7 +297,6 @@ export function AppIntro({ onFinish }: { readonly onFinish: () => void }) {
         <Animated.View
           style={[styles.shapeWrap, { transform: [{ translateX: sunX }, { translateY: sunY }] }]}
         >
-          <Animated.View style={[haloBox(SUN_R * 2, SUN_R * 2), glowStyle(HUE.sun)]} />
           <Animated.View style={[outlineBox(SUN_R * 2, SUN_R * 2, SUN_R), { borderColor: HUE.sun }]} />
         </Animated.View>
       </Animated.View>
@@ -357,13 +330,10 @@ const styles = StyleSheet.create({
   },
   title: {
     position: 'absolute',
-    bottom: SCREEN_H * 0.32,
-    fontSize: 20,
+    bottom: SCREEN_H * 0.28,
+    fontSize: 22,
     fontWeight: '700',
     letterSpacing: 0.3,
     color: backdrop.textPrimary,
-    textShadowColor: HUE.sun,
-    textShadowRadius: 14,
-    textShadowOffset: { width: 0, height: 0 },
   },
 });
