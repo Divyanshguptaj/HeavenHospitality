@@ -6,7 +6,7 @@ import { ActivityIndicator, View } from 'react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 
 import { isAdmin, isResident, useAuthStore } from '../src/auth/authStore';
-import { AppIntro } from '../src/components/AppIntro';
+import { SplashAnimation } from '../src/components/splash/SplashAnimation';
 import { ApiRequestError } from '../src/lib/apiClient';
 import { useTheme } from '../src/theme';
 
@@ -107,7 +107,7 @@ export default function RootLayout() {
       <SafeAreaProvider>
         <StatusBar style="auto" />
         <RootNavigator />
-        {!introDone && <AppIntro onFinish={() => setIntroDone(true)} />}
+        {!introDone && <SplashAnimation onFinish={() => setIntroDone(true)} />}
       </SafeAreaProvider>
     </QueryClientProvider>
   );
