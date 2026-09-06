@@ -1,11 +1,12 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { Stack, router } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { ActivityIndicator, View } from 'react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 
 import { isAdmin, isResident, useAuthStore } from '../src/auth/authStore';
+import { AppIntro } from '../src/components/AppIntro';
 import { ApiRequestError } from '../src/lib/apiClient';
 import { useTheme } from '../src/theme';
 
@@ -98,11 +99,15 @@ function RootNavigator() {
 }
 
 export default function RootLayout() {
+  // Shown once per cold start, over whatever RootNavigator renders underneath.
+  const [introDone, setIntroDone] = useState(false);
+
   return (
     <QueryClientProvider client={queryClient}>
       <SafeAreaProvider>
         <StatusBar style="auto" />
         <RootNavigator />
+        {!introDone && <AppIntro onFinish={() => setIntroDone(true)} />}
       </SafeAreaProvider>
     </QueryClientProvider>
   );
