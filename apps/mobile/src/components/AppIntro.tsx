@@ -1,7 +1,6 @@
+import { colors } from '@heaven/tokens';
 import { useEffect, useRef } from 'react';
 import { Animated, Easing, Pressable, StyleSheet } from 'react-native';
-
-import { useTheme } from '../theme';
 
 const STAGE_WIDTH = 168;
 const STAGE_HEIGHT = 130;
@@ -9,14 +8,33 @@ const STAGE_HEIGHT = 130;
 /** Starting offset for each shape, off the edge of the screen. */
 const OFFSCREEN = 600;
 
+/** One vivid hue per shape, distinct from the app's own theme palette. */
+const HUE = {
+  roof: '#FF6B6B',
+  body: '#4D8AFF',
+  window: '#FFD23F',
+  door: '#B15DFF',
+} as const;
+
+const backdrop = colors.dark;
+
 function degrees(value: Animated.Value) {
   return value.interpolate({ inputRange: [-360, 360], outputRange: ['-360deg', '360deg'] });
 }
 
+function glowStyle(color: string) {
+  return {
+    backgroundColor: color,
+    opacity: 0.4,
+    shadowColor: color,
+    shadowOpacity: 0.9,
+    shadowRadius: 18,
+    shadowOffset: { width: 0, height: 0 },
+  } as const;
+}
+
 /** Animates four shapes in from four screen edges to form a house, then reveals the app. */
 export function AppIntro({ onFinish }: { readonly onFinish: () => void }) {
-  const theme = useTheme();
-
   const roofXY = useRef(new Animated.ValueXY({ x: -60, y: -OFFSCREEN })).current;
   const roofRotate = useRef(new Animated.Value(-50)).current;
 
@@ -90,47 +108,41 @@ export function AppIntro({ onFinish }: { readonly onFinish: () => void }) {
     });
   }, []);
 
+  const roofTransform = [...roofXY.getTranslateTransform(), { rotate: degrees(roofRotate) }];
+  const bodyTransform = [...bodyXY.getTranslateTransform(), { rotate: degrees(bodyRotate) }];
+  const windowTransform = [...windowXY.getTranslateTransform(), { rotate: degrees(windowRotate) }];
+  const doorTransform = [...doorXY.getTranslateTransform(), { rotate: degrees(doorRotate) }];
+
   return (
-    <Animated.View
-      style={[styles.overlay, { backgroundColor: theme.canvas, opacity: overlayOpacity }]}
-    >
+    <Animated.View style={[styles.overlay, { opacity: overlayOpacity }]}>
       <Pressable style={StyleSheet.absoluteFill} onPress={reveal} accessibilityLabel="Skip intro" />
 
       <Animated.View style={[styles.stage, { transform: [{ scale: pulse }] }]}>
-        <Animated.View
-          style={[
-            styles.roof,
-            { borderBottomColor: theme.primary },
-            { transform: [...roofXY.getTranslateTransform(), { rotate: degrees(roofRotate) }] },
-          ]}
-        />
-        <Animated.View
-          style={[
-            styles.body,
-            { backgroundColor: theme.primary },
-            { transform: [...bodyXY.getTranslateTransform(), { rotate: degrees(bodyRotate) }] },
-          ]}
-        />
-        <Animated.View
-          style={[
-            styles.window,
-            { backgroundColor: theme.canvas },
-            { transform: [...windowXY.getTranslateTransform(), { rotate: degrees(windowRotate) }] },
-          ]}
-        />
-        <Animated.View
-          style={[
-            styles.door,
-            { backgroundColor: theme.canvas },
-            { transform: [...doorXY.getTranslateTransform(), { rotate: degrees(doorRotate) }] },
-          ]}
-        />
+        <Animated.View style={[StyleSheet.absoluteFill, { transform: roofTransform }]}>
+          <Animated.View style={[styles.roofGlow, glowStyle(HUE.roof)]} />
+          <Animated.View style={[styles.roof, { borderBottomColor: HUE.roof }]} />
+        </Animated.View>
+
+        <Animated.View style={[StyleSheet.absoluteFill, { transform: bodyTransform }]}>
+          <Animated.View style={[styles.bodyGlow, glowStyle(HUE.body)]} />
+          <Animated.View style={[styles.body, { backgroundColor: HUE.body }]} />
+        </Animated.View>
+
+        <Animated.View style={[StyleSheet.absoluteFill, { transform: windowTransform }]}>
+          <Animated.View style={[styles.windowGlow, glowStyle(HUE.window)]} />
+          <Animated.View style={[styles.window, { backgroundColor: HUE.window }]} />
+        </Animated.View>
+
+        <Animated.View style={[StyleSheet.absoluteFill, { transform: doorTransform }]}>
+          <Animated.View style={[styles.doorGlow, glowStyle(HUE.door)]} />
+          <Animated.View style={[styles.door, { backgroundColor: HUE.door }]} />
+        </Animated.View>
       </Animated.View>
 
       <Animated.Text
         style={[
           styles.title,
-          { color: theme.textPrimary, opacity: textOpacity, transform: [{ translateY: textRise }] },
+          { opacity: textOpacity, transform: [{ translateY: textRise }] },
         ]}
       >
         Heaven Hospitality
@@ -145,6 +157,7 @@ const styles = StyleSheet.create({
     zIndex: 1000,
     alignItems: 'center',
     justifyContent: 'center',
+    backgroundColor: backdrop.canvas,
   },
   stage: {
     width: STAGE_WIDTH,
@@ -162,6 +175,14 @@ const styles = StyleSheet.create({
     borderLeftColor: 'transparent',
     borderRightColor: 'transparent',
   },
+  roofGlow: {
+    position: 'absolute',
+    top: -20,
+    left: 19,
+    width: 130,
+    height: 90,
+    borderRadius: 30,
+  },
   body: {
     position: 'absolute',
     top: 50,
@@ -169,6 +190,14 @@ const styles = StyleSheet.create({
     width: 96,
     height: 80,
     borderRadius: 6,
+  },
+  bodyGlow: {
+    position: 'absolute',
+    top: 35,
+    left: 19,
+    width: 130,
+    height: 110,
+    borderRadius: 26,
   },
   window: {
     position: 'absolute',
@@ -178,6 +207,14 @@ const styles = StyleSheet.create({
     height: 20,
     borderRadius: 4,
   },
+  windowGlow: {
+    position: 'absolute',
+    top: 48,
+    left: 32,
+    width: 56,
+    height: 56,
+    borderRadius: 28,
+  },
   door: {
     position: 'absolute',
     top: 96,
@@ -186,10 +223,22 @@ const styles = StyleSheet.create({
     height: 34,
     borderRadius: 3,
   },
+  doorGlow: {
+    position: 'absolute',
+    top: 78,
+    left: 54,
+    width: 60,
+    height: 70,
+    borderRadius: 24,
+  },
   title: {
     marginTop: 28,
     fontSize: 20,
     fontWeight: '700',
     letterSpacing: 0.3,
+    color: backdrop.textPrimary,
+    textShadowColor: HUE.window,
+    textShadowRadius: 14,
+    textShadowOffset: { width: 0, height: 0 },
   },
 });
