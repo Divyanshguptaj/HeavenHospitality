@@ -66,6 +66,10 @@ export function AppIntro({ onFinish }: { readonly onFinish: () => void }) {
   }
 
   useEffect(() => {
+    // Forces the reveal if the animation chain below is ever interrupted and
+    // never calls it itself.
+    const safetyNet = setTimeout(reveal, 3500);
+
     const land = (xy: Animated.ValueXY, rotate: Animated.Value, friction: number, tension: number) =>
       Animated.parallel([
         Animated.spring(xy, { toValue: { x: 0, y: 0 }, friction, tension, useNativeDriver: true }),
@@ -106,6 +110,8 @@ export function AppIntro({ onFinish }: { readonly onFinish: () => void }) {
         });
       });
     });
+
+    return () => clearTimeout(safetyNet);
   }, []);
 
   const roofTransform = [...roofXY.getTranslateTransform(), { rotate: degrees(roofRotate) }];
