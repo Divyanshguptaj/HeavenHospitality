@@ -72,7 +72,15 @@ export const useAuthStore = create<AuthState>((set) => ({
    * guest must still be able to use the app.
    */
   restore: async () => {
-    const refreshToken = await readRefreshToken();
+    let refreshToken: string | null;
+    try {
+      refreshToken = await readRefreshToken();
+    } catch (error) {
+      console.error('[auth] could not read the stored refresh token', error);
+      set({ status: 'signedOut', user: null });
+      return;
+    }
+
     if (refreshToken === null) {
       set({ status: 'signedOut', user: null });
       return;
@@ -84,9 +92,12 @@ export const useAuthStore = create<AuthState>((set) => ({
         body: { refreshToken, client: 'mobile' },
       });
       set({ status: 'signedIn', user: await applySession(session) });
-    } catch {
+    } catch (error) {
       // Expired, revoked, or reuse-detected. Discard it so the next boot is fast.
-      await clearRefreshToken();
+      console.warn('[auth] session restore failed, signing out', error);
+      await clearRefreshToken().catch((clearError: unknown) => {
+        console.error('[auth] could not clear the stored refresh token', clearError);
+      });
       setAccessToken(null);
       set({ status: 'signedOut', user: null });
     }
