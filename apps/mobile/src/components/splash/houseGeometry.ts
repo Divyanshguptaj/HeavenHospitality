@@ -1,57 +1,52 @@
 /**
- * The house, sketched before any animation code: seven pieces, each one a
- * real part of the final icon, never a decorative shape swapped for it.
+ * The house, sketched before any animation code: four pieces, each one a
+ * real part of the final icon, never a decorative shape swapped for it. A
+ * fifth piece — the circle — is never part of the house; it arrives after
+ * and settles beside it.
  *
- *            leftRoof   rightRoof
- *                 \       /
- *                  \     /
- *          +--------+---+--------+
- *          | window |   |        |
- *          | leftWall   | rightWall
- *          |        | door |    |
- *          +--------+------+----+
- *          |         base        |
+ *                 triangle
+ *                /        \
  *          +----------------------+
+ *          |        yellow        |
+ *          +------------+---------+
+ *          |            |         |
+ *          |    blue    |  green  |
+ *          |            |         |
+ *          +------------+---------+
  *
  * All coordinates are in design units on a coordinate system centered on the
- * house itself (0, 0) — the roof apex sits above the origin, the base sits
- * below it. The animation controller scales this whole space to the device
- * at render time, so nothing here is a screen-specific pixel.
+ * house body (0, 0 at the top of the blue/green row). The animation
+ * controller scales this whole space to the device at render time, so
+ * nothing here is a screen-specific pixel.
  *
- * Every piece carries where it starts (scattered, at its own angle), where it
- * passes through mid-flight (near the shared centre, where the "collision"
- * happens), and where it ends up (its exact, final slot in the house). The
- * controller only interpolates between these three points — it never decides
- * the shape of the house.
+ * Every piece carries where it starts (scattered, at its own angle and
+ * height), where it passes through mid-flight (the shared point where the
+ * "collision" happens), and where it ends up (its exact final slot). The
+ * controller only interpolates between these — it never decides the shape
+ * of the house.
  */
 
-const WALL_W = 75;
-const WALL_H = 85;
-const ROOF_H = 62;
-const BASE_H = 14;
-const BASE_OVERHANG = 8;
-const DOOR_W = 30;
-const DOOR_H = 46;
-const WINDOW_SIZE = 22;
+const BLUE_W = 44;
+const BLUE_H = 92;
+const GREEN_SIZE = 92;
+const YELLOW_W = BLUE_W + GREEN_SIZE;
+const YELLOW_H = 26;
+const TRIANGLE_W = YELLOW_W;
+const TRIANGLE_H = 64;
+const CIRCLE_R = 28;
 
-/** Roof apex to base, the full height of the assembled house. */
-export const HOUSE_HEIGHT = ROOF_H + WALL_H + BASE_H;
-export const HOUSE_WIDTH = WALL_W * 2 + BASE_OVERHANG * 2;
-
-/** Vertical centre of the assembled house — the shared "collision" point. */
-const HOUSE_CENTER_Y = (-ROOF_H + (WALL_H + BASE_H)) / 2;
-const HOUSE_CENTER = { x: 0, y: HOUSE_CENTER_Y };
+export const HOUSE_WIDTH = YELLOW_W;
+export const HOUSE_HEIGHT = TRIANGLE_H + YELLOW_H + BLUE_H;
 
 export type PieceShape =
   | { kind: 'rect'; width: number; height: number }
-  | { kind: 'triangle'; width: number; height: number; points: string };
-
-export type PieceColor = 'primary' | 'accent' | 'cutout';
+  | { kind: 'triangle'; width: number; height: number; points: string }
+  | { kind: 'circle'; radius: number };
 
 export interface HousePieceConfig {
   readonly id: string;
   readonly shape: PieceShape;
-  readonly color: PieceColor;
+  readonly color: string;
   /** Centre of the piece's final position, house-centered design units. */
   readonly finalCenter: { readonly x: number; readonly y: number };
   /** Offset from finalCenter where the piece starts, scattered off-screen. */
@@ -62,90 +57,85 @@ export interface HousePieceConfig {
   readonly startScale: number;
 }
 
-function piece(
-  config: Omit<HousePieceConfig, 'collisionOffset'>,
-): HousePieceConfig {
-  return {
-    ...config,
-    collisionOffset: {
-      x: HOUSE_CENTER.x - config.finalCenter.x,
-      y: HOUSE_CENTER.y - config.finalCenter.y,
-    },
-  };
+const NEON = {
+  blue: '#2E9EFF',
+  yellow: '#FFD400',
+  green: '#2EE6A3',
+  pink: '#FF2E88',
+  purple: '#A64DFF',
+} as const;
+
+function collisionOffsetFor(finalCenter: { x: number; y: number }) {
+  // The four house-forming pieces converge near the body's own centre.
+  return { x: -finalCenter.x, y: -finalCenter.y };
 }
 
-const LEFT_WALL_CENTER = { x: -WALL_W / 2, y: WALL_H / 2 };
-const RIGHT_WALL_CENTER = { x: WALL_W / 2, y: WALL_H / 2 };
-const BASE_CENTER = { x: 0, y: WALL_H + BASE_H / 2 };
-const DOOR_CENTER = { x: 0, y: WALL_H - DOOR_H / 2 };
-const WINDOW_CENTER = { x: -WALL_W / 2, y: WALL_H / 2 - 15 };
-const LEFT_ROOF_CENTER = { x: -WALL_W / 3, y: -ROOF_H / 3 };
-const RIGHT_ROOF_CENTER = { x: WALL_W / 3, y: -ROOF_H / 3 };
+const BLUE_CENTER = { x: -GREEN_SIZE / 2, y: BLUE_H / 2 };
+const GREEN_CENTER = { x: BLUE_W / 2, y: GREEN_SIZE / 2 };
+const YELLOW_CENTER = { x: 0, y: -YELLOW_H / 2 };
+const TRIANGLE_BASE_Y = -YELLOW_H;
+const TRIANGLE_CENTER = { x: 0, y: TRIANGLE_BASE_Y - TRIANGLE_H / 3 };
 
+/** The house — these four assemble together and never move again once placed. */
 export const HOUSE_PIECES: readonly HousePieceConfig[] = [
-  piece({
-    id: 'leftRoof',
-    // (0, base) -> (width, base) -> (width, apex): vertical seam on the right
-    shape: { kind: 'triangle', width: WALL_W, height: ROOF_H, points: `0,${ROOF_H} ${WALL_W},${ROOF_H} ${WALL_W},0` },
-    color: 'primary',
-    finalCenter: LEFT_ROOF_CENTER,
-    startOffset: { x: -160, y: -150 },
-    startRotationDeg: -70,
+  {
+    id: 'triangle',
+    shape: {
+      kind: 'triangle',
+      width: TRIANGLE_W,
+      height: TRIANGLE_H,
+      points: `0,${TRIANGLE_H} ${TRIANGLE_W},${TRIANGLE_H} ${TRIANGLE_W / 2},0`,
+    },
+    color: NEON.pink,
+    finalCenter: TRIANGLE_CENTER,
+    collisionOffset: collisionOffsetFor(TRIANGLE_CENTER),
+    startOffset: { x: -30, y: -240 },
+    startRotationDeg: -50,
     startScale: 0.55,
-  }),
-  piece({
-    id: 'rightRoof',
-    // (0, base) -> (width, base) -> (0, apex): vertical seam on the left
-    shape: { kind: 'triangle', width: WALL_W, height: ROOF_H, points: `0,${ROOF_H} ${WALL_W},${ROOF_H} 0,0` },
-    color: 'primary',
-    finalCenter: RIGHT_ROOF_CENTER,
-    startOffset: { x: 160, y: -150 },
-    startRotationDeg: 65,
+  },
+  {
+    id: 'yellow',
+    shape: { kind: 'rect', width: YELLOW_W, height: YELLOW_H },
+    color: NEON.yellow,
+    finalCenter: YELLOW_CENTER,
+    collisionOffset: collisionOffsetFor(YELLOW_CENTER),
+    startOffset: { x: 110, y: -200 },
+    startRotationDeg: 35,
     startScale: 0.55,
-  }),
-  piece({
-    id: 'leftWall',
-    shape: { kind: 'rect', width: WALL_W, height: WALL_H },
-    color: 'primary',
-    finalCenter: LEFT_WALL_CENTER,
-    startOffset: { x: -195, y: 15 },
-    startRotationDeg: -40,
+  },
+  {
+    id: 'blue',
+    shape: { kind: 'rect', width: BLUE_W, height: BLUE_H },
+    color: NEON.blue,
+    finalCenter: BLUE_CENTER,
+    collisionOffset: collisionOffsetFor(BLUE_CENTER),
+    startOffset: { x: -190, y: -40 },
+    startRotationDeg: -60,
     startScale: 0.55,
-  }),
-  piece({
-    id: 'rightWall',
-    shape: { kind: 'rect', width: WALL_W, height: WALL_H },
-    color: 'primary',
-    finalCenter: RIGHT_WALL_CENTER,
-    startOffset: { x: 195, y: 15 },
-    startRotationDeg: 42,
+  },
+  {
+    id: 'green',
+    shape: { kind: 'rect', width: GREEN_SIZE, height: GREEN_SIZE },
+    color: NEON.green,
+    finalCenter: GREEN_CENTER,
+    collisionOffset: collisionOffsetFor(GREEN_CENTER),
+    startOffset: { x: 150, y: 130 },
+    startRotationDeg: 45,
     startScale: 0.55,
-  }),
-  piece({
-    id: 'base',
-    shape: { kind: 'rect', width: HOUSE_WIDTH, height: BASE_H },
-    color: 'primary',
-    finalCenter: BASE_CENTER,
-    startOffset: { x: -25, y: 185 },
-    startRotationDeg: 16,
-    startScale: 0.55,
-  }),
-  piece({
-    id: 'window',
-    shape: { kind: 'rect', width: WINDOW_SIZE, height: WINDOW_SIZE },
-    color: 'cutout',
-    finalCenter: WINDOW_CENTER,
-    startOffset: { x: 95, y: -175 },
-    startRotationDeg: 80,
-    startScale: 0.55,
-  }),
-  piece({
-    id: 'door',
-    shape: { kind: 'rect', width: DOOR_W, height: DOOR_H },
-    color: 'accent',
-    finalCenter: DOOR_CENTER,
-    startOffset: { x: 45, y: 205 },
-    startRotationDeg: -55,
-    startScale: 0.55,
-  }),
+  },
 ];
+
+/**
+ * Not part of the house. Arrives on its own, after the house has already
+ * formed, and settles beside it (never overlapping it).
+ */
+export const CIRCLE_PIECE: HousePieceConfig = {
+  id: 'circle',
+  shape: { kind: 'circle', radius: CIRCLE_R },
+  color: NEON.purple,
+  finalCenter: { x: HOUSE_WIDTH / 2 + CIRCLE_R + 12, y: TRIANGLE_BASE_Y - TRIANGLE_H + 6 },
+  collisionOffset: { x: 0, y: 0 }, // unused — the circle bounces straight in, no collision phase
+  startOffset: { x: 140, y: -260 },
+  startRotationDeg: 0,
+  startScale: 0.6,
+};

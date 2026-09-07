@@ -1,41 +1,41 @@
 import { useEffect, useRef } from 'react';
 import { AccessibilityInfo, Animated, Easing, Pressable, StyleSheet, useWindowDimensions } from 'react-native';
 
-import { useTheme } from '../../theme';
-import { HOUSE_HEIGHT, HOUSE_PIECES, HOUSE_WIDTH, type PieceColor } from './houseGeometry';
+import { CIRCLE_PIECE, HOUSE_HEIGHT, HOUSE_PIECES, HOUSE_WIDTH, type HousePieceConfig } from './houseGeometry';
 import { HousePiece } from './HousePiece';
 
 /** House width as a fraction of the shorter screen dimension. */
 const HOUSE_SCREEN_FRACTION = 0.42;
+const BACKDROP = '#0A0E16';
+const WORDMARK_COLOR = '#F2F5FA';
+const TAGLINE_COLOR = '#8FA0C2';
 
-function colorFor(role: PieceColor, theme: ReturnType<typeof useTheme>): string {
-  if (role === 'primary') return theme.primary;
-  if (role === 'accent') return theme.primaryHover;
-  return theme.canvas;
+function makePieceState(config: HousePieceConfig, scale: number) {
+  return {
+    config,
+    translateX: new Animated.Value(config.startOffset.x * scale),
+    translateY: new Animated.Value(config.startOffset.y * scale),
+    rotateDeg: new Animated.Value(config.startRotationDeg),
+    pieceScale: new Animated.Value(config.startScale),
+  };
 }
 
 /**
- * Seven scattered pieces accelerate toward a shared point, briefly compress
+ * Four scattered pieces accelerate toward a shared point, briefly compress
  * and overshoot as though they collided, then spring apart into their exact
- * final slots — the same pieces, now the house. Runs once per mount.
+ * final slots — the same pieces, now the house. A fifth piece, the circle,
+ * is never part of the house: it bounces in afterward and settles beside
+ * it. Runs once per mount.
  */
 export function SplashAnimation({ onFinish }: { readonly onFinish: () => void }) {
-  const theme = useTheme();
   const { width: screenWidth, height: screenHeight } = useWindowDimensions();
 
   const scale = (Math.min(screenWidth, screenHeight) * HOUSE_SCREEN_FRACTION) / HOUSE_WIDTH;
   const houseCenterX = screenWidth / 2;
   const houseCenterY = screenHeight * 0.42;
 
-  const pieces = useRef(
-    HOUSE_PIECES.map((config) => ({
-      config,
-      translateX: new Animated.Value(config.startOffset.x * scale),
-      translateY: new Animated.Value(config.startOffset.y * scale),
-      rotateDeg: new Animated.Value(config.startRotationDeg),
-      pieceScale: new Animated.Value(config.startScale),
-    })),
-  ).current;
+  const pieces = useRef(HOUSE_PIECES.map((config) => makePieceState(config, scale))).current;
+  const circle = useRef(makePieceState(CIRCLE_PIECE, scale)).current;
 
   const groupScale = useRef(new Animated.Value(1)).current;
   const textOpacity = useRef(new Animated.Value(0)).current;
@@ -67,7 +67,33 @@ export function SplashAnimation({ onFinish }: { readonly onFinish: () => void })
       }),
     ]).start(() => {
       if (finished.current) return;
-      setTimeout(reveal, 500);
+      setTimeout(reveal, 450);
+    });
+  }
+
+  function bringInCircle(): void {
+    if (finished.current) return;
+    Animated.parallel([
+      Animated.timing(circle.translateX, {
+        toValue: 0,
+        duration: 550,
+        easing: Easing.out(Easing.cubic),
+        useNativeDriver: true,
+      }),
+      Animated.timing(circle.translateY, {
+        toValue: 0,
+        duration: 620,
+        easing: Easing.bounce,
+        useNativeDriver: true,
+      }),
+      Animated.timing(circle.pieceScale, {
+        toValue: 1,
+        duration: 550,
+        easing: Easing.out(Easing.cubic),
+        useNativeDriver: true,
+      }),
+    ]).start(() => {
+      revealText();
     });
   }
 
@@ -82,22 +108,21 @@ export function SplashAnimation({ onFinish }: { readonly onFinish: () => void })
       }),
       Animated.spring(groupScale, { toValue: 1, friction: 6, tension: 120, useNativeDriver: true }),
     ]).start();
-    revealText();
+    bringInCircle();
   }
 
   function assembleInstantly(): void {
-    for (const p of pieces) {
+    for (const p of [...pieces, circle]) {
       p.translateX.setValue(0);
       p.translateY.setValue(0);
       p.rotateDeg.setValue(0);
       p.pieceScale.setValue(1);
     }
-    Animated.timing(overlayOpacity, { toValue: 1, duration: 1, useNativeDriver: true }).start();
     settleHouse();
   }
 
   useEffect(() => {
-    const safetyNet = setTimeout(reveal, 6000);
+    const safetyNet = setTimeout(reveal, 6500);
 
     AccessibilityInfo.isReduceMotionEnabled().then((reduced) => {
       if (finished.current) return;
@@ -168,9 +193,7 @@ export function SplashAnimation({ onFinish }: { readonly onFinish: () => void })
   }, []);
 
   return (
-    <Animated.View
-      style={[styles.overlay, { backgroundColor: theme.canvas, opacity: overlayOpacity }]}
-    >
+    <Animated.View style={[styles.overlay, { opacity: overlayOpacity }]}>
       <Pressable style={StyleSheet.absoluteFill} onPress={reveal} accessibilityLabel="Skip intro" />
 
       <Animated.View style={[StyleSheet.absoluteFill, { transform: [{ scale: groupScale }] }]}>
@@ -181,7 +204,6 @@ export function SplashAnimation({ onFinish }: { readonly onFinish: () => void })
             scale={scale}
             houseCenterX={houseCenterX}
             houseCenterY={houseCenterY}
-            color={colorFor(config.color, theme)}
             translateX={translateX}
             translateY={translateY}
             rotateDeg={rotateDeg}
@@ -190,19 +212,30 @@ export function SplashAnimation({ onFinish }: { readonly onFinish: () => void })
         ))}
       </Animated.View>
 
-      <Animated.Text
+      <HousePiece
+        config={circle.config}
+        scale={scale}
+        houseCenterX={houseCenterX}
+        houseCenterY={houseCenterY}
+        translateX={circle.translateX}
+        translateY={circle.translateY}
+        rotateDeg={circle.rotateDeg}
+        pieceScale={circle.pieceScale}
+      />
+
+      <Animated.View
         style={[
-          styles.title,
+          styles.textBlock,
           {
-            color: theme.textPrimary,
-            top: houseCenterY + (HOUSE_HEIGHT / 2) * scale + 26,
+            top: houseCenterY + (HOUSE_HEIGHT / 2) * scale + 30,
             opacity: textOpacity,
             transform: [{ translateY: textRise }],
           },
         ]}
       >
-        Heaven Hospitality
-      </Animated.Text>
+        <Animated.Text style={styles.title}>Heaven Hospitality</Animated.Text>
+        <Animated.Text style={styles.tagline}>YOUR HOME AWAY FROM HOME</Animated.Text>
+      </Animated.View>
     </Animated.View>
   );
 }
@@ -211,14 +244,25 @@ const styles = StyleSheet.create({
   overlay: {
     ...StyleSheet.absoluteFillObject,
     zIndex: 1000,
+    backgroundColor: BACKDROP,
   },
-  title: {
+  textBlock: {
     position: 'absolute',
     left: 0,
     right: 0,
-    textAlign: 'center',
+    alignItems: 'center',
+  },
+  title: {
     fontSize: 22,
     fontWeight: '700',
     letterSpacing: 0.3,
+    color: WORDMARK_COLOR,
+  },
+  tagline: {
+    marginTop: 4,
+    fontSize: 11,
+    fontWeight: '600',
+    letterSpacing: 2,
+    color: TAGLINE_COLOR,
   },
 });
