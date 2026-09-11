@@ -88,7 +88,7 @@ describe('buildThemeCss', () => {
 
   it('emits a Tailwind theme block with kebab-cased custom properties', () => {
     expect(css).toContain('@theme');
-    expect(css).toContain('--color-text-primary: #15181c;');
+    expect(css).toContain('--color-text-primary: #14131a;');
     expect(css).toContain('--color-surface-subtle:');
   });
 
