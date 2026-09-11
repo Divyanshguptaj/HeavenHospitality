@@ -1,0 +1,13 @@
+PLACEHOLDER — NOT A REAL RIVE FILE.
+
+This file exists only so Metro's static `require('./heaven-intro.riv')` in
+RiveIntroScene.tsx resolves to something at build time. It intentionally
+does not parse as a .riv binary: the app's error handling (useRiveFile's
+`error` result, and RiveView's `onError`) treats a failed load exactly like
+"Rive unavailable" and falls back to the reduced Simple intro automatically,
+so this placeholder is safe to ship without breaking the build or the app.
+
+Replace this file with the real export from the Rive editor, named exactly
+`heaven-intro.riv`, built to the specification in RIVE_SPEC.md in this same
+folder. No code changes should be needed if the artboard/state machine/event
+names match that spec.

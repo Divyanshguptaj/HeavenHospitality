@@ -6,7 +6,7 @@ import { ActivityIndicator, View } from 'react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 
 import { isAdmin, isResident, useAuthStore } from '../src/auth/authStore';
-import { SplashAnimation } from '../src/components/splash/SplashAnimation';
+import { AppIntro } from '../src/components/intro/AppIntro';
 import { ApiRequestError } from '../src/lib/apiClient';
 import { useTheme } from '../src/theme';
 
@@ -101,13 +101,14 @@ function RootNavigator() {
 export default function RootLayout() {
   // Shown once per cold start, over whatever RootNavigator renders underneath.
   const [introDone, setIntroDone] = useState(false);
+  const theme = useTheme();
 
   return (
     <QueryClientProvider client={queryClient}>
       <SafeAreaProvider>
         <StatusBar style="auto" />
         <RootNavigator />
-        {!introDone && <SplashAnimation onFinish={() => setIntroDone(true)} />}
+        {!introDone && <AppIntro onFinish={() => setIntroDone(true)} backgroundTarget={theme.canvas} />}
       </SafeAreaProvider>
     </QueryClientProvider>
   );

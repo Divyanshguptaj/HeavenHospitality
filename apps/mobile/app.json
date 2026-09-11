@@ -15,12 +15,12 @@
       "package": "in.heavenhospitality.app",
       "edgeToEdgeEnabled": true
     },
-    "plugins": ["expo-router", "expo-secure-store"],
+    "plugins": ["expo-router", "expo-secure-store", "expo-dev-client"],
     "experiments": {
       "typedRoutes": true
     },
     "extra": {
-      "apiBaseUrl": "http://localhost:4000/api/v1",
+      "apiBaseUrl": "https://2311-2409-40c1-641b-dc7a-cdbf-974c-9b82-c06e.ngrok-free.app/api/v1",
       "propertySlug": "heaven-hospitality-kothrud"
     }
   }
