@@ -1,6 +1,6 @@
 import Constants, { ExecutionEnvironment } from 'expo-constants';
 import { useEffect, useRef, useState } from 'react';
-import { AccessibilityInfo, Animated, Easing, Pressable, StyleSheet } from 'react-native';
+import { AccessibilityInfo, Animated, Easing, Keyboard, Pressable, StyleSheet } from 'react-native';
 
 import { INTRO_COLORS } from './colors';
 import { DoorwayReveal } from './DoorwayReveal';
@@ -51,6 +51,12 @@ export function AppIntro({
       .then(setReducedMotion)
       .catch(() => setReducedMotion(false));
     return () => clearTimeout(safetyNet);
+  }, []);
+
+  // Dismisses any keyboard that opens while the intro is on screen.
+  useEffect(() => {
+    const subscription = Keyboard.addListener('keyboardDidShow', () => Keyboard.dismiss());
+    return () => subscription.remove();
   }, []);
 
   const backgroundColor = dissolve.interpolate({
