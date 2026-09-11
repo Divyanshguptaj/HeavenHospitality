@@ -3,8 +3,8 @@ import { useEffect, useRef, useState } from 'react';
 import { AccessibilityInfo, Animated, Easing, Pressable, StyleSheet } from 'react-native';
 
 import { INTRO_COLORS } from './colors';
+import { DoorwayReveal } from './DoorwayReveal';
 import { RiveIntroScene } from './RiveIntroScene';
-import { SimpleIntroReveal } from './SimpleIntroReveal';
 
 const SAFETY_TIMEOUT_MS = 4000;
 
@@ -63,13 +63,13 @@ export function AppIntro({
   }
 
   const isExpoGo = Constants.executionEnvironment === ExecutionEnvironment.StoreClient;
-  const useSimpleReveal = reducedMotion || isExpoGo || riveFailed;
+  const useDoorwayReveal = reducedMotion || isExpoGo || riveFailed;
 
   return (
     <Animated.View style={[styles.overlay, { opacity: overlayOpacity, backgroundColor }]}>
       <Pressable style={StyleSheet.absoluteFill} onPress={finish} accessibilityLabel="Skip intro" />
-      {useSimpleReveal ? (
-        <SimpleIntroReveal reducedMotion={reducedMotion} onFinish={finish} />
+      {useDoorwayReveal ? (
+        <DoorwayReveal reducedMotion={reducedMotion} onFinish={finish} />
       ) : (
         <RiveIntroScene onComplete={finish} onError={() => setRiveFailed(true)} />
       )}

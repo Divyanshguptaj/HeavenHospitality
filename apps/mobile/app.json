@@ -15,13 +15,22 @@
       "package": "in.heavenhospitality.app",
       "edgeToEdgeEnabled": true
     },
-    "plugins": ["expo-router", "expo-secure-store", "expo-dev-client"],
+    "plugins": [
+      "expo-router",
+      "expo-secure-store",
+      "expo-dev-client"
+    ],
     "experiments": {
       "typedRoutes": true
     },
     "extra": {
       "apiBaseUrl": "https://2311-2409-40c1-641b-dc7a-cdbf-974c-9b82-c06e.ngrok-free.app/api/v1",
-      "propertySlug": "heaven-hospitality-kothrud"
-    }
+      "propertySlug": "heaven-hospitality-kothrud",
+      "router": {},
+      "eas": {
+        "projectId": "c510e93f-2e32-4354-af74-7f9e2cad0b4d"
+      }
+    },
+    "owner": "divyanshguptaj"
   }
 }
