@@ -20,6 +20,13 @@ import { layout, useTheme } from '../theme';
  * keeps spacing, type and colour consistent. No screen may hard-code a colour,
  * radius or spacing value — they all come from @heaven/tokens via `layout` and
  * `useTheme`.
+ *
+ * Cards and primary buttons carry a flat, offset "shadow" — a solid block of
+ * ink sitting behind them, not a blurred drop shadow — built from nested Views
+ * rather than the shadow/elevation APIs, so it renders identically on iOS and
+ * Android. A pressed primary button collapses onto its shadow instead of
+ * fading, echoing the doorway mark's straight edges rather than a generic
+ * rounded-and-blurred look.
  */
 
 interface ScreenProps {
@@ -66,12 +73,15 @@ export function PageHeading({
   const theme = useTheme();
   return (
     <View style={styles.heading}>
-      <Text accessibilityRole="header" style={[styles.headingTitle, { color: theme.textPrimary }]}>
-        {title}
-      </Text>
-      {subtitle !== undefined && (
-        <Text style={[styles.headingSubtitle, { color: theme.textSecondary }]}>{subtitle}</Text>
-      )}
+      <View style={[styles.headingBar, { backgroundColor: theme.primary }]} />
+      <View style={styles.headingText}>
+        <Text accessibilityRole="header" style={[styles.headingTitle, { color: theme.textPrimary }]}>
+          {title}
+        </Text>
+        {subtitle !== undefined && (
+          <Text style={[styles.headingSubtitle, { color: theme.textSecondary }]}>{subtitle}</Text>
+        )}
+      </View>
     </View>
   );
 }
@@ -85,10 +95,10 @@ export function Card({
 }) {
   const theme = useTheme();
   return (
-    <View
-      style={[styles.card, { backgroundColor: theme.surface, borderColor: theme.border }, style]}
-    >
-      {children}
+    <View style={[styles.cardShadow, { backgroundColor: theme.textPrimary }]}>
+      <View style={[styles.card, { backgroundColor: theme.surface, borderColor: theme.borderStrong }, style]}>
+        {children}
+      </View>
     </View>
   );
 }
@@ -134,7 +144,7 @@ export function Badge({
   const { background, foreground } = palette[tone];
 
   return (
-    <View style={[styles.badge, { backgroundColor: background }]}>
+    <View style={[styles.badge, { backgroundColor: background, borderColor: foreground }]}>
       <Text style={[styles.badgeLabel, { color: foreground }]}>{label}</Text>
     </View>
   );
@@ -154,30 +164,35 @@ export function Button({
   const theme = useTheme();
   const isPrimary = variant === 'primary';
 
+  if (!isPrimary) {
+    return (
+      <Pressable
+        onPress={onPress}
+        accessibilityRole="button"
+        accessibilityLabel={accessibilityLabel ?? label}
+        style={({ pressed }) => [
+          styles.button,
+          { backgroundColor: pressed ? theme.surfaceHover : theme.surface, borderColor: theme.borderStrong },
+        ]}
+      >
+        <Text style={[styles.buttonLabel, { color: theme.textPrimary }]}>{label}</Text>
+      </Pressable>
+    );
+  }
+
   return (
     <Pressable
       onPress={onPress}
       accessibilityRole="button"
       accessibilityLabel={accessibilityLabel ?? label}
       style={({ pressed }) => [
-        styles.button,
-        {
-          backgroundColor: isPrimary
-            ? pressed
-              ? theme.primaryHover
-              : theme.primary
-            : pressed
-              ? theme.surfaceHover
-              : theme.surface,
-          borderColor: isPrimary ? 'transparent' : theme.borderStrong,
-        },
+        styles.buttonShadow,
+        { backgroundColor: theme.textPrimary, paddingRight: pressed ? 0 : 3, paddingBottom: pressed ? 0 : 3 },
       ]}
     >
-      <Text
-        style={[styles.buttonLabel, { color: isPrimary ? theme.textInverse : theme.textPrimary }]}
-      >
-        {label}
-      </Text>
+      <View style={[styles.button, { backgroundColor: theme.primary, borderColor: theme.textPrimary }]}>
+        <Text style={[styles.buttonLabel, { color: theme.textInverse }]}>{label}</Text>
+      </View>
     </Pressable>
   );
 }
@@ -201,7 +216,7 @@ export function DetailRow({ label, value }: { readonly label: string; readonly v
 
 export function Divider() {
   const theme = useTheme();
-  return <View style={[styles.divider, { backgroundColor: theme.border }]} />;
+  return <View style={[styles.divider, { backgroundColor: theme.borderStrong }]} />;
 }
 
 export function LoadingState({ label = 'Loading…' }: { readonly label?: string }) {
@@ -248,23 +263,27 @@ const styles = StyleSheet.create({
     gap: layout.spacing[5],
     paddingBottom: layout.spacing[10],
   },
-  heading: { gap: layout.spacing[2] },
+  heading: { flexDirection: 'row', gap: layout.spacing[4] },
+  headingBar: { width: 3, borderRadius: 2 },
+  headingText: { flex: 1, gap: layout.spacing[2] },
   headingTitle: {
     fontSize: layout.fontSize['2xl'],
-    fontWeight: '600',
+    fontWeight: '700',
+    letterSpacing: -0.3,
     lineHeight: layout.fontSize['2xl'] * layout.lineHeight.tight,
   },
   headingSubtitle: {
     fontSize: layout.fontSize.md,
     lineHeight: layout.fontSize.md * layout.lineHeight.normal,
   },
+  cardShadow: { borderRadius: layout.radius.lg },
   card: {
-    borderWidth: 1,
-    borderRadius: layout.radius.xl,
+    borderWidth: 1.5,
+    borderRadius: layout.radius.lg,
     padding: layout.spacing[5],
     gap: layout.spacing[4],
   },
-  cardTitle: { fontSize: layout.fontSize.md, fontWeight: '600' },
+  cardTitle: { fontSize: layout.fontSize.md, fontWeight: '700' },
   body: {
     fontSize: layout.fontSize.md,
     lineHeight: layout.fontSize.md * layout.lineHeight.normal,
@@ -272,24 +291,26 @@ const styles = StyleSheet.create({
   muted: { fontSize: layout.fontSize.sm },
   badge: {
     alignSelf: 'flex-start',
+    borderWidth: 1,
     borderRadius: layout.radius.full,
     paddingHorizontal: layout.spacing[4],
     paddingVertical: layout.spacing[1] + 2,
   },
-  badgeLabel: { fontSize: layout.fontSize.xs, fontWeight: '600' },
+  badgeLabel: { fontSize: layout.fontSize.xs, fontWeight: '700' },
+  buttonShadow: { borderRadius: layout.radius.md },
   button: {
     minHeight: layout.minTouchTarget,
-    borderWidth: 1,
+    borderWidth: 1.5,
     justifyContent: 'center',
     alignItems: 'center',
     paddingHorizontal: layout.spacing[6],
-    borderRadius: layout.radius.lg,
+    borderRadius: layout.radius.md,
   },
-  buttonLabel: { fontSize: layout.fontSize.md, fontWeight: '600' },
+  buttonLabel: { fontSize: layout.fontSize.md, fontWeight: '700' },
   detailRow: { flexDirection: 'row', gap: layout.spacing[4], alignItems: 'flex-start' },
   detailLabel: { fontSize: layout.fontSize.sm, width: 96 },
   detailValue: { flex: 1 },
-  divider: { height: StyleSheet.hairlineWidth },
+  divider: { height: 1.5 },
   stateBlock: {
     paddingVertical: layout.spacing[9],
     alignItems: 'center',

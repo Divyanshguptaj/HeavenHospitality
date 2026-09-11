@@ -18,6 +18,7 @@ import type { UseQueryResult } from '@tanstack/react-query';
 import { ApiRequestError } from '../lib/apiClient';
 import { layout, useTheme } from '../theme';
 
+import { Logo } from './Logo';
 import { ErrorState, LoadingState, Screen } from './ui';
 
 /**
@@ -183,6 +184,12 @@ export function Hero({
         />
       )}
       <View style={styles.heroScrim} />
+      <View
+        style={[styles.heroMark, { backgroundColor: theme.primary, borderColor: theme.textPrimary }]}
+        accessible={false}
+      >
+        <Logo size={20} color={theme.textInverse} />
+      </View>
       <View style={styles.heroText}>
         <Text accessibilityRole="header" style={styles.heroTitle}>
           {title}
@@ -211,9 +218,12 @@ export function SectionHeader({
 
   return (
     <View style={styles.sectionHeader}>
-      <Text accessibilityRole="header" style={[styles.sectionTitle, { color: theme.textPrimary }]}>
-        {title}
-      </Text>
+      <View style={styles.sectionHeaderTitle}>
+        <View style={[styles.sectionBar, { backgroundColor: theme.primary }]} />
+        <Text accessibilityRole="header" style={[styles.sectionTitle, { color: theme.textPrimary }]}>
+          {title}
+        </Text>
+      </View>
       {actionLabel !== undefined && onAction !== undefined && (
         <Pressable
           onPress={onAction}
@@ -294,7 +304,7 @@ export function Chip({ label }: { readonly label: string }) {
   const theme = useTheme();
 
   return (
-    <View style={[styles.chip, { backgroundColor: theme.surfaceSubtle }]}>
+    <View style={[styles.chip, { backgroundColor: theme.surfaceSubtle, borderColor: theme.border }]}>
       <Text style={[styles.chipLabel, { color: theme.textSecondary }]}>{label}</Text>
     </View>
   );
@@ -330,7 +340,7 @@ export function NavRow({
         style,
       ]}
     >
-      <View style={[styles.navIcon, { backgroundColor: theme.primarySubtle }]}>
+      <View style={[styles.navIcon, { backgroundColor: theme.primarySubtle, borderColor: theme.primary }]}>
         <Ionicons name={icon} size={18} color={theme.primary} />
       </View>
       <View style={styles.navText}>
@@ -347,13 +357,24 @@ export function NavRow({
 const styles = StyleSheet.create({
   hero: {
     height: 220,
-    borderRadius: layout.radius.xl,
+    borderRadius: layout.radius.lg,
     overflow: 'hidden',
     justifyContent: 'flex-end',
   },
   // A scrim, not a gradient stack: one flat layer is enough to guarantee
   // contrast and costs nothing to render.
   heroScrim: { ...StyleSheet.absoluteFillObject, backgroundColor: 'rgba(9, 12, 15, 0.42)' },
+  heroMark: {
+    position: 'absolute',
+    top: layout.spacing[4],
+    left: layout.spacing[4],
+    width: 36,
+    height: 36,
+    borderRadius: layout.radius.md,
+    borderWidth: 1.5,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
   heroText: { padding: layout.spacing[5], gap: layout.spacing[2] },
   heroTitle: {
     color: '#ffffff',
@@ -373,7 +394,9 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     gap: layout.spacing[4],
   },
-  sectionTitle: { fontSize: layout.fontSize.lg, fontWeight: '600' },
+  sectionHeaderTitle: { flexDirection: 'row', alignItems: 'center', gap: layout.spacing[3] },
+  sectionBar: { width: 3, height: 16, borderRadius: 2 },
+  sectionTitle: { fontSize: layout.fontSize.lg, fontWeight: '700', letterSpacing: -0.2 },
   sectionAction: { fontSize: layout.fontSize.sm, fontWeight: '600' },
 
   priceLg: { fontSize: layout.fontSize.lg, fontWeight: '600', fontVariant: ['tabular-nums'] },
@@ -393,6 +416,7 @@ const styles = StyleSheet.create({
   availabilityLabel: { fontSize: layout.fontSize.xs, fontWeight: '600' },
 
   chip: {
+    borderWidth: 1,
     borderRadius: layout.radius.full,
     paddingHorizontal: layout.spacing[4],
     paddingVertical: layout.spacing[2],
@@ -411,7 +435,8 @@ const styles = StyleSheet.create({
   navIcon: {
     width: 34,
     height: 34,
-    borderRadius: layout.radius.full,
+    borderWidth: 1.5,
+    borderRadius: layout.radius.md,
     alignItems: 'center',
     justifyContent: 'center',
   },
