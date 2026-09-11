@@ -17,6 +17,7 @@
     "lint:fix": "eslint . --fix",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
+    "dev": "pnpm --filter @heaven/api run dev",
     "dev:api": "pnpm --filter @heaven/api run dev",
     "dev:mobile": "pnpm --filter @heaven/mobile run start",
     "storage:up": "docker compose up -d",
