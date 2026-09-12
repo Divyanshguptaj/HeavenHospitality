@@ -125,14 +125,19 @@ export async function getDashboard(actor: Actor): Promise<DashboardView> {
     unpaidResidents: unpaid,
     meals,
     openComplaints: complaints,
+    // A tenancy with no current allocation has no bed to free up, whatever its
+    // expected exit date says — including it here produced duplicate room/bed
+    // placeholders once more than one such tenancy existed at the same time.
     upcomingVacancies: upcoming
-      .filter((tenancy) => tenancy.expectedExitDate !== null)
+      .filter((tenancy) => tenancy.expectedExitDate !== null && tenancy.allocations.length > 0)
       .map((tenancy) => {
         const exitDate = fromPrismaDate(tenancy.expectedExitDate as Date);
+        const allocation = tenancy.allocations[0];
         return {
+          tenancyId: tenancy.id,
           residentName: tenancy.user.fullName,
-          roomNumber: tenancy.allocations[0]?.bed.room.number ?? '—',
-          bedLabel: tenancy.allocations[0]?.bed.label ?? '—',
+          roomNumber: allocation?.bed.room.number ?? '—',
+          bedLabel: allocation?.bed.label ?? '—',
           expectedExitDate: exitDate,
           daysRemaining: daysBetween(today, exitDate),
         };
@@ -234,15 +239,18 @@ export async function getOccupancy(actor: Actor): Promise<OccupancyView> {
       occupancyRate: allBeds.length === 0 ? 0 : Math.round((occupied / allBeds.length) * 100),
     },
     floors: floorViews,
+    // Same reasoning as getDashboard's upcomingVacancies: no allocation, no bed
+    // to free up.
     upcomingVacancies: upcoming
-      .filter((tenancy) => tenancy.expectedExitDate !== null)
+      .filter((tenancy) => tenancy.expectedExitDate !== null && tenancy.allocations.length > 0)
       .map((tenancy) => {
         const exitDate = fromPrismaDate(tenancy.expectedExitDate as Date);
+        const allocation = tenancy.allocations[0];
         return {
           tenancyId: tenancy.id,
           residentName: tenancy.user.fullName,
-          roomNumber: tenancy.allocations[0]?.bed.room.number ?? '—',
-          bedLabel: tenancy.allocations[0]?.bed.label ?? '—',
+          roomNumber: allocation?.bed.room.number ?? '—',
+          bedLabel: allocation?.bed.label ?? '—',
           expectedExitDate: exitDate,
           daysRemaining: daysBetween(today, exitDate),
         };

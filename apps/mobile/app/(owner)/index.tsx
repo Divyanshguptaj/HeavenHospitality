@@ -187,7 +187,7 @@ export default function OwnerOverviewScreen() {
         <Card>
           <CardTitle>Beds freeing up</CardTitle>
           {data.upcomingVacancies.map((vacancy) => (
-            <View key={`${vacancy.roomNumber}-${vacancy.bedLabel}`} style={styles.listRow}>
+            <View key={vacancy.tenancyId} style={styles.listRow}>
               <View style={styles.listMain}>
                 <Text style={[styles.name, { color: theme.textPrimary }]}>
                   {vacancy.residentName}

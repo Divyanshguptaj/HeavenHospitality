@@ -325,6 +325,7 @@ export interface DashboardView {
   readonly meals: MealCountView;
   readonly openComplaints: number;
   readonly upcomingVacancies: ReadonlyArray<{
+    readonly tenancyId: string;
     readonly residentName: string;
     readonly roomNumber: string;
     readonly bedLabel: string;
