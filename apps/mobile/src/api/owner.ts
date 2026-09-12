@@ -7,6 +7,7 @@ import type {
   MealCountView,
   OccupancyView,
   PaymentView,
+  ResidentDetailView,
   ResidentSummaryView,
   RoomView,
 } from '@heaven/contracts';
@@ -29,6 +30,7 @@ export const ownerKeys = {
   floors: ['owner', 'floors'] as const,
   room: (id: string) => ['owner', 'room', id] as const,
   residents: (search?: string) => ['owner', 'residents', search ?? null] as const,
+  resident: (id: string) => ['owner', 'resident', id] as const,
   invoices: (status?: string) => ['owner', 'invoices', status ?? null] as const,
   payments: ['owner', 'payments'] as const,
   complaints: (status?: string) => ['owner', 'complaints', status ?? null] as const,
@@ -68,6 +70,13 @@ export const useOwnerResidents = (search?: string): UseQueryResult<ResidentSumma
         `${OWNER}/residents${search === undefined || search === '' ? '' : `?search=${encodeURIComponent(search)}`}`,
         { signal },
       ),
+  });
+
+export const useOwnerResident = (id: string): UseQueryResult<ResidentDetailView, Error> =>
+  useQuery({
+    queryKey: ownerKeys.resident(id),
+    queryFn: ({ signal }) => apiRequest<ResidentDetailView>(`${OWNER}/residents/${id}`, { signal }),
+    enabled: id !== '',
   });
 
 export const useOwnerInvoices = (status?: string): UseQueryResult<InvoiceSummaryView[], Error> =>
@@ -225,6 +234,14 @@ export const useCreateResident = () =>
   useOwnerMutation(
     (body: unknown) => apiRequest<ResidentSummaryView>(`${OWNER}/residents`, { method: 'POST', body }),
     [...OCCUPANCY_KEYS, ['owner', 'residents']],
+  );
+
+/** Edits a resident's own details — contact, rent override, deposit, emergency contact. */
+export const useUpdateResident = () =>
+  useOwnerMutation(
+    ({ id, ...body }: { id: string } & Record<string, unknown>) =>
+      apiRequest<ResidentSummaryView>(`${OWNER}/residents/${id}`, { method: 'PATCH', body }),
+    [...OCCUPANCY_KEYS, ['owner', 'residents'], ['owner', 'resident']],
   );
 
 /**

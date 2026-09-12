@@ -6,6 +6,7 @@ import {
   ScrollView,
   StyleSheet,
   Text,
+  TextInput,
   View,
   type StyleProp,
   type ViewStyle,
@@ -197,6 +198,50 @@ export function Button({
   );
 }
 
+/** A labelled text input, used across the owner's forms. */
+export function FormField({
+  label,
+  value,
+  onChangeText,
+  placeholder,
+  keyboardType,
+  autoFocus,
+  editable = true,
+}: {
+  readonly label: string;
+  readonly value: string;
+  readonly onChangeText: (value: string) => void;
+  readonly placeholder?: string;
+  readonly keyboardType?: 'default' | 'number-pad' | 'decimal-pad' | 'phone-pad';
+  readonly autoFocus?: boolean;
+  readonly editable?: boolean;
+}) {
+  const theme = useTheme();
+  return (
+    <View style={styles.field}>
+      <Text style={[styles.fieldLabel, { color: theme.textSecondary }]}>{label}</Text>
+      <TextInput
+        value={value}
+        onChangeText={onChangeText}
+        placeholder={placeholder}
+        placeholderTextColor={theme.textMuted}
+        keyboardType={keyboardType}
+        autoFocus={autoFocus}
+        editable={editable}
+        accessibilityLabel={label}
+        style={[
+          styles.fieldInput,
+          {
+            backgroundColor: editable ? theme.surface : theme.surfaceSubtle,
+            borderColor: theme.border,
+            color: theme.textPrimary,
+          },
+        ]}
+      />
+    </View>
+  );
+}
+
 /** A labelled row, used for address, contact and pricing detail. */
 export function DetailRow({ label, value }: { readonly label: string; readonly value: ReactNode }) {
   const theme = useTheme();
@@ -307,6 +352,15 @@ const styles = StyleSheet.create({
     borderRadius: layout.radius.md,
   },
   buttonLabel: { fontSize: layout.fontSize.md, fontWeight: '700' },
+  field: { gap: layout.spacing[2] },
+  fieldLabel: { fontSize: layout.fontSize.sm, fontWeight: '600' },
+  fieldInput: {
+    minHeight: layout.minTouchTarget,
+    borderWidth: 1,
+    borderRadius: layout.radius.lg,
+    paddingHorizontal: layout.spacing[4],
+    fontSize: layout.fontSize.md,
+  },
   detailRow: { flexDirection: 'row', gap: layout.spacing[4], alignItems: 'flex-start' },
   detailLabel: { fontSize: layout.fontSize.sm, width: 96 },
   detailValue: { flex: 1 },

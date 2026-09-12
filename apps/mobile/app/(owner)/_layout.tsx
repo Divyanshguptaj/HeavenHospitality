@@ -45,10 +45,14 @@ export default function OwnerLayout() {
           ),
         }}
       />
+      {/* "residents" is a nested Stack (roster + add + detail), not a flat
+          screen — its own _layout.tsx supplies headers, so this one is
+          turned off here, the same as "rooms" below. */}
       <Tabs.Screen
         name="residents"
         options={{
           title: 'Residents',
+          headerShown: false,
           tabBarIcon: ({ color, size }) => (
             <Ionicons name="people-outline" color={color} size={size} />
           ),
