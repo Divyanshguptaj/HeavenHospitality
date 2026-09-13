@@ -2,6 +2,8 @@ import { Ionicons } from '@expo/vector-icons';
 import { useState, type ReactNode } from 'react';
 import {
   ActivityIndicator,
+  KeyboardAvoidingView,
+  Platform,
   Pressable,
   RefreshControl,
   ScrollView,
@@ -42,24 +44,29 @@ export function Screen({ children, onRefresh, refreshing = false }: ScreenProps)
   const theme = useTheme();
 
   return (
-    <ScrollView
-      style={{ backgroundColor: theme.canvas }}
-      contentContainerStyle={styles.screenContent}
-      // Content can exceed the viewport on small phones; never clip it.
-      keyboardShouldPersistTaps="handled"
-      refreshControl={
-        onRefresh === undefined ? undefined : (
-          <RefreshControl
-            refreshing={refreshing}
-            onRefresh={onRefresh}
-            tintColor={theme.primary}
-            colors={[theme.primary]}
-          />
-        )
-      }
+    <KeyboardAvoidingView
+      style={styles.screenFlex}
+      behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
     >
-      {children}
-    </ScrollView>
+      <ScrollView
+        style={{ backgroundColor: theme.canvas }}
+        contentContainerStyle={styles.screenContent}
+        // Content can exceed the viewport on small phones; never clip it.
+        keyboardShouldPersistTaps="handled"
+        refreshControl={
+          onRefresh === undefined ? undefined : (
+            <RefreshControl
+              refreshing={refreshing}
+              onRefresh={onRefresh}
+              tintColor={theme.primary}
+              colors={[theme.primary]}
+            />
+          )
+        }
+      >
+        {children}
+      </ScrollView>
+    </KeyboardAvoidingView>
   );
 }
 
@@ -350,6 +357,7 @@ export function EmptyState({ message }: { readonly message: string }) {
 }
 
 const styles = StyleSheet.create({
+  screenFlex: { flex: 1 },
   screenContent: {
     padding: layout.spacing[5],
     gap: layout.spacing[5],
