@@ -5,7 +5,6 @@ import type {
   FacilityView,
   FloorView,
   InvoiceSummaryView,
-  MealCountView,
   MenuDayView,
   OccupancyView,
   PaymentView,
@@ -40,7 +39,6 @@ export const ownerKeys = {
   payments: ['owner', 'payments'] as const,
   complaints: (status?: string) => ['owner', 'complaints', status ?? null] as const,
   complaint: (id: string) => ['owner', 'complaint', id] as const,
-  mealCounts: ['owner', 'mealCounts'] as const,
 };
 
 export const useOwnerDashboard = (): UseQueryResult<DashboardView, Error> =>
@@ -112,12 +110,6 @@ export const useOwnerComplaints = (
       ),
   });
 
-export const useOwnerMealCounts = (): UseQueryResult<MealCountView, Error> =>
-  useQuery({
-    queryKey: ownerKeys.mealCounts,
-    queryFn: ({ signal }) => apiRequest<MealCountView>(`${OWNER}/mess/counts`, { signal }),
-  });
-
 function useOwnerMutation<TInput, TResult>(
   run: (input: TInput) => Promise<TResult>,
   invalidates: ReadonlyArray<readonly unknown[]>,
@@ -125,7 +117,12 @@ function useOwnerMutation<TInput, TResult>(
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: run,
-    onSuccess: async () => {
+    // Refetch whether the mutation reports success or failure, not just on
+    // success: a client-side timeout or dropped response can report failure
+    // for a write the server already completed, and only a fresh read of the
+    // server's actual state — not the failed response — can tell the screen
+    // what really happened.
+    onSettled: async () => {
       await Promise.all(invalidates.map((queryKey) => queryClient.invalidateQueries({ queryKey })));
     },
   });

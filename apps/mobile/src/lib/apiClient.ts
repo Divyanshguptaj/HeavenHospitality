@@ -54,8 +54,15 @@ export class ApiRequestError extends Error {
   }
 }
 
-/** Aborts a request that gets no response within this long. */
-const DEFAULT_TIMEOUT_MS = 15_000;
+/**
+ * Aborts a request that gets no response within this long.
+ *
+ * Generous on purpose: a write that touches several tables can take a real
+ * while against a database waking up from idle, and a client-side timeout
+ * that fires before the server has actually finished is worse than a slow
+ * spinner — the write still lands, but the screen reports it as failed.
+ */
+const DEFAULT_TIMEOUT_MS = 30_000;
 
 export interface RequestOptions {
   readonly method?: 'GET' | 'POST' | 'PATCH' | 'PUT' | 'DELETE';
@@ -74,7 +81,11 @@ export async function apiRequest<T>(path: string, options: RequestOptions = {}):
   if (idempotencyKey !== undefined) headers['Idempotency-Key'] = idempotencyKey;
 
   const requestController = new AbortController();
-  const timeout = setTimeout(() => requestController.abort(), timeoutMs);
+  let timedOut = false;
+  const timeout = setTimeout(() => {
+    timedOut = true;
+    requestController.abort();
+  }, timeoutMs);
   const onCallerAbort = (): void => requestController.abort();
   signal?.addEventListener('abort', onCallerAbort);
 
@@ -87,6 +98,14 @@ export async function apiRequest<T>(path: string, options: RequestOptions = {}):
       signal: requestController.signal,
     });
   } catch (cause) {
+    if (timedOut) {
+      console.error(`[api] ${method} ${path} timed out after ${String(timeoutMs)}ms`);
+      throw new ApiRequestError(
+        'REQUEST_ABORTED',
+        'The server is taking too long to respond. It may still complete — check back before trying again.',
+        0,
+      );
+    }
     if (signal?.aborted === true || (cause instanceof Error && cause.name === 'AbortError')) {
       throw new ApiRequestError('REQUEST_ABORTED', 'The request was cancelled.', 0);
     }
