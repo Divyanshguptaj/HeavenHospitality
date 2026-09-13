@@ -1,12 +1,15 @@
 import {
   addInvoiceItemSchema,
   createExpenseSchema,
+  createFacilitySchema,
   createFloorSchema,
   createInventoryItemSchema,
   createNoticeSchema,
+  createPhotoSchema,
   createReadingSchema,
   createResidentSchema,
   createRoomSchema,
+  createRuleSchema,
   createStaffSchema,
   exitResidentSchema,
   generateInvoicesSchema,
@@ -16,11 +19,14 @@ import {
   phoneSchema,
   recordPaymentSchema,
   updateBedStatusSchema,
+  updateFacilitySchema,
   updateFloorSchema,
   updateMealTimingSchema,
   updateMenuSchema,
+  updatePhotoSchema,
   updateResidentSchema,
   updateRoomSchema,
+  updateRuleSchema,
   updateSettingsSchema,
   type ApiSuccess,
 } from '@heaven/contracts';
@@ -76,6 +82,20 @@ import {
   setStaffActive,
 } from '../operations/operations.service.js';
 import { getReceipt, listPayments, recordManualPayment } from '../payments/payments.service.js';
+import {
+  createFacility,
+  createPhoto,
+  createRule,
+  deleteFacility,
+  deletePhoto,
+  deleteRule,
+  listFacilities,
+  listPhotos,
+  listRules,
+  updateFacility,
+  updatePhoto,
+  updateRule,
+} from '../property/content.service.js';
 import {
   createFloor,
   createRoom,
@@ -193,6 +213,128 @@ ownerRouter.patch(
   handle((req) => {
     const { body } = getValidated<{ body: typeof propertyProfileSchema }>(req);
     return updatePropertyProfile(getActor(req), body);
+  }),
+);
+
+// --- Public content: facilities, house rules, gallery -----------------------
+
+ownerRouter.get(
+  '/facilities',
+  requirePermission('property:read'),
+  handle((req) => listFacilities(getActor(req))),
+);
+
+ownerRouter.post(
+  '/facilities',
+  requirePermission('property:write'),
+  validate({ body: createFacilitySchema }),
+  handle((req) => {
+    const { body } = getValidated<{ body: typeof createFacilitySchema }>(req);
+    return createFacility(getActor(req), body);
+  }),
+);
+
+ownerRouter.patch(
+  '/facilities/:id',
+  requirePermission('property:write'),
+  validate({ ...idParam, body: updateFacilitySchema }),
+  handle((req) => {
+    const { body, params } = getValidated<{
+      body: typeof updateFacilitySchema;
+      params: (typeof idParam)['params'];
+    }>(req);
+    return updateFacility(getActor(req), params.id, body);
+  }),
+);
+
+ownerRouter.delete(
+  '/facilities/:id',
+  requirePermission('property:write'),
+  validate(idParam),
+  handle(async (req) => {
+    const { params } = getValidated<typeof idParam>(req);
+    await deleteFacility(getActor(req), params.id);
+    return { deleted: true };
+  }),
+);
+
+ownerRouter.get(
+  '/rules',
+  requirePermission('property:read'),
+  handle((req) => listRules(getActor(req))),
+);
+
+ownerRouter.post(
+  '/rules',
+  requirePermission('property:write'),
+  validate({ body: createRuleSchema }),
+  handle((req) => {
+    const { body } = getValidated<{ body: typeof createRuleSchema }>(req);
+    return createRule(getActor(req), body);
+  }),
+);
+
+ownerRouter.patch(
+  '/rules/:id',
+  requirePermission('property:write'),
+  validate({ ...idParam, body: updateRuleSchema }),
+  handle((req) => {
+    const { body, params } = getValidated<{
+      body: typeof updateRuleSchema;
+      params: (typeof idParam)['params'];
+    }>(req);
+    return updateRule(getActor(req), params.id, body);
+  }),
+);
+
+ownerRouter.delete(
+  '/rules/:id',
+  requirePermission('property:write'),
+  validate(idParam),
+  handle(async (req) => {
+    const { params } = getValidated<typeof idParam>(req);
+    await deleteRule(getActor(req), params.id);
+    return { deleted: true };
+  }),
+);
+
+ownerRouter.get(
+  '/gallery',
+  requirePermission('property:read'),
+  handle((req) => listPhotos(getActor(req))),
+);
+
+ownerRouter.post(
+  '/gallery',
+  requirePermission('property:write'),
+  validate({ body: createPhotoSchema }),
+  handle((req) => {
+    const { body } = getValidated<{ body: typeof createPhotoSchema }>(req);
+    return createPhoto(getActor(req), body);
+  }),
+);
+
+ownerRouter.patch(
+  '/gallery/:id',
+  requirePermission('property:write'),
+  validate({ ...idParam, body: updatePhotoSchema }),
+  handle((req) => {
+    const { body, params } = getValidated<{
+      body: typeof updatePhotoSchema;
+      params: (typeof idParam)['params'];
+    }>(req);
+    return updatePhoto(getActor(req), params.id, body);
+  }),
+);
+
+ownerRouter.delete(
+  '/gallery/:id',
+  requirePermission('property:write'),
+  validate(idParam),
+  handle(async (req) => {
+    const { params } = getValidated<typeof idParam>(req);
+    await deletePhoto(getActor(req), params.id);
+    return { deleted: true };
   }),
 );
 

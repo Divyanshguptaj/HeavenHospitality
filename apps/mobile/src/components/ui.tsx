@@ -1,4 +1,5 @@
-import type { ReactNode } from 'react';
+import { Ionicons } from '@expo/vector-icons';
+import { useState, type ReactNode } from 'react';
 import {
   ActivityIndicator,
   Pressable,
@@ -109,6 +110,49 @@ export function CardTitle({ children }: { readonly children: ReactNode }) {
   return <Text style={[styles.cardTitle, { color: theme.textPrimary }]}>{children}</Text>;
 }
 
+/** A card whose body collapses behind its header, toggled by tapping the header. */
+export function Accordion({
+  title,
+  subtitle,
+  defaultExpanded = false,
+  children,
+}: {
+  readonly title: string;
+  readonly subtitle?: string | undefined;
+  readonly defaultExpanded?: boolean;
+  readonly children: ReactNode;
+}) {
+  const theme = useTheme();
+  const [expanded, setExpanded] = useState(defaultExpanded);
+
+  return (
+    <View style={[styles.cardShadow, { backgroundColor: theme.textPrimary }]}>
+      <View
+        style={[styles.card, { backgroundColor: theme.surface, borderColor: theme.borderStrong, gap: 0 }]}
+      >
+        <Pressable
+          onPress={() => setExpanded((current) => !current)}
+          accessibilityRole="button"
+          accessibilityState={{ expanded }}
+          accessibilityLabel={title}
+          style={styles.accordionHeader}
+        >
+          <View style={styles.accordionHeaderText}>
+            <Text style={[styles.cardTitle, { color: theme.textPrimary }]}>{title}</Text>
+            {subtitle !== undefined && <Muted>{subtitle}</Muted>}
+          </View>
+          <Ionicons
+            name={expanded ? 'chevron-up' : 'chevron-down'}
+            size={20}
+            color={theme.textMuted}
+          />
+        </Pressable>
+        {expanded && <View style={styles.accordionBody}>{children}</View>}
+      </View>
+    </View>
+  );
+}
+
 export function Body({ children }: { readonly children: ReactNode }) {
   const theme = useTheme();
   return <Text style={[styles.body, { color: theme.textSecondary }]}>{children}</Text>;
@@ -205,6 +249,7 @@ export function FormField({
   onChangeText,
   placeholder,
   keyboardType,
+  autoCapitalize,
   autoFocus,
   editable = true,
 }: {
@@ -213,6 +258,7 @@ export function FormField({
   readonly onChangeText: (value: string) => void;
   readonly placeholder?: string;
   readonly keyboardType?: 'default' | 'number-pad' | 'decimal-pad' | 'phone-pad';
+  readonly autoCapitalize?: 'none' | 'sentences' | 'words' | 'characters';
   readonly autoFocus?: boolean;
   readonly editable?: boolean;
 }) {
@@ -226,6 +272,7 @@ export function FormField({
         placeholder={placeholder}
         placeholderTextColor={theme.textMuted}
         keyboardType={keyboardType}
+        autoCapitalize={autoCapitalize}
         autoFocus={autoFocus}
         editable={editable}
         accessibilityLabel={label}
@@ -329,6 +376,14 @@ const styles = StyleSheet.create({
     gap: layout.spacing[4],
   },
   cardTitle: { fontSize: layout.fontSize.md, fontWeight: '700' },
+  accordionHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: layout.spacing[3],
+    minHeight: layout.minTouchTarget,
+  },
+  accordionHeaderText: { flex: 1, gap: layout.spacing[1] },
+  accordionBody: { gap: layout.spacing[4], marginTop: layout.spacing[4] },
   body: {
     fontSize: layout.fontSize.md,
     lineHeight: layout.fontSize.md * layout.lineHeight.normal,

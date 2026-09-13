@@ -3,6 +3,7 @@ import type {
   BedStatusName,
   ComplaintCategoryName,
   ComplaintStatusName,
+  FacilityIconKey,
   InvoiceItemKindName,
   InvoiceStatusName,
   MealTypeName,
@@ -94,6 +95,30 @@ export interface RoomView {
   readonly beds: readonly BedView[];
   readonly occupiedBeds: number;
   readonly availableBeds: number;
+}
+
+export interface FacilityView {
+  readonly id: string;
+  readonly name: string;
+  readonly description: string | null;
+  readonly iconKey: FacilityIconKey | null;
+  readonly isActive: boolean;
+  readonly sortOrder: number;
+}
+
+export interface RuleView {
+  readonly id: string;
+  readonly title: string;
+  readonly description: string;
+  readonly isActive: boolean;
+  readonly sortOrder: number;
+}
+
+export interface PropertyPhotoView {
+  readonly id: string;
+  readonly url: string;
+  readonly caption: string | null;
+  readonly isActive: boolean;
 }
 
 export interface FloorView {

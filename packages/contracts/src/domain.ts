@@ -16,6 +16,36 @@ import {
 
 // --- Enums (mirror the Prisma enums exactly) --------------------------------
 
+/**
+ * The icon vocabulary the backend may use for a facility.
+ *
+ * A closed list, validated on the way in and mapped to a glyph by the client.
+ * The database stores a MEANING ("wifi"), never a component or icon-font name —
+ * a backend that can name a client symbol is a backend that can decide what the
+ * client renders. Anything outside this list degrades to a neutral default.
+ */
+export const FACILITY_ICON_KEYS = [
+  'wifi',
+  'meals',
+  'laundry',
+  'housekeeping',
+  'power-backup',
+  'security',
+  'hot-water',
+  'study',
+  'ac',
+  'parking',
+  'water',
+  'gym',
+  'tv',
+  'lift',
+] as const;
+export type FacilityIconKey = (typeof FACILITY_ICON_KEYS)[number];
+
+export function isFacilityIconKey(value: string | null): value is FacilityIconKey {
+  return value !== null && (FACILITY_ICON_KEYS as readonly string[]).includes(value);
+}
+
 export const ROOM_STATUSES = ['ACTIVE', 'MAINTENANCE', 'INACTIVE'] as const;
 export type RoomStatusName = (typeof ROOM_STATUSES)[number];
 
@@ -35,7 +65,14 @@ export const INVOICE_STATUSES = [
 ] as const;
 export type InvoiceStatusName = (typeof INVOICE_STATUSES)[number];
 
-export const INVOICE_ITEM_KINDS = ['RENT', 'ELECTRICITY', 'LATE_FEE', 'OTHER', 'DISCOUNT'] as const;
+export const INVOICE_ITEM_KINDS = [
+  'RENT',
+  'ELECTRICITY',
+  'LATE_FEE',
+  'OTHER',
+  'DISCOUNT',
+  'DEPOSIT',
+] as const;
 export type InvoiceItemKindName = (typeof INVOICE_ITEM_KINDS)[number];
 
 export const PAYMENT_METHODS = ['CASH', 'UPI', 'BANK_TRANSFER', 'ONLINE'] as const;
@@ -178,6 +215,39 @@ export const updateSettingsSchema = financialSettingsSchema
 
 export type FinancialSettings = z.infer<typeof financialSettingsSchema>;
 export type UpdateSettingsInput = z.infer<typeof updateSettingsSchema>;
+
+// --- Public content (facilities, house rules, gallery) ----------------------
+//
+// The owner's side of what public.ts serves read-only. Each is a simple
+// name/description-shaped row with isActive (unpublish without losing the
+// content) and sortOrder (the order guests see them in) — same shape as
+// Floor's own manage-then-list pattern.
+
+export const createFacilitySchema = z.object({
+  name: z.string().trim().min(2).max(80),
+  description: z.string().trim().max(300).optional(),
+  iconKey: z.enum(FACILITY_ICON_KEYS).optional(),
+  isActive: z.boolean().optional(),
+  sortOrder: z.number().int().min(0).max(9999).optional(),
+});
+export const updateFacilitySchema = createFacilitySchema.partial();
+
+export const createRuleSchema = z.object({
+  title: z.string().trim().min(2).max(120),
+  description: z.string().trim().min(2).max(1000),
+  isActive: z.boolean().optional(),
+  sortOrder: z.number().int().min(0).max(9999).optional(),
+});
+export const updateRuleSchema = createRuleSchema.partial();
+
+export const createPhotoSchema = z.object({
+  /// A plain external URL — the development path (see PropertyPhoto in the
+  /// schema). Uploading to object storage is a separate, later feature.
+  url: z.string().trim().url().max(2000),
+  caption: z.string().trim().max(200).optional(),
+  isActive: z.boolean().optional(),
+});
+export const updatePhotoSchema = createPhotoSchema.partial();
 
 // --- Floors -----------------------------------------------------------------
 

@@ -58,7 +58,7 @@ export class ApiRequestError extends Error {
 const DEFAULT_TIMEOUT_MS = 15_000;
 
 export interface RequestOptions {
-  readonly method?: 'GET' | 'POST' | 'PATCH' | 'DELETE';
+  readonly method?: 'GET' | 'POST' | 'PATCH' | 'PUT' | 'DELETE';
   readonly body?: unknown;
   readonly signal?: AbortSignal;
   readonly idempotencyKey?: string;

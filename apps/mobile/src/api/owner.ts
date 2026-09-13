@@ -2,14 +2,19 @@ import type {
   ComplaintDetailView,
   ComplaintSummaryView,
   DashboardView,
+  FacilityView,
   FloorView,
   InvoiceSummaryView,
   MealCountView,
+  MenuDayView,
   OccupancyView,
   PaymentView,
+  PropertyPhotoView,
   ResidentDetailView,
   ResidentSummaryView,
   RoomView,
+  RuleView,
+  SettingsView,
 } from '@heaven/contracts';
 import { useMutation, useQuery, useQueryClient, type UseQueryResult } from '@tanstack/react-query';
 
@@ -126,7 +131,14 @@ function useOwnerMutation<TInput, TResult>(
   });
 }
 
-/** Records a cash/UPI/bank payment — the dominant real-world case in a PG. */
+/**
+ * Records a cash/UPI/bank payment — the dominant real-world case in a PG.
+ *
+ * Takes an `idempotencyKey` the caller keeps stable across retries of the
+ * SAME attempt (a slow request that times out and gets retried, or a
+ * double-tap): the server recognises a repeated key and returns the original
+ * payment instead of recording a second one.
+ */
 export const useRecordPayment = () =>
   useOwnerMutation(
     (input: {
@@ -136,7 +148,11 @@ export const useRecordPayment = () =>
       method: 'CASH' | 'UPI' | 'BANK_TRANSFER';
       paidAt: string;
       reference?: string;
-    }) => apiRequest<PaymentView>(`${OWNER}/payments`, { method: 'POST', body: input }),
+      idempotencyKey: string;
+    }) => {
+      const { idempotencyKey, ...body } = input;
+      return apiRequest<PaymentView>(`${OWNER}/payments`, { method: 'POST', body, idempotencyKey });
+    },
     [ownerKeys.dashboard, ownerKeys.payments, ['owner', 'invoices'], ['owner', 'residents']],
   );
 
@@ -268,3 +284,120 @@ export async function lookupUserByPhone(phone: string): Promise<{
 } | null> {
   return apiRequest(`${OWNER}/residents/lookup-by-phone?phone=${encodeURIComponent(phone)}`);
 }
+
+// --- Public content: mess menu, property profile, facilities, rules, gallery -
+//
+// Everything a guest reads on the public pages, edited from the phone.
+
+export const useOwnerMenu = (): UseQueryResult<MenuDayView[], Error> =>
+  useQuery({
+    queryKey: ['owner', 'mess', 'menu'],
+    queryFn: ({ signal }) => apiRequest<MenuDayView[]>(`${OWNER}/mess/menu`, { signal }),
+  });
+
+/** Sets (or, given an empty list, clears) one day's one meal. */
+export const useUpdateMenuDay = () =>
+  useOwnerMutation(
+    (input: { dayOfWeek: number; mealType: string; items: string[] }) =>
+      apiRequest<MenuDayView[]>(`${OWNER}/mess/menu`, { method: 'PUT', body: input }),
+    [['owner', 'mess', 'menu']],
+  );
+
+export const useUpdateMealTiming = () =>
+  useOwnerMutation(
+    (input: { mealType: string; startsAt: string; endsAt: string }) =>
+      apiRequest<{ updated: boolean }>(`${OWNER}/mess/timings`, { method: 'PUT', body: input }),
+    [['owner', 'settings']],
+  );
+
+/** The property profile (about/contact/location), plus financial, payment and mess settings. */
+export const useOwnerSettings = (): UseQueryResult<SettingsView, Error> =>
+  useQuery({
+    queryKey: ['owner', 'settings'],
+    queryFn: ({ signal }) => apiRequest<SettingsView>(`${OWNER}/settings`, { signal }),
+  });
+
+/** About, contact and location — the fields a guest reads on the public pages. */
+export const useUpdatePropertyProfile = () =>
+  useOwnerMutation(
+    (body: Record<string, unknown>) =>
+      apiRequest<SettingsView>(`${OWNER}/property`, { method: 'PATCH', body }),
+    [['owner', 'settings']],
+  );
+
+export const useOwnerFacilities = (): UseQueryResult<FacilityView[], Error> =>
+  useQuery({
+    queryKey: ['owner', 'facilities'],
+    queryFn: ({ signal }) => apiRequest<FacilityView[]>(`${OWNER}/facilities`, { signal }),
+  });
+
+export const useCreateFacility = () =>
+  useOwnerMutation(
+    (body: Record<string, unknown>) =>
+      apiRequest<FacilityView>(`${OWNER}/facilities`, { method: 'POST', body }),
+    [['owner', 'facilities']],
+  );
+
+export const useUpdateFacility = () =>
+  useOwnerMutation(
+    ({ id, ...body }: { id: string } & Record<string, unknown>) =>
+      apiRequest<FacilityView>(`${OWNER}/facilities/${id}`, { method: 'PATCH', body }),
+    [['owner', 'facilities']],
+  );
+
+export const useDeleteFacility = () =>
+  useOwnerMutation(
+    (id: string) => apiRequest<unknown>(`${OWNER}/facilities/${id}`, { method: 'DELETE' }),
+    [['owner', 'facilities']],
+  );
+
+export const useOwnerRules = (): UseQueryResult<RuleView[], Error> =>
+  useQuery({
+    queryKey: ['owner', 'rules'],
+    queryFn: ({ signal }) => apiRequest<RuleView[]>(`${OWNER}/rules`, { signal }),
+  });
+
+export const useCreateRule = () =>
+  useOwnerMutation(
+    (body: Record<string, unknown>) => apiRequest<RuleView>(`${OWNER}/rules`, { method: 'POST', body }),
+    [['owner', 'rules']],
+  );
+
+export const useUpdateRule = () =>
+  useOwnerMutation(
+    ({ id, ...body }: { id: string } & Record<string, unknown>) =>
+      apiRequest<RuleView>(`${OWNER}/rules/${id}`, { method: 'PATCH', body }),
+    [['owner', 'rules']],
+  );
+
+export const useDeleteRule = () =>
+  useOwnerMutation(
+    (id: string) => apiRequest<unknown>(`${OWNER}/rules/${id}`, { method: 'DELETE' }),
+    [['owner', 'rules']],
+  );
+
+export const useOwnerGallery = (): UseQueryResult<PropertyPhotoView[], Error> =>
+  useQuery({
+    queryKey: ['owner', 'gallery'],
+    queryFn: ({ signal }) => apiRequest<PropertyPhotoView[]>(`${OWNER}/gallery`, { signal }),
+  });
+
+export const useCreatePhoto = () =>
+  useOwnerMutation(
+    (body: Record<string, unknown>) =>
+      apiRequest<PropertyPhotoView>(`${OWNER}/gallery`, { method: 'POST', body }),
+    [['owner', 'gallery']],
+  );
+
+export const useUpdatePhoto = () =>
+  useOwnerMutation(
+    ({ id, ...body }: { id: string } & Record<string, unknown>) =>
+      apiRequest<PropertyPhotoView>(`${OWNER}/gallery/${id}`, { method: 'PATCH', body }),
+    [['owner', 'gallery']],
+  );
+
+export const useDeletePhoto = () =>
+  useOwnerMutation(
+    (id: string) => apiRequest<unknown>(`${OWNER}/gallery/${id}`, { method: 'DELETE' }),
+    [['owner', 'gallery']],
+  );

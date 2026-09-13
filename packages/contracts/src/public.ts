@@ -1,6 +1,6 @@
 import { z } from 'zod';
 
-import type { MealTypeName } from './domain.js';
+import { type FacilityIconKey, type MealTypeName } from './domain.js';
 
 /**
  * The public API contract — what a guest, a signed-in NON_RESIDENT and a
@@ -21,36 +21,10 @@ import type { MealTypeName } from './domain.js';
 // ---------------------------------------------------------------------------
 // Icons
 // ---------------------------------------------------------------------------
-
-/**
- * The icon vocabulary the backend may use for a facility.
- *
- * A closed list, validated on the way in and mapped to a glyph by the client.
- * The database stores a MEANING ("wifi"), never a component or icon-font name —
- * a backend that can name a client symbol is a backend that can decide what the
- * client renders. Anything outside this list degrades to a neutral default.
- */
-export const FACILITY_ICON_KEYS = [
-  'wifi',
-  'meals',
-  'laundry',
-  'housekeeping',
-  'power-backup',
-  'security',
-  'hot-water',
-  'study',
-  'ac',
-  'parking',
-  'water',
-  'gym',
-  'tv',
-  'lift',
-] as const;
-export type FacilityIconKey = (typeof FACILITY_ICON_KEYS)[number];
-
-export function isFacilityIconKey(value: string | null): value is FacilityIconKey {
-  return value !== null && (FACILITY_ICON_KEYS as readonly string[]).includes(value);
-}
+//
+// FACILITY_ICON_KEYS lives in domain.ts now — the owner-facing facility
+// create/update schemas need it too, and domain.ts is the module public.ts
+// already imports from, never the other way round.
 
 // ---------------------------------------------------------------------------
 // Query schemas
