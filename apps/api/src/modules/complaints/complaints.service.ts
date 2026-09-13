@@ -152,6 +152,12 @@ export async function getComplaintForResident(
   return readDetail(complaintId, { raisedByUserId: actor.userId });
 }
 
+/** More than this many open at once is treated as spam rather than a backlog. */
+const MAX_OPEN_COMPLAINTS_PER_RESIDENT = 3;
+
+/** "Open" means still on the resident's own plate — raised, or being worked. */
+const OPEN_COMPLAINT_STATUSES = ['OPEN', 'IN_PROGRESS'] as const;
+
 export async function createComplaint(
   actor: Actor,
   input: {
@@ -164,6 +170,20 @@ export async function createComplaint(
   const { tenancyId, propertyId } = await getActiveTenancyForActor(actor);
 
   const complaintId = await prisma.$transaction(async (tx) => {
+    const openCount = await tx.complaint.count({
+      where: {
+        propertyId,
+        raisedByUserId: actor.userId,
+        status: { in: [...OPEN_COMPLAINT_STATUSES] },
+      },
+    });
+    if (openCount >= MAX_OPEN_COMPLAINTS_PER_RESIDENT) {
+      throw new AppError(
+        'TOO_MANY_OPEN_COMPLAINTS',
+        `You already have ${String(MAX_OPEN_COMPLAINTS_PER_RESIDENT)} open complaints. Wait for one to be resolved before raising another.`,
+      );
+    }
+
     const complaint = await tx.complaint.create({
       data: {
         propertyId,

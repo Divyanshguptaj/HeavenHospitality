@@ -61,6 +61,10 @@ export const ERROR_CODES = [
   'READING_ALREADY_EXISTS',
   'MESS_CUTOFF_PASSED',
 
+  // Complaints
+  /** A resident already has the maximum number of open complaints at once. */
+  'TOO_MANY_OPEN_COMPLAINTS',
+
   // Infrastructure
   'RATE_LIMITED',
   'PROVIDER_UNAVAILABLE',
@@ -116,6 +120,8 @@ export const ERROR_STATUS: Readonly<Record<ErrorCode, number>> = Object.freeze({
   READING_BELOW_PREVIOUS: 400,
   READING_ALREADY_EXISTS: 409,
   MESS_CUTOFF_PASSED: 409,
+
+  TOO_MANY_OPEN_COMPLAINTS: 409,
 
   RATE_LIMITED: 429,
   PROVIDER_UNAVAILABLE: 503,
