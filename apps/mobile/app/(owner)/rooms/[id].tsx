@@ -1,20 +1,25 @@
+import type { RoomView } from '@heaven/contracts';
 import { formatINR } from '@heaven/money';
-import { useLocalSearchParams } from 'expo-router';
+import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useState } from 'react';
 import { Alert, StyleSheet, Text, TextInput, View } from 'react-native';
 
 import {
   lookupUserByPhone,
   useCreateResident,
+  useDeleteRoom,
   useExitResident,
   useOwnerRoom,
+  useUpdateRoom,
 } from '../../../src/api/owner';
 import {
   Badge,
   Button,
   Card,
   CardTitle,
+  DetailRow,
   ErrorState,
+  FormField,
   LoadingState,
   Muted,
   PageHeading,
@@ -43,11 +48,15 @@ function today(): string {
  */
 export default function OwnerRoomDetailScreen() {
   const theme = useTheme();
+  const router = useRouter();
   const { id = '' } = useLocalSearchParams<{ id: string }>();
   const room = useOwnerRoom(id);
   const exitResident = useExitResident();
+  const deleteRoom = useDeleteRoom();
 
   const [assigningBedId, setAssigningBedId] = useState<string | null>(null);
+  const [editing, setEditing] = useState(false);
+  const [removingTenancyId, setRemovingTenancyId] = useState<string | null>(null);
 
   if (room.isPending) {
     return (
@@ -70,12 +79,39 @@ export default function OwnerRoomDetailScreen() {
 
   const data = room.data;
 
+  function removeRoom(): void {
+    Alert.alert(
+      `Delete room ${data.number}?`,
+      'This removes the room and its beds. This cannot be undone.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Delete',
+          style: 'destructive',
+          onPress: () => {
+            deleteRoom.mutateAsync(data.id).then(
+              () => router.back(),
+              (error: unknown) => {
+                Alert.alert(
+                  'Could not delete',
+                  error instanceof ApiRequestError ? error.message : 'Please try again.',
+                );
+              },
+            );
+          },
+        },
+      ],
+    );
+  }
+
   function removeResident(
     tenancyId: string,
     bedLabel: string,
     residentName: string,
     outstandingPaise: number,
   ): void {
+    if (removingTenancyId !== null) return;
+
     if (outstandingPaise > 0) {
       Alert.alert(
         'Rent is still owed',
@@ -93,12 +129,16 @@ export default function OwnerRoomDetailScreen() {
           text: 'Remove',
           style: 'destructive',
           onPress: () => {
-            exitResident.mutateAsync({ id: tenancyId, actualExitDate: today() }).catch((error: unknown) => {
-              Alert.alert(
-                'Could not remove',
-                error instanceof ApiRequestError ? error.message : 'Please try again.',
-              );
-            });
+            setRemovingTenancyId(tenancyId);
+            exitResident
+              .mutateAsync({ id: tenancyId, actualExitDate: today() })
+              .catch((error: unknown) => {
+                Alert.alert(
+                  'Could not remove',
+                  error instanceof ApiRequestError ? error.message : 'Please try again.',
+                );
+              })
+              .finally(() => setRemovingTenancyId(null));
           },
         },
       ],
@@ -114,6 +154,26 @@ export default function OwnerRoomDetailScreen() {
           { withPaise: false },
         )}/mo`}
       />
+
+      <Card>
+        <View style={styles.cardHeaderRow}>
+          <CardTitle>Room details</CardTitle>
+          {!editing && (
+            <Button label="Edit" variant="secondary" onPress={() => setEditing(true)} />
+          )}
+        </View>
+
+        {editing ? (
+          <EditRoomForm room={data} onDone={() => setEditing(false)} />
+        ) : (
+          <>
+            <DetailRow label="Type" value={data.roomType} />
+            <DetailRow label="Capacity" value={String(data.capacity)} />
+            <DetailRow label="Rent" value={`${formatINR(data.monthlyRentPaise, { withPaise: false })}/mo`} />
+            <DetailRow label="AC" value={data.isAirConditioned ? 'Yes' : 'No'} />
+          </>
+        )}
+      </Card>
 
       <Card>
         <CardTitle>{`${data.occupiedBeds} of ${data.beds.length} beds occupied`}</CardTitle>
@@ -138,7 +198,7 @@ export default function OwnerRoomDetailScreen() {
                   )}
                 </View>
                 <Button
-                  label="Remove"
+                  label={removingTenancyId === bed.occupant.tenancyId ? 'Removing…' : 'Remove'}
                   variant="secondary"
                   onPress={() =>
                     removeResident(
@@ -167,7 +227,110 @@ export default function OwnerRoomDetailScreen() {
           </View>
         ))}
       </Card>
+
+      <Card>
+        <CardTitle>Delete room</CardTitle>
+        {data.occupiedBeds > 0 ? (
+          <Muted>Move every resident out of this room before deleting it.</Muted>
+        ) : (
+          <Button
+            label={deleteRoom.isPending ? 'Deleting…' : 'Delete this room'}
+            variant="secondary"
+            onPress={removeRoom}
+          />
+        )}
+      </Card>
     </Screen>
+  );
+}
+
+/** Edits a room's number, type, capacity, rent and AC — everything set when it was added. */
+function EditRoomForm({
+  room,
+  onDone,
+}: {
+  readonly room: RoomView;
+  readonly onDone: () => void;
+}) {
+  const theme = useTheme();
+  const updateRoom = useUpdateRoom();
+
+  const [number, setNumber] = useState(room.number);
+  const [roomType, setRoomType] = useState(room.roomType);
+  const [capacity, setCapacity] = useState(String(room.capacity));
+  const [rent, setRent] = useState(String(room.monthlyRentPaise / 100));
+  const [isAirConditioned, setIsAirConditioned] = useState(room.isAirConditioned);
+  const [error, setError] = useState<string | null>(null);
+
+  async function submit(): Promise<void> {
+    if (number.trim() === '') {
+      setError('Enter a room number.');
+      return;
+    }
+    setError(null);
+    try {
+      await updateRoom.mutateAsync({
+        id: room.id,
+        number: number.trim(),
+        roomType: roomType.trim(),
+        capacity: Number(capacity),
+        monthlyRentPaise: Math.round(Number(rent) * 100),
+        isAirConditioned,
+      });
+      onDone();
+    } catch (caught) {
+      setError(caught instanceof ApiRequestError ? caught.message : 'Could not update the room.');
+    }
+  }
+
+  return (
+    <View style={styles.form}>
+      <FormField label="Room number" value={number} onChangeText={setNumber} placeholder="204" />
+      <FormField label="Room type" value={roomType} onChangeText={setRoomType} placeholder="3 Sharing" />
+      <FormField
+        label="Capacity"
+        value={capacity}
+        onChangeText={setCapacity}
+        placeholder="3"
+        keyboardType="number-pad"
+      />
+      <FormField
+        label="Rent per resident (₹/month)"
+        value={rent}
+        onChangeText={setRent}
+        placeholder="7000"
+        keyboardType="decimal-pad"
+      />
+
+      <View style={styles.field}>
+        <Text style={[styles.label, { color: theme.textSecondary }]}>Air conditioned</Text>
+        <View style={styles.chipsRow}>
+          {[
+            { value: false, label: 'No' },
+            { value: true, label: 'Yes' },
+          ].map((option) => {
+            const active = option.value === isAirConditioned;
+            return (
+              <Button
+                key={option.label}
+                label={option.label}
+                variant={active ? 'primary' : 'secondary'}
+                onPress={() => setIsAirConditioned(option.value)}
+              />
+            );
+          })}
+        </View>
+      </View>
+
+      {error !== null && <Muted>{error}</Muted>}
+      <View style={styles.searchRow}>
+        <Button label="Cancel" variant="secondary" onPress={onDone} />
+        <Button
+          label={updateRoom.isPending ? 'Saving…' : 'Save changes'}
+          onPress={() => void submit()}
+        />
+      </View>
+    </View>
   );
 }
 
@@ -196,6 +359,7 @@ function AssignForm({
   } | null>(null);
   const [notFound, setNotFound] = useState(false);
   const [checking, setChecking] = useState(false);
+  const [deposit, setDeposit] = useState('');
   const [error, setError] = useState<string | null>(null);
 
   async function search(): Promise<void> {
@@ -220,6 +384,14 @@ function AssignForm({
   async function assign(): Promise<void> {
     if (found === null) return;
     setError(null);
+
+    const depositValue = deposit.trim();
+    const depositRupees = Number(depositValue);
+    if (depositValue === '' || Number.isNaN(depositRupees) || depositRupees < 0) {
+      setError('Enter a security deposit amount — 0 if there isn’t one.');
+      return;
+    }
+
     try {
       await createResident.mutateAsync({
         existingUserId: found.id,
@@ -228,7 +400,7 @@ function AssignForm({
         ...(found.email === null ? {} : { email: found.email }),
         joiningDate: today(),
         bedId,
-        securityDepositPaise: 0,
+        securityDepositPaise: Math.round(depositRupees * 100),
       });
       onDone();
     } catch (caught) {
@@ -275,6 +447,16 @@ function AssignForm({
         </Text>
       )}
 
+      {found !== null && !found.hasActiveTenancy && (
+        <FormField
+          label="Security deposit (₹)"
+          value={deposit}
+          onChangeText={setDeposit}
+          placeholder="Required — 0 if there isn't one"
+          keyboardType="decimal-pad"
+        />
+      )}
+
       {error !== null && <Muted>{error}</Muted>}
 
       <View style={styles.searchRow}>
@@ -291,6 +473,10 @@ function AssignForm({
 }
 
 const styles = StyleSheet.create({
+  cardHeaderRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
+  field: { gap: layout.spacing[2] },
+  label: { fontSize: layout.fontSize.sm, fontWeight: '600' },
+  chipsRow: { flexDirection: 'row', flexWrap: 'wrap', gap: layout.spacing[2] },
   bedBlock: {
     gap: layout.spacing[2],
     paddingVertical: layout.spacing[3],

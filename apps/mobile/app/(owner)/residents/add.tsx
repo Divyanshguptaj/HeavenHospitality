@@ -36,7 +36,9 @@ export default function AddResidentScreen() {
   const [notFound, setNotFound] = useState(false);
   const [checking, setChecking] = useState(false);
   const [joiningDate, setJoiningDate] = useState(today());
-  const [securityDeposit, setSecurityDeposit] = useState('0');
+  // Left blank on purpose, not defaulted to "0" — the owner must type an
+  // actual amount, even if that amount is zero, rather than silently skip it.
+  const [securityDeposit, setSecurityDeposit] = useState('');
   const [error, setError] = useState<string | null>(null);
 
   async function search(): Promise<void> {
@@ -61,6 +63,14 @@ export default function AddResidentScreen() {
   async function submit(): Promise<void> {
     if (found === null) return;
     setError(null);
+
+    const depositValue = securityDeposit.trim();
+    const depositRupees = Number(depositValue);
+    if (depositValue === '' || Number.isNaN(depositRupees) || depositRupees < 0) {
+      setError('Enter a security deposit amount — 0 if there isn’t one.');
+      return;
+    }
+
     try {
       await createResident.mutateAsync({
         existingUserId: found.id,
@@ -68,7 +78,7 @@ export default function AddResidentScreen() {
         phone: found.phone ?? phone.trim(),
         ...(found.email === null ? {} : { email: found.email }),
         joiningDate,
-        securityDepositPaise: Math.round((Number(securityDeposit) || 0) * 100),
+        securityDepositPaise: Math.round(depositRupees * 100),
       });
       router.back();
     } catch (caught) {
@@ -127,6 +137,7 @@ export default function AddResidentScreen() {
             label="Security deposit (₹)"
             value={securityDeposit}
             onChangeText={setSecurityDeposit}
+            placeholder="Required — 0 if there isn't one"
             keyboardType="decimal-pad"
           />
           <Muted>A room and bed can be assigned afterward from Rooms.</Muted>
