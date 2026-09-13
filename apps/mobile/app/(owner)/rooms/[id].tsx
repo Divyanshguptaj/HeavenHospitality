@@ -1,7 +1,7 @@
 import type { RoomView } from '@heaven/contracts';
 import { formatINR } from '@heaven/money';
 import { useLocalSearchParams, useRouter } from 'expo-router';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Alert, StyleSheet, Text, TextInput, View } from 'react-native';
 
 import {
@@ -9,7 +9,10 @@ import {
   useCreateResident,
   useDeleteRoom,
   useExitResident,
+  useLastReading,
   useOwnerRoom,
+  useOwnerSettings,
+  useRecordReading,
   useUpdateRoom,
 } from '../../../src/api/owner';
 import {
@@ -38,6 +41,11 @@ function today(): string {
   return new Date().toISOString().slice(0, 10);
 }
 
+function currentPeriodKey(): string {
+  const now = new Date();
+  return `${String(now.getFullYear())}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+}
+
 /**
  * One room, from the phone: who is in which bed, and the two moves an owner
  * makes here — fill an empty bed with an existing account, or take someone
@@ -57,6 +65,7 @@ export default function OwnerRoomDetailScreen() {
   const [assigningBedId, setAssigningBedId] = useState<string | null>(null);
   const [editing, setEditing] = useState(false);
   const [removingTenancyId, setRemovingTenancyId] = useState<string | null>(null);
+  const [addingBill, setAddingBill] = useState(false);
 
   if (room.isPending) {
     return (
@@ -227,6 +236,32 @@ export default function OwnerRoomDetailScreen() {
           </View>
         ))}
       </Card>
+
+      {data.isAirConditioned && (
+        <Card>
+          <View style={styles.cardHeaderRow}>
+            <CardTitle>Electricity / AC bill</CardTitle>
+            {!addingBill && data.occupiedBeds > 0 && (
+              <Button label="Add bill" variant="secondary" onPress={() => setAddingBill(true)} />
+            )}
+          </View>
+
+          {data.occupiedBeds === 0 ? (
+            <Muted>No one is in this room yet — there is nobody to split a bill between.</Muted>
+          ) : addingBill ? (
+            <ElectricityBillForm
+              roomId={data.id}
+              occupiedBeds={data.occupiedBeds}
+              onDone={() => setAddingBill(false)}
+            />
+          ) : (
+            <Muted>
+              Enter the meter reading; the amount is split between the {data.occupiedBeds} current
+              resident{data.occupiedBeds === 1 ? '' : 's'} by how long each of them was here.
+            </Muted>
+          )}
+        </Card>
+      )}
 
       <Card>
         <CardTitle>Delete room</CardTitle>
@@ -467,6 +502,113 @@ function AssignForm({
             onPress={() => void assign()}
           />
         )}
+      </View>
+    </View>
+  );
+}
+
+/**
+ * Records a meter reading for the room; the server turns it into an amount
+ * (units × the property's electricity rate) and splits it across whoever
+ * occupied the room during the period, weighted by how many days each of
+ * them was actually here.
+ */
+function ElectricityBillForm({
+  roomId,
+  occupiedBeds,
+  onDone,
+}: {
+  readonly roomId: string;
+  readonly occupiedBeds: number;
+  readonly onDone: () => void;
+}) {
+  const lastReading = useLastReading(roomId);
+  const settings = useOwnerSettings();
+  const recordReading = useRecordReading();
+
+  const [previousReading, setPreviousReading] = useState('');
+  const [currentReading, setCurrentReading] = useState('');
+  const [periodKey, setPeriodKey] = useState(currentPeriodKey());
+  const [readingDate, setReadingDate] = useState(today());
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (lastReading.data !== undefined && lastReading.data !== null) {
+      setPreviousReading(String(lastReading.data.currentReading));
+    }
+  }, [lastReading.data]);
+
+  const previous = Number(previousReading);
+  const current = Number(currentReading);
+  const rate = settings.data?.financial.electricityRatePaisePerUnit;
+  const canEstimate =
+    previousReading.trim() !== '' &&
+    currentReading.trim() !== '' &&
+    !Number.isNaN(previous) &&
+    !Number.isNaN(current) &&
+    current >= previous &&
+    rate !== undefined;
+  const estimatedUnits = canEstimate ? current - previous : 0;
+  const estimatedTotalPaise = canEstimate ? estimatedUnits * rate : 0;
+
+  async function submit(): Promise<void> {
+    setError(null);
+
+    if (previousReading.trim() === '' || currentReading.trim() === '') {
+      setError('Enter both the previous and current meter readings.');
+      return;
+    }
+    if (Number.isNaN(previous) || Number.isNaN(current) || current < previous) {
+      setError('The current reading must be a number at least as large as the previous one.');
+      return;
+    }
+
+    try {
+      await recordReading.mutateAsync({
+        roomId,
+        periodKey,
+        previousReading: previous,
+        currentReading: current,
+        readingDate,
+      });
+      onDone();
+    } catch (caught) {
+      setError(caught instanceof ApiRequestError ? caught.message : 'Could not record the reading.');
+    }
+  }
+
+  return (
+    <View style={styles.form}>
+      <FormField label="Billing period" value={periodKey} onChangeText={setPeriodKey} placeholder="YYYY-MM" />
+      <FormField
+        label="Previous reading (units)"
+        value={previousReading}
+        onChangeText={setPreviousReading}
+        keyboardType="number-pad"
+      />
+      <FormField
+        label="Current reading (units)"
+        value={currentReading}
+        onChangeText={setCurrentReading}
+        keyboardType="number-pad"
+        autoFocus
+      />
+      <FormField label="Reading date" value={readingDate} onChangeText={setReadingDate} placeholder="YYYY-MM-DD" />
+
+      {canEstimate && (
+        <Muted>
+          {estimatedUnits} units · {formatINR(estimatedTotalPaise, { withPaise: false })} total · ≈
+          {formatINR(Math.round(estimatedTotalPaise / occupiedBeds), { withPaise: false })} each across{' '}
+          {occupiedBeds} resident{occupiedBeds === 1 ? '' : 's'} (the actual split accounts for who
+          joined or left mid-period)
+        </Muted>
+      )}
+
+      {error !== null && <Muted>{error}</Muted>}
+
+      <View style={styles.searchRow}>
+        <Button label="Cancel" variant="secondary" onPress={onDone} />
+        <Button label={recordReading.isPending ? 'Saving…' : 'Save bill'} onPress={() => void submit()} />
       </View>
     </View>
   );

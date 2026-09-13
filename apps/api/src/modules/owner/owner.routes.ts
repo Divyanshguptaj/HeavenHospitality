@@ -19,6 +19,7 @@ import {
   phoneSchema,
   recordPaymentSchema,
   updateBedStatusSchema,
+  updateElectricityShareSchema,
   updateFacilitySchema,
   updateFloorSchema,
   updateMealTimingSchema,
@@ -57,6 +58,7 @@ import {
   getLastReadingForRoom,
   listReadings,
   recordReading,
+  updateElectricityShare,
 } from '../electricity/electricity.service.js';
 import {
   getMealCountsForOwner,
@@ -699,6 +701,19 @@ ownerRouter.post(
   handle((req) => {
     const { body } = getValidated<{ body: typeof createReadingSchema }>(req);
     return recordReading(getActor(req), body);
+  }),
+);
+
+ownerRouter.patch(
+  '/electricity/shares/:id',
+  requirePermission('electricity:write'),
+  validate({ ...idParam, body: updateElectricityShareSchema }),
+  handle((req) => {
+    const { body, params } = getValidated<{
+      body: typeof updateElectricityShareSchema;
+      params: (typeof idParam)['params'];
+    }>(req);
+    return updateElectricityShare(getActor(req), params.id, body);
   }),
 );
 

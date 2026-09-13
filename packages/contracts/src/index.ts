@@ -105,6 +105,7 @@ export {
   updateBedStatusSchema,
   updateComplaintSchema,
   updateFacilitySchema,
+  updateElectricityShareSchema,
   updateFloorSchema,
   updateMealTimingSchema,
   updateMenuSchema,

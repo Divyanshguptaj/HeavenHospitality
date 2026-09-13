@@ -1,9 +1,10 @@
+import type { ResidentDetailView } from '@heaven/contracts';
 import { formatINR } from '@heaven/money';
 import { useLocalSearchParams } from 'expo-router';
 import { useEffect, useState } from 'react';
 import { StyleSheet, View } from 'react-native';
 
-import { useOwnerResident, useUpdateResident } from '../../../src/api/owner';
+import { useOwnerResident, useUpdateElectricityShare, useUpdateResident } from '../../../src/api/owner';
 import {
   Badge,
   Button,
@@ -248,6 +249,18 @@ export default function OwnerResidentDetailScreen() {
         )}
       </Card>
 
+      {data.electricity.length > 0 && (
+        <Card>
+          <CardTitle>Electricity / AC bills</CardTitle>
+          {data.electricity.slice(0, 6).map((share, index) => (
+            <View key={share.id}>
+              {index > 0 && <Divider />}
+              <ElectricityShareRow share={share} />
+            </View>
+          ))}
+        </Card>
+      )}
+
       {data.complaints.length > 0 && (
         <Card>
           <CardTitle>Complaints</CardTitle>
@@ -266,6 +279,70 @@ export default function OwnerResidentDetailScreen() {
   );
 }
 
+/**
+ * One period's electricity/AC share, with the even/prorated split the server
+ * computed shown alongside a way to override it — the split is a starting
+ * point, not the final word, for the case where one resident's usage was
+ * clearly not typical of their roommates'.
+ */
+function ElectricityShareRow({
+  share,
+}: {
+  readonly share: ResidentDetailView['electricity'][number];
+}) {
+  const updateShare = useUpdateElectricityShare();
+  const [editing, setEditing] = useState(false);
+  const [amount, setAmount] = useState(String(share.sharePaise / 100));
+  const [error, setError] = useState<string | null>(null);
+
+  async function save(): Promise<void> {
+    setError(null);
+    const rupees = Number(amount);
+    if (amount.trim() === '' || Number.isNaN(rupees) || rupees < 0) {
+      setError('Enter a valid amount.');
+      return;
+    }
+    try {
+      await updateShare.mutateAsync({ id: share.id, sharePaise: Math.round(rupees * 100) });
+      setEditing(false);
+    } catch (caught) {
+      setError(caught instanceof ApiRequestError ? caught.message : 'Could not save.');
+    }
+  }
+
+  if (editing) {
+    return (
+      <View style={styles.electricityEdit}>
+        <Muted>{`${share.periodKey} · room ${share.roomNumber} · ${share.units} units`}</Muted>
+        <FormField label="This resident's share (₹)" value={amount} onChangeText={setAmount} keyboardType="decimal-pad" />
+        {error !== null && <Muted>{error}</Muted>}
+        <View style={styles.actionsRow}>
+          <Button
+            label="Cancel"
+            variant="secondary"
+            onPress={() => {
+              setEditing(false);
+              setAmount(String(share.sharePaise / 100));
+              setError(null);
+            }}
+          />
+          <Button label={updateShare.isPending ? 'Saving…' : 'Save'} onPress={() => void save()} />
+        </View>
+      </View>
+    );
+  }
+
+  return (
+    <View style={styles.rowBetween}>
+      <Muted>{`${share.periodKey} · room ${share.roomNumber} · ${share.units} units, ${share.occupiedDays}d`}</Muted>
+      <View style={styles.electricityAmount}>
+        <Muted>{formatINR(share.sharePaise, { withPaise: false })}</Muted>
+        <Button label="Edit" variant="secondary" onPress={() => setEditing(true)} />
+      </View>
+    </View>
+  );
+}
+
 const styles = StyleSheet.create({
   headingRow: { flexDirection: 'row', alignItems: 'flex-start', gap: layout.spacing[4] },
   grow: { flex: 1 },
@@ -274,6 +351,9 @@ const styles = StyleSheet.create({
   rowBetween: {
     flexDirection: 'row',
     justifyContent: 'space-between',
+    alignItems: 'center',
     paddingVertical: layout.spacing[2],
   },
+  electricityAmount: { flexDirection: 'row', alignItems: 'center', gap: layout.spacing[3] },
+  electricityEdit: { gap: layout.spacing[2], paddingVertical: layout.spacing[2] },
 });

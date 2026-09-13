@@ -219,6 +219,7 @@ export async function getResident(actor: Actor, tenancyId: string): Promise<Resi
       unallocatedPaise: payment.unallocatedPaise,
     })),
     electricity: tenancy.electricityShares.map((share) => ({
+      id: share.id,
       periodKey: share.reading.periodKey,
       units: share.reading.units,
       ratePaisePerUnit: share.reading.ratePaisePerUnit,

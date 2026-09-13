@@ -341,6 +341,12 @@ export const createReadingSchema = z.object({
   notes: z.string().trim().max(300).optional(),
 });
 
+/// A manual correction to one resident's share of a room's electricity bill —
+/// the even/prorated split is a starting point, not the final word.
+export const updateElectricityShareSchema = z.object({
+  sharePaise: nonNegativePaiseSchema,
+});
+
 // --- Invoices and payments --------------------------------------------------
 
 export const generateInvoicesSchema = z.object({

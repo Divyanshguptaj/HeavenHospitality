@@ -179,7 +179,38 @@ export const useRecordReading = () =>
       currentReading: number;
       readingDate: string;
     }) => apiRequest<unknown>(`${OWNER}/electricity`, { method: 'POST', body: input }),
-    [['owner', 'invoices'], ownerKeys.dashboard],
+    [
+      ['owner', 'invoices'],
+      ownerKeys.dashboard,
+      ['owner', 'room'],
+      ['owner', 'residents'],
+      ['owner', 'resident'],
+    ],
+  );
+
+/** The room's last reading, to prefill "previous reading" without retyping it. */
+export const useLastReading = (
+  roomId: string,
+): UseQueryResult<{ currentReading: number; periodKey: string; readingDate: string } | null, Error> =>
+  useQuery({
+    queryKey: ['owner', 'electricity', 'last', roomId],
+    queryFn: ({ signal }) =>
+      apiRequest<{ currentReading: number; periodKey: string; readingDate: string } | null>(
+        `${OWNER}/electricity/last/${roomId}`,
+        { signal },
+      ),
+    enabled: roomId !== '',
+  });
+
+/** A manual correction to one resident's share of a room's electricity bill. */
+export const useUpdateElectricityShare = () =>
+  useOwnerMutation(
+    ({ id, sharePaise }: { id: string; sharePaise: number }) =>
+      apiRequest<{ updated: boolean }>(`${OWNER}/electricity/shares/${id}`, {
+        method: 'PATCH',
+        body: { sharePaise },
+      }),
+    [['owner', 'invoices'], ownerKeys.dashboard, ['owner', 'residents'], ['owner', 'resident']],
   );
 
 // --- Floors, rooms, beds and residents ---------------------------------------

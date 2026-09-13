@@ -304,3 +304,54 @@ async function attachSharesToInvoices(
     });
   }
 }
+
+/**
+ * Manually corrects one resident's share of a room's electricity bill.
+ *
+ * The even/prorated split from `recordReading` is a starting point, not the
+ * final word — an owner who knows one resident actually ran the AC far more
+ * (or far less) than their roommates needs to be able to say so. Reuses
+ * `attachSharesToInvoices` to push the correction onto an already-issued
+ * invoice rather than leaving the two out of sync.
+ */
+export async function updateElectricityShare(
+  actor: Actor,
+  shareId: string,
+  input: { sharePaise: number },
+): Promise<{ updated: true }> {
+  const { propertyId, timezone } = await getPropertyContext(actor, 'electricity:write');
+
+  const share = await prisma.electricityShare.findFirst({
+    where: { id: shareId, reading: { propertyId } },
+    select: {
+      id: true,
+      sharePaise: true,
+      reading: { select: { periodKey: true } },
+      tenancy: { select: { user: { select: { fullName: true } } } },
+    },
+  });
+  if (share === null) throw new AppError('NOT_FOUND', 'Electricity share not found.');
+
+  await prisma.$transaction(async (tx) => {
+    await tx.electricityShare.update({
+      where: { id: shareId },
+      data: { sharePaise: input.sharePaise },
+    });
+
+    await writeAudit(tx, {
+      action: 'ELECTRICITY_READING_CORRECTED',
+      entityType: 'ElectricityShare',
+      entityId: shareId,
+      propertyId,
+      summary: `${share.tenancy.user.fullName}'s electricity share for ${share.reading.periodKey} changed to ₹${(input.sharePaise / 100).toFixed(2)}`,
+      actorUserId: actor.userId,
+      actorRole: 'ADMIN',
+      before: { sharePaise: share.sharePaise },
+      after: { sharePaise: input.sharePaise },
+    });
+  });
+
+  await attachSharesToInvoices(propertyId, share.reading.periodKey, todayInZone(timezone));
+
+  return { updated: true };
+}

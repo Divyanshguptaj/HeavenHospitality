@@ -161,6 +161,7 @@ export interface ResidentDetailView extends ResidentSummaryView {
   readonly invoices: readonly InvoiceSummaryView[];
   readonly payments: readonly PaymentView[];
   readonly electricity: ReadonlyArray<{
+    readonly id: string;
     readonly periodKey: string;
     readonly units: number;
     readonly ratePaisePerUnit: number;
@@ -269,6 +270,7 @@ export interface MealCountView {
 export interface ComplaintSummaryView {
   readonly id: string;
   readonly title: string;
+  readonly description: string;
   readonly category: ComplaintCategoryName;
   readonly status: ComplaintStatusName;
   readonly createdAt: string;
@@ -277,7 +279,6 @@ export interface ComplaintSummaryView {
 }
 
 export interface ComplaintDetailView extends ComplaintSummaryView {
-  readonly description: string;
   readonly imageUrl: string | null;
   readonly reopenCount: number;
   readonly events: ReadonlyArray<{
@@ -347,7 +348,6 @@ export interface DashboardView {
     readonly status: InvoiceStatusName;
     readonly dueDate: string;
   }>;
-  readonly meals: MealCountView;
   readonly openComplaints: number;
   readonly upcomingVacancies: ReadonlyArray<{
     readonly tenancyId: string;
