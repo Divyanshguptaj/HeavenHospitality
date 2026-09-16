@@ -10,6 +10,7 @@ import {
   useUpdateRegistration,
   useUpdateResident,
 } from '../../../src/api/owner';
+import { DateField } from '../../../src/components/DateField';
 import {
   RegistrationFields,
   optionalField,
@@ -146,11 +147,12 @@ export default function OwnerResidentDetailScreen() {
           <>
             <FormField label="Full name" value={fullName} onChangeText={setFullName} />
             <FormField label="Phone" value={phone} onChangeText={setPhone} keyboardType="phone-pad" />
-            <FormField
+            <DateField
               label="Expected exit date"
               value={expectedExitDate}
-              onChangeText={setExpectedExitDate}
-              placeholder="YYYY-MM-DD, blank if none"
+              onChange={setExpectedExitDate}
+              placeholder="No exit date set"
+              clearable
             />
             <FormField
               label="Monthly rent override (₹)"

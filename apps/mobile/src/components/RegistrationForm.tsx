@@ -1,5 +1,6 @@
 import type { RegistrationDetailsView } from '@heaven/contracts';
 
+import { DateField } from './DateField';
 import { CheckboxRow, FormField } from './ui';
 
 /**
@@ -92,12 +93,7 @@ export function RegistrationFields({
         onChangeText={(v) => onChange({ parentMobile: v })}
         keyboardType="phone-pad"
       />
-      <FormField
-        label="Date of birth"
-        value={values.dateOfBirth}
-        onChangeText={(v) => onChange({ dateOfBirth: v })}
-        placeholder="YYYY-MM-DD"
-      />
+      <DateField label="Date of birth" value={values.dateOfBirth} onChange={(v) => onChange({ dateOfBirth: v })} />
       <FormField
         label="Aadhaar number"
         value={values.aadhaarNumber}

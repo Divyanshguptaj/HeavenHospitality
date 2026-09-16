@@ -15,6 +15,7 @@ import {
   useRecordReading,
   useUpdateRoom,
 } from '../../../src/api/owner';
+import { DateField } from '../../../src/components/DateField';
 import {
   Badge,
   Button,
@@ -593,7 +594,7 @@ function ElectricityBillForm({
         keyboardType="number-pad"
         autoFocus
       />
-      <FormField label="Reading date" value={readingDate} onChangeText={setReadingDate} placeholder="YYYY-MM-DD" />
+      <DateField label="Reading date" value={readingDate} onChange={setReadingDate} />
 
       {canEstimate && (
         <Muted>

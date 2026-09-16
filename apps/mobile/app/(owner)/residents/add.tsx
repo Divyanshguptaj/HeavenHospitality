@@ -3,6 +3,7 @@ import { useState } from 'react';
 import { Text, View, StyleSheet } from 'react-native';
 
 import { lookupUserByPhone, useCreateResident } from '../../../src/api/owner';
+import { DateField } from '../../../src/components/DateField';
 import { Button, Card, FormField, Muted, PageHeading, Screen } from '../../../src/components/ui';
 import { ApiRequestError } from '../../../src/lib/apiClient';
 import { layout, useTheme } from '../../../src/theme';
@@ -132,7 +133,7 @@ export default function AddResidentScreen() {
 
       {found !== null && !found.hasActiveTenancy && (
         <Card>
-          <FormField label="Joining date" value={joiningDate} onChangeText={setJoiningDate} placeholder="YYYY-MM-DD" />
+          <DateField label="Joining date" value={joiningDate} onChange={setJoiningDate} />
           <FormField
             label="Security deposit (₹)"
             value={securityDeposit}
