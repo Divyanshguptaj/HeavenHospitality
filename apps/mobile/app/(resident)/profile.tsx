@@ -68,23 +68,6 @@ export default function ProfileScreen() {
         </Card>
       )}
 
-      {/* The public pages are not a separate product for guests — they are the
-          property's own information, and a resident wants the menu, the rules
-          and the contact number as much as anyone deciding whether to move in.
-          Linking rather than duplicating is what keeps one copy of them. */}
-      <Card>
-        <CardTitle>About the property</CardTitle>
-        <Body>
-          The mess menu, house rules, facilities and contact details are the same pages anyone can
-          see — no need to sign out to read them.
-        </Body>
-        <Button
-          label="Browse the property pages"
-          variant="secondary"
-          onPress={() => router.push('/(public)')}
-        />
-      </Card>
-
       <Card>
         <CardTitle>Switching accounts</CardTitle>
         <Body>
