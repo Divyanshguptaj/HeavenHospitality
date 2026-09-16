@@ -1,11 +1,11 @@
 import type * as ImagePickerModule from 'expo-image-picker';
 import { useState } from 'react';
-import { Alert, Image, StyleSheet, View } from 'react-native';
+import { ActivityIndicator, Alert, Image, StyleSheet, Text, View } from 'react-native';
 
 import { useSubmitRegistration } from '../api/resident';
 import { ApiRequestError } from '../lib/apiClient';
 import { uploadToCloudinary } from '../lib/cloudinary';
-import { layout } from '../theme';
+import { layout, useTheme } from '../theme';
 import { EMPTY_REGISTRATION_FORM, RegistrationFields, type RegistrationFormValues } from './RegistrationForm';
 import { Body, Button, Card, CardTitle, CheckboxRow, Muted, PageHeading, Screen } from './ui';
 
@@ -18,6 +18,7 @@ import { Body, Button, Card, CardTitle, CheckboxRow, Muted, PageHeading, Screen 
  * resulting URL is sent to the API, which never sees the file itself.
  */
 export function CompleteRegistrationScreen() {
+  const theme = useTheme();
   const [values, setValues] = useState<RegistrationFormValues>(EMPTY_REGISTRATION_FORM);
   const [termsAccepted, setTermsAccepted] = useState(false);
   const [photoUri, setPhotoUri] = useState<string | null>(null);
@@ -136,7 +137,17 @@ export function CompleteRegistrationScreen() {
         <CardTitle>Attach the document</CardTitle>
         <Body>A photo of the document you selected above, so the manager can verify it.</Body>
 
-        {photoUri !== null && <Image source={{ uri: photoUri }} style={styles.preview} resizeMode="cover" />}
+        {photoUri !== null && (
+          <View style={styles.previewWrap}>
+            <Image source={{ uri: photoUri }} style={styles.preview} resizeMode="cover" />
+            {uploading && (
+              <View style={[styles.previewOverlay, { backgroundColor: 'rgba(0,0,0,0.45)' }]}>
+                <ActivityIndicator color={theme.textInverse} />
+                <Text style={[styles.previewOverlayText, { color: theme.textInverse }]}>Uploading…</Text>
+              </View>
+            )}
+          </View>
+        )}
 
         <View style={styles.actionsRow}>
           <Button label="Take photo" variant="secondary" onPress={() => void takePhoto()} />
@@ -172,6 +183,15 @@ export function CompleteRegistrationScreen() {
 }
 
 const styles = StyleSheet.create({
+  previewWrap: { position: 'relative' },
   preview: { width: '100%', height: 200, borderRadius: layout.radius.lg },
+  previewOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    borderRadius: layout.radius.lg,
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: layout.spacing[2],
+  },
+  previewOverlayText: { fontSize: layout.fontSize.sm, fontWeight: '600' },
   actionsRow: { flexDirection: 'row', gap: layout.spacing[2], flexWrap: 'wrap' },
 });
