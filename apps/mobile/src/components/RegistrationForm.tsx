@@ -1,11 +1,19 @@
-import type { RegistrationDetailsView } from '@heaven/contracts';
+import {
+  REGISTRATION_DOCUMENT_TYPES,
+  REGISTRATION_DOCUMENT_TYPE_LABELS,
+  type RegistrationDetailsView,
+  type RegistrationDocumentType,
+} from '@heaven/contracts';
+import { Pressable, StyleSheet, Text, View } from 'react-native';
 
+import { layout, useTheme } from '../theme';
 import { DateField } from './DateField';
-import { CheckboxRow, FormField } from './ui';
+import { FormField } from './ui';
 
 /**
- * The admission form's fields, as plain strings for text inputs. Booleans stay
- * booleans — the document checklist has no format to get wrong.
+ * The admission form's fields, as plain strings for text inputs — every one
+ * required except course/semester, mirroring the paper form the property
+ * already used, where a blank field meant something was missed.
  */
 export interface RegistrationFormValues {
   readonly fatherName: string;
@@ -19,9 +27,7 @@ export interface RegistrationFormValues {
   readonly bloodGroup: string;
   readonly parentOccupation: string;
   readonly vehicleNumber: string;
-  readonly documentAadhaarCard: boolean;
-  readonly documentCollegeId: boolean;
-  readonly documentPassportPhoto: boolean;
+  readonly documentType: RegistrationDocumentType | null;
   readonly documentOtherDescription: string;
 }
 
@@ -37,9 +43,7 @@ export const EMPTY_REGISTRATION_FORM: RegistrationFormValues = {
   bloodGroup: '',
   parentOccupation: '',
   vehicleNumber: '',
-  documentAadhaarCard: false,
-  documentCollegeId: false,
-  documentPassportPhoto: false,
+  documentType: null,
   documentOtherDescription: '',
 };
 
@@ -62,19 +66,18 @@ export function registrationToFormValues(details: RegistrationDetailsView): Regi
     bloodGroup: details.bloodGroup ?? '',
     parentOccupation: details.parentOccupation ?? '',
     vehicleNumber: details.vehicleNumber ?? '',
-    documentAadhaarCard: details.documentAadhaarCard,
-    documentCollegeId: details.documentCollegeId,
-    documentPassportPhoto: details.documentPassportPhoto,
+    documentType: details.documentType,
     documentOtherDescription: details.documentOtherDescription ?? '',
   };
 }
 
 /**
  * The fields from the property's paper "Student Registration Form" — father's
- * and mother's names, ID and college details, permanent address, the document
- * checklist. No submit button and no terms checkbox here: those differ between
- * a resident filling this in for the first time and an admin correcting it
- * afterward, so the two screens that use this add their own.
+ * and mother's names, ID and college details, permanent address, and which
+ * document this submission stands in for. No submit button and no terms
+ * checkbox here: those differ between a resident filling this in for the
+ * first time and an admin correcting it afterward, so the two screens that
+ * use this add their own.
  */
 export function RegistrationFields({
   values,
@@ -105,7 +108,6 @@ export function RegistrationFields({
         label="College / institute"
         value={values.collegeOrInstitute}
         onChangeText={(v) => onChange({ collegeOrInstitute: v })}
-        placeholder="Optional"
       />
       <FormField
         label="Course / semester"
@@ -129,37 +131,81 @@ export function RegistrationFields({
         label="Parent's occupation"
         value={values.parentOccupation}
         onChangeText={(v) => onChange({ parentOccupation: v })}
-        placeholder="Optional"
       />
       <FormField
         label="Vehicle number"
         value={values.vehicleNumber}
         onChangeText={(v) => onChange({ vehicleNumber: v })}
-        placeholder="Optional"
         autoCapitalize="characters"
       />
 
-      <CheckboxRow
-        label="Aadhaar card submitted"
-        checked={values.documentAadhaarCard}
-        onToggle={() => onChange({ documentAadhaarCard: !values.documentAadhaarCard })}
+      <DocumentTypeField
+        value={values.documentType}
+        onSelect={(documentType) => onChange({ documentType })}
       />
-      <CheckboxRow
-        label="College ID submitted"
-        checked={values.documentCollegeId}
-        onToggle={() => onChange({ documentCollegeId: !values.documentCollegeId })}
-      />
-      <CheckboxRow
-        label="Passport photo submitted"
-        checked={values.documentPassportPhoto}
-        onToggle={() => onChange({ documentPassportPhoto: !values.documentPassportPhoto })}
-      />
-      <FormField
-        label="Other document (if any)"
-        value={values.documentOtherDescription}
-        onChangeText={(v) => onChange({ documentOtherDescription: v })}
-        placeholder="Optional"
-      />
+      {values.documentType === 'OTHER' && (
+        <FormField
+          label="Describe the document"
+          value={values.documentOtherDescription}
+          onChangeText={(v) => onChange({ documentOtherDescription: v })}
+          placeholder="e.g. Voter ID"
+        />
+      )}
     </>
   );
 }
+
+/** Which single document this submission is standing in for — a choice, not a checklist. */
+function DocumentTypeField({
+  value,
+  onSelect,
+}: {
+  readonly value: RegistrationDocumentType | null;
+  readonly onSelect: (type: RegistrationDocumentType) => void;
+}) {
+  const theme = useTheme();
+  return (
+    <View style={styles.field}>
+      <Text style={[styles.fieldLabel, { color: theme.textSecondary }]}>Which document are you submitting?</Text>
+      <View style={styles.pillRow}>
+        {REGISTRATION_DOCUMENT_TYPES.map((type) => {
+          const selected = value === type;
+          return (
+            <Pressable
+              key={type}
+              onPress={() => onSelect(type)}
+              accessibilityRole="radio"
+              accessibilityState={{ selected }}
+              style={[
+                styles.pill,
+                {
+                  backgroundColor: selected ? theme.primary : theme.surfaceSubtle,
+                  borderColor: selected ? theme.primary : theme.border,
+                },
+              ]}
+            >
+              <Text style={[styles.pillLabel, { color: selected ? theme.textInverse : theme.textSecondary }]}>
+                {REGISTRATION_DOCUMENT_TYPE_LABELS[type]}
+              </Text>
+            </Pressable>
+          );
+        })}
+      </View>
+    </View>
+  );
+}
+
+const styles = StyleSheet.create({
+  field: { gap: layout.spacing[2] },
+  fieldLabel: { fontSize: layout.fontSize.sm, fontWeight: '600' },
+  pillRow: { flexDirection: 'row', flexWrap: 'wrap', gap: layout.spacing[2] },
+  pill: {
+    borderWidth: 1,
+    borderRadius: layout.radius.full,
+    paddingHorizontal: layout.spacing[4],
+    paddingVertical: layout.spacing[2],
+    minHeight: layout.minTouchTarget,
+    justifyContent: 'center',
+  },
+  pillLabel: { fontSize: layout.fontSize.sm, fontWeight: '600' },
+});

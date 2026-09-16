@@ -97,6 +97,22 @@ export const COMPLAINT_CATEGORIES = [
 ] as const;
 export type ComplaintCategoryName = (typeof COMPLAINT_CATEGORIES)[number];
 
+export const REGISTRATION_DOCUMENT_TYPES = [
+  'AADHAAR_CARD',
+  'COLLEGE_ID',
+  'PASSPORT_PHOTO',
+  'OTHER',
+] as const;
+export type RegistrationDocumentType = (typeof REGISTRATION_DOCUMENT_TYPES)[number];
+
+export const REGISTRATION_DOCUMENT_TYPE_LABELS: Readonly<Record<RegistrationDocumentType, string>> =
+  Object.freeze({
+    AADHAAR_CARD: 'Aadhaar card',
+    COLLEGE_ID: 'College ID',
+    PASSPORT_PHOTO: 'Passport photo',
+    OTHER: 'Other',
+  });
+
 export const COMPLAINT_STATUSES = ['OPEN', 'IN_PROGRESS', 'RESOLVED', 'CLOSED'] as const;
 export type ComplaintStatusName = (typeof COMPLAINT_STATUSES)[number];
 
@@ -326,31 +342,43 @@ export const updateResidentSchema = z.object({
  * The admission form a resident fills once, themselves. Every field mirrors
  * the paper "Student Registration Form" the property already used, so an
  * admin who has filled it in on paper for years recognises this immediately.
+ *
+ * Only course/semester is optional — a student between institutes may
+ * genuinely have none to give. Everything else on the paper form was always
+ * filled in, so the digital one asks for it too.
  */
-export const submitRegistrationSchema = z.object({
+const registrationFieldsSchema = z.object({
   fatherName: z.string().trim().min(1).max(120),
   motherName: z.string().trim().min(1).max(120),
   parentMobile: phoneSchema,
   dateOfBirth: dateOnlySchema,
   aadhaarNumber: aadhaarNumberSchema,
-  collegeOrInstitute: z.string().trim().max(160).optional(),
+  collegeOrInstitute: z.string().trim().min(1).max(160),
   courseOrSemester: z.string().trim().max(120).optional(),
   permanentAddress: z.string().trim().min(1).max(400),
   bloodGroup: z.string().trim().min(1).max(10),
-  parentOccupation: z.string().trim().max(120).optional(),
-  vehicleNumber: z.string().trim().max(20).optional(),
-  documentAadhaarCard: z.boolean().default(false),
-  documentCollegeId: z.boolean().default(false),
-  documentPassportPhoto: z.boolean().default(false),
+  parentOccupation: z.string().trim().min(1).max(120),
+  vehicleNumber: z.string().trim().min(1).max(20),
+  /// Which single document this submission is standing in for — the physical
+  /// form's checklist, digitised as a choice rather than a set of checkboxes.
+  documentType: z.enum(REGISTRATION_DOCUMENT_TYPES),
   documentOtherDescription: z.string().trim().max(120).optional(),
-  /// The digital equivalent of the signature box: cannot submit without it.
-  termsAccepted: z.literal(true),
 });
+
+export const submitRegistrationSchema = registrationFieldsSchema
+  .extend({
+    /// The digital equivalent of the signature box: cannot submit without it.
+    termsAccepted: z.literal(true),
+  })
+  .refine((data) => data.documentType !== 'OTHER' || (data.documentOtherDescription ?? '').trim() !== '', {
+    message: 'Describe the document you are uploading.',
+    path: ['documentOtherDescription'],
+  });
 
 /// Same fields, all optional — what an admin may correct afterward. No
 /// `termsAccepted`: that is the resident's own act, not something an admin
 /// re-attests to on their behalf.
-export const updateRegistrationSchema = submitRegistrationSchema.omit({ termsAccepted: true }).partial();
+export const updateRegistrationSchema = registrationFieldsSchema.partial();
 
 export const moveResidentSchema = z.object({
   toBedId: idSchema,

@@ -1,4 +1,4 @@
-import type { ResidentDetailView } from '@heaven/contracts';
+import { REGISTRATION_DOCUMENT_TYPE_LABELS, type ResidentDetailView } from '@heaven/contracts';
 import { formatINR } from '@heaven/money';
 import { useLocalSearchParams } from 'expo-router';
 import { useEffect, useState } from 'react';
@@ -330,9 +330,7 @@ function RegistrationCard({
         bloodGroup: values.bloodGroup.trim(),
         parentOccupation: optionalField(values.parentOccupation),
         vehicleNumber: optionalField(values.vehicleNumber),
-        documentAadhaarCard: values.documentAadhaarCard,
-        documentCollegeId: values.documentCollegeId,
-        documentPassportPhoto: values.documentPassportPhoto,
+        ...(values.documentType === null ? {} : { documentType: values.documentType }),
         documentOtherDescription: optionalField(values.documentOtherDescription),
       });
       setEditing(false);
@@ -350,12 +348,12 @@ function RegistrationCard({
     );
   }
 
-  const documents = [
-    registration.documentAadhaarCard ? 'Aadhaar card' : null,
-    registration.documentCollegeId ? 'College ID' : null,
-    registration.documentPassportPhoto ? 'Passport photo' : null,
-    registration.documentOtherDescription,
-  ].filter((entry): entry is string => entry !== null && entry !== '');
+  const documentLabel =
+    registration.documentType === null
+      ? '—'
+      : registration.documentType === 'OTHER'
+        ? (registration.documentOtherDescription ?? 'Other')
+        : REGISTRATION_DOCUMENT_TYPE_LABELS[registration.documentType];
 
   return (
     <Card>
@@ -394,7 +392,7 @@ function RegistrationCard({
           <DetailRow label="Blood group" value={registration.bloodGroup ?? '—'} />
           <DetailRow label="Parent's occupation" value={registration.parentOccupation ?? '—'} />
           <DetailRow label="Vehicle number" value={registration.vehicleNumber ?? '—'} />
-          <DetailRow label="Documents submitted" value={documents.length === 0 ? '—' : documents.join(', ')} />
+          <DetailRow label="Document submitted" value={documentLabel} />
         </>
       )}
     </Card>

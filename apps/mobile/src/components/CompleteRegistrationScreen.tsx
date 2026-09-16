@@ -1,23 +1,27 @@
+import * as ImagePicker from 'expo-image-picker';
 import { useState } from 'react';
+import { Alert, Image, StyleSheet, View } from 'react-native';
 
 import { useSubmitRegistration } from '../api/resident';
 import { ApiRequestError } from '../lib/apiClient';
-import {
-  EMPTY_REGISTRATION_FORM,
-  RegistrationFields,
-  optionalField,
-  type RegistrationFormValues,
-} from './RegistrationForm';
-import { Button, Card, CardTitle, CheckboxRow, Muted, PageHeading, Screen } from './ui';
+import { layout } from '../theme';
+import { EMPTY_REGISTRATION_FORM, RegistrationFields, type RegistrationFormValues } from './RegistrationForm';
+import { Body, Button, Card, CardTitle, CheckboxRow, Muted, PageHeading, Screen } from './ui';
 
 /**
  * The admission form, blocking the rest of the resident section until it is
  * submitted once. After that, the resident can only view it — corrections go
  * through the manager, from the owner's Residents screen.
+ *
+ * The attached photo stays on the phone: this project has no document storage
+ * configured yet, so there is nowhere on the server to put it. It still shows
+ * a thumbnail here so picking one feels complete, and it is easy to wire up
+ * an actual upload later without changing this screen's shape.
  */
 export function CompleteRegistrationScreen() {
   const [values, setValues] = useState<RegistrationFormValues>(EMPTY_REGISTRATION_FORM);
   const [termsAccepted, setTermsAccepted] = useState(false);
+  const [photoUri, setPhotoUri] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const submit = useSubmitRegistration();
 
@@ -25,8 +29,38 @@ export function CompleteRegistrationScreen() {
     setValues((current) => ({ ...current, ...next }));
   }
 
+  async function pickFromLibrary(): Promise<void> {
+    const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
+    if (!permission.granted) {
+      Alert.alert('Permission needed', 'Allow photo library access to attach the document.');
+      return;
+    }
+    const result = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ['images'], quality: 0.7 });
+    const asset = result.canceled ? undefined : result.assets[0];
+    if (asset !== undefined) setPhotoUri(asset.uri);
+  }
+
+  async function takePhoto(): Promise<void> {
+    const permission = await ImagePicker.requestCameraPermissionsAsync();
+    if (!permission.granted) {
+      Alert.alert('Permission needed', 'Allow camera access to attach the document.');
+      return;
+    }
+    const result = await ImagePicker.launchCameraAsync({ mediaTypes: ['images'], quality: 0.7 });
+    const asset = result.canceled ? undefined : result.assets[0];
+    if (asset !== undefined) setPhotoUri(asset.uri);
+  }
+
   async function handleSubmit(): Promise<void> {
     setError(null);
+    if (values.documentType === null) {
+      setError('Choose which document you are submitting.');
+      return;
+    }
+    if (photoUri === null) {
+      setError('Attach a photo of the document.');
+      return;
+    }
     if (!termsAccepted) {
       setError('Please agree to the terms and conditions to continue.');
       return;
@@ -38,16 +72,15 @@ export function CompleteRegistrationScreen() {
         parentMobile: values.parentMobile.trim(),
         dateOfBirth: values.dateOfBirth.trim(),
         aadhaarNumber: values.aadhaarNumber.trim(),
-        collegeOrInstitute: optionalField(values.collegeOrInstitute),
-        courseOrSemester: optionalField(values.courseOrSemester),
+        collegeOrInstitute: values.collegeOrInstitute.trim(),
+        courseOrSemester: values.courseOrSemester.trim() === '' ? undefined : values.courseOrSemester.trim(),
         permanentAddress: values.permanentAddress.trim(),
         bloodGroup: values.bloodGroup.trim(),
-        parentOccupation: optionalField(values.parentOccupation),
-        vehicleNumber: optionalField(values.vehicleNumber),
-        documentAadhaarCard: values.documentAadhaarCard,
-        documentCollegeId: values.documentCollegeId,
-        documentPassportPhoto: values.documentPassportPhoto,
-        documentOtherDescription: optionalField(values.documentOtherDescription),
+        parentOccupation: values.parentOccupation.trim(),
+        vehicleNumber: values.vehicleNumber.trim(),
+        documentType: values.documentType,
+        documentOtherDescription:
+          values.documentOtherDescription.trim() === '' ? undefined : values.documentOtherDescription.trim(),
         termsAccepted: true,
       });
     } catch (caught) {
@@ -68,6 +101,18 @@ export function CompleteRegistrationScreen() {
       </Card>
 
       <Card>
+        <CardTitle>Attach the document</CardTitle>
+        <Body>A photo of the document you selected above, so the manager can verify it.</Body>
+
+        {photoUri !== null && <Image source={{ uri: photoUri }} style={styles.preview} resizeMode="cover" />}
+
+        <View style={styles.actionsRow}>
+          <Button label="Take photo" variant="secondary" onPress={() => void takePhoto()} />
+          <Button label="Choose from gallery" variant="secondary" onPress={() => void pickFromLibrary()} />
+        </View>
+      </Card>
+
+      <Card>
         <CheckboxRow
           label="I agree to the terms and conditions"
           checked={termsAccepted}
@@ -82,3 +127,8 @@ export function CompleteRegistrationScreen() {
     </Screen>
   );
 }
+
+const styles = StyleSheet.create({
+  preview: { width: '100%', height: 200, borderRadius: layout.radius.lg },
+  actionsRow: { flexDirection: 'row', gap: layout.spacing[2], flexWrap: 'wrap' },
+});

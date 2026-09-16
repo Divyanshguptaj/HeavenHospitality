@@ -295,9 +295,7 @@ type RegistrationFields = Pick<
   | 'bloodGroup'
   | 'parentOccupation'
   | 'vehicleNumber'
-  | 'documentAadhaarCard'
-  | 'documentCollegeId'
-  | 'documentPassportPhoto'
+  | 'documentType'
   | 'documentOtherDescription'
   | 'registrationCompletedAt'
 >;
@@ -315,9 +313,7 @@ export function toRegistrationView(tenancy: RegistrationFields): RegistrationDet
     bloodGroup: tenancy.bloodGroup,
     parentOccupation: tenancy.parentOccupation,
     vehicleNumber: tenancy.vehicleNumber,
-    documentAadhaarCard: tenancy.documentAadhaarCard,
-    documentCollegeId: tenancy.documentCollegeId,
-    documentPassportPhoto: tenancy.documentPassportPhoto,
+    documentType: tenancy.documentType,
     documentOtherDescription: tenancy.documentOtherDescription,
     completedAt: tenancy.registrationCompletedAt?.toISOString() ?? null,
   };
@@ -356,15 +352,13 @@ export async function submitRegistration(
       parentMobile: input.parentMobile,
       dateOfBirth: toPrismaDate(input.dateOfBirth),
       aadhaarNumber: input.aadhaarNumber,
-      collegeOrInstitute: input.collegeOrInstitute ?? null,
+      collegeOrInstitute: input.collegeOrInstitute,
       courseOrSemester: input.courseOrSemester ?? null,
       permanentAddress: input.permanentAddress,
       bloodGroup: input.bloodGroup,
-      parentOccupation: input.parentOccupation ?? null,
-      vehicleNumber: input.vehicleNumber ?? null,
-      documentAadhaarCard: input.documentAadhaarCard,
-      documentCollegeId: input.documentCollegeId,
-      documentPassportPhoto: input.documentPassportPhoto,
+      parentOccupation: input.parentOccupation,
+      vehicleNumber: input.vehicleNumber,
+      documentType: input.documentType,
       documentOtherDescription: input.documentOtherDescription ?? null,
       registrationCompletedAt: new Date(),
     },

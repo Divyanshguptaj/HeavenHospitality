@@ -556,6 +556,14 @@ enum TenancyStatus {
   VACATED
 }
 
+/// Which single document a resident's admission-form submission stands in for.
+enum RegistrationDocumentType {
+  AADHAAR_CARD
+  COLLEGE_ID
+  PASSPORT_PHOTO
+  OTHER
+}
+
 /// One *stay*. A person who leaves and returns gets a second Tenancy, which is
 /// what keeps history intact instead of overwriting it.
 model Tenancy {
@@ -592,9 +600,7 @@ model Tenancy {
   bloodGroup               String?
   parentOccupation         String?
   vehicleNumber            String?
-  documentAadhaarCard      Boolean   @default(false)
-  documentCollegeId        Boolean   @default(false)
-  documentPassportPhoto    Boolean   @default(false)
+  documentType             RegistrationDocumentType?
   documentOtherDescription String?
   registrationCompletedAt  DateTime? @db.Timestamptz(3)
 

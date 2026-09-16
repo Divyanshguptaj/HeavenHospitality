@@ -9,6 +9,7 @@ import type {
   MealTypeName,
   PaymentMethodName,
   PaymentStatusName,
+  RegistrationDocumentType,
   RoomStatusName,
   TenancyStatusName,
 } from './domain.js';
@@ -190,9 +191,7 @@ export interface RegistrationDetailsView {
   readonly bloodGroup: string | null;
   readonly parentOccupation: string | null;
   readonly vehicleNumber: string | null;
-  readonly documentAadhaarCard: boolean;
-  readonly documentCollegeId: boolean;
-  readonly documentPassportPhoto: boolean;
+  readonly documentType: RegistrationDocumentType | null;
   readonly documentOtherDescription: string | null;
   readonly completedAt: string | null;
 }

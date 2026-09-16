@@ -1,3 +1,4 @@
+import { REGISTRATION_DOCUMENT_TYPE_LABELS } from '@heaven/contracts';
 import { router } from 'expo-router';
 import { useState } from 'react';
 import { Alert } from 'react-native';
@@ -120,12 +121,12 @@ function RegistrationCard() {
   }
 
   const data = registration.data;
-  const documents = [
-    data.documentAadhaarCard ? 'Aadhaar card' : null,
-    data.documentCollegeId ? 'College ID' : null,
-    data.documentPassportPhoto ? 'Passport photo' : null,
-    data.documentOtherDescription,
-  ].filter((entry): entry is string => entry !== null && entry !== '');
+  const documentLabel =
+    data.documentType === null
+      ? '—'
+      : data.documentType === 'OTHER'
+        ? (data.documentOtherDescription ?? 'Other')
+        : REGISTRATION_DOCUMENT_TYPE_LABELS[data.documentType];
 
   return (
     <Card>
@@ -141,7 +142,7 @@ function RegistrationCard() {
       <DetailRow label="Blood group" value={data.bloodGroup ?? '—'} />
       <DetailRow label="Parent's occupation" value={data.parentOccupation ?? '—'} />
       <DetailRow label="Vehicle number" value={data.vehicleNumber ?? '—'} />
-      <DetailRow label="Documents submitted" value={documents.length === 0 ? '—' : documents.join(', ')} />
+      <DetailRow label="Document submitted" value={documentLabel} />
       <Muted>Submitted — contact the manager to correct any of these details.</Muted>
     </Card>
   );

@@ -268,9 +268,7 @@ export async function updateRegistration(
       ...(input.bloodGroup === undefined ? {} : { bloodGroup: input.bloodGroup }),
       ...(input.parentOccupation === undefined ? {} : { parentOccupation: input.parentOccupation }),
       ...(input.vehicleNumber === undefined ? {} : { vehicleNumber: input.vehicleNumber }),
-      ...(input.documentAadhaarCard === undefined ? {} : { documentAadhaarCard: input.documentAadhaarCard }),
-      ...(input.documentCollegeId === undefined ? {} : { documentCollegeId: input.documentCollegeId }),
-      ...(input.documentPassportPhoto === undefined ? {} : { documentPassportPhoto: input.documentPassportPhoto }),
+      ...(input.documentType === undefined ? {} : { documentType: input.documentType }),
       ...(input.documentOtherDescription === undefined
         ? {}
         : { documentOtherDescription: input.documentOtherDescription }),
