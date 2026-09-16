@@ -8,30 +8,36 @@ import Constants from 'expo-constants';
  * error, same Bearer transport. One API, two clients — no mobile-only endpoints.
  */
 /**
- * Resolves the API base URL.
+ * Resolves the API base URLs to try, in order.
  *
  * On a physical device `localhost` is the *phone*, not the development machine,
- * so a configured localhost URL can never reach the API. In development we take
- * the LAN address Expo is already serving the bundle from (`hostUri`, e.g.
- * `192.168.0.106:8081`) and reuse its host with the API port.
+ * so a configured localhost URL can never reach the API on its own. In
+ * development we take the LAN address Expo is already serving the bundle from
+ * (`hostUri`, e.g. `192.168.0.106:8081`) and reuse its host with the API port.
  *
  * This keeps the laptop's IP out of source control and means it keeps working
  * when the router hands out a different address tomorrow.
  */
-function resolveApiBaseUrl(): string {
+function resolveApiBaseUrls(): readonly string[] {
   const configured =
     (Constants.expoConfig?.extra?.['apiBaseUrl'] as string | undefined) ??
     'http://localhost:4000/api/v1';
 
-  if (!__DEV__ || !configured.includes('localhost')) return configured;
+  if (!__DEV__ || !configured.includes('localhost')) return [configured];
 
   const devServerHost = Constants.expoConfig?.hostUri?.split(':')[0];
-  if (devServerHost === undefined || devServerHost === '') return configured;
+  if (devServerHost === undefined || devServerHost === '') return [configured];
 
-  return configured.replace('localhost', devServerHost);
+  // The LAN address usually works, but on a hotspot with client isolation (or
+  // any network that blocks phone-to-laptop LAN traffic) it never will — only
+  // `adb reverse`, which tunnels the phone's own `localhost`, gets through. Try
+  // the LAN address first since it needs no cable, then fall back to localhost.
+  return [configured.replace('localhost', devServerHost), configured];
 }
 
-const apiBaseUrl = resolveApiBaseUrl();
+const apiBaseUrls = resolveApiBaseUrls();
+/** Index into `apiBaseUrls` of the candidate that last worked, tried first from now on. */
+let workingBaseUrlIndex = 0;
 
 /** In memory only — never SecureStore, never AsyncStorage. */
 let accessToken: string | null = null;
@@ -89,15 +95,36 @@ export async function apiRequest<T>(path: string, options: RequestOptions = {}):
   const onCallerAbort = (): void => requestController.abort();
   signal?.addEventListener('abort', onCallerAbort);
 
-  let response: Response;
+  let response: Response | undefined;
+  let lastFailure: unknown;
   try {
-    response = await fetch(`${apiBaseUrl}${path}`, {
-      method,
-      headers,
-      ...(body === undefined ? {} : { body: JSON.stringify(body) }),
-      signal: requestController.signal,
-    });
-  } catch (cause) {
+    // Try the candidate that worked last time first, then the others — a dev
+    // box with `adb reverse` set up but no plain LAN route (or vice versa)
+    // should only ever pay the cost of the failing candidate once.
+    for (let attempt = 0; attempt < apiBaseUrls.length; attempt++) {
+      const index = (workingBaseUrlIndex + attempt) % apiBaseUrls.length;
+      try {
+        response = await fetch(`${apiBaseUrls[index]}${path}`, {
+          method,
+          headers,
+          ...(body === undefined ? {} : { body: JSON.stringify(body) }),
+          signal: requestController.signal,
+        });
+        workingBaseUrlIndex = index;
+        break;
+      } catch (cause) {
+        lastFailure = cause;
+        const cancelled =
+          timedOut || signal?.aborted === true || (cause instanceof Error && cause.name === 'AbortError');
+        if (cancelled) break;
+      }
+    }
+  } finally {
+    clearTimeout(timeout);
+    signal?.removeEventListener('abort', onCallerAbort);
+  }
+
+  if (response === undefined) {
     if (timedOut) {
       console.error(`[api] ${method} ${path} timed out after ${String(timeoutMs)}ms`);
       throw new ApiRequestError(
@@ -106,18 +133,15 @@ export async function apiRequest<T>(path: string, options: RequestOptions = {}):
         0,
       );
     }
-    if (signal?.aborted === true || (cause instanceof Error && cause.name === 'AbortError')) {
+    if (signal?.aborted === true || (lastFailure instanceof Error && lastFailure.name === 'AbortError')) {
       throw new ApiRequestError('REQUEST_ABORTED', 'The request was cancelled.', 0);
     }
-    console.error(`[api] ${method} ${path} failed`, cause);
+    console.error(`[api] ${method} ${path} failed`, lastFailure);
     throw new ApiRequestError(
       'PROVIDER_UNAVAILABLE',
       'No connection to the server. Check your network and try again.',
       0,
     );
-  } finally {
-    clearTimeout(timeout);
-    signal?.removeEventListener('abort', onCallerAbort);
   }
 
   const requestId = response.headers.get('x-request-id') ?? undefined;
