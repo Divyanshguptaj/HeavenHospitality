@@ -2,6 +2,7 @@ import { router } from 'expo-router';
 import { useState } from 'react';
 import { Alert } from 'react-native';
 
+import { useRegistration } from '../../src/api/resident';
 import { useAuthStore } from '../../src/auth/authStore';
 import {
   Body,
@@ -9,10 +10,13 @@ import {
   Card,
   CardTitle,
   DetailRow,
+  ErrorState,
+  LoadingState,
   Muted,
   PageHeading,
   Screen,
 } from '../../src/components/ui';
+import { ApiRequestError } from '../../src/lib/apiClient';
 
 export default function ProfileScreen() {
   const user = useAuthStore((state) => state.user);
@@ -55,6 +59,8 @@ export default function ProfileScreen() {
         <Muted>Contact the manager to correct any of these details.</Muted>
       </Card>
 
+      <RegistrationCard />
+
       {user.memberships.length > 0 && (
         <Card>
           <CardTitle>Property</CardTitle>
@@ -85,5 +91,58 @@ export default function ProfileScreen() {
         />
       </Card>
     </Screen>
+  );
+}
+
+/** Read-only: the admission form is the resident's own submission, correctable only by the manager. */
+function RegistrationCard() {
+  const registration = useRegistration();
+
+  if (registration.isPending) {
+    return (
+      <Card>
+        <LoadingState label="Loading your registration…" />
+      </Card>
+    );
+  }
+
+  if (registration.error || registration.data === undefined) {
+    return (
+      <Card>
+        <ErrorState
+          message={
+            registration.error instanceof ApiRequestError ? registration.error.message : 'Please try again.'
+          }
+          onRetry={() => void registration.refetch()}
+        />
+      </Card>
+    );
+  }
+
+  const data = registration.data;
+  const documents = [
+    data.documentAadhaarCard ? 'Aadhaar card' : null,
+    data.documentCollegeId ? 'College ID' : null,
+    data.documentPassportPhoto ? 'Passport photo' : null,
+    data.documentOtherDescription,
+  ].filter((entry): entry is string => entry !== null && entry !== '');
+
+  return (
+    <Card>
+      <CardTitle>Your registration</CardTitle>
+      <DetailRow label="Father's name" value={data.fatherName ?? '—'} />
+      <DetailRow label="Mother's name" value={data.motherName ?? '—'} />
+      <DetailRow label="Parent's mobile" value={data.parentMobile ?? '—'} />
+      <DetailRow label="Date of birth" value={data.dateOfBirth ?? '—'} />
+      <DetailRow label="Aadhaar number" value={data.aadhaarNumber ?? '—'} />
+      <DetailRow label="College / institute" value={data.collegeOrInstitute ?? '—'} />
+      <DetailRow label="Course / semester" value={data.courseOrSemester ?? '—'} />
+      <DetailRow label="Permanent address" value={data.permanentAddress ?? '—'} />
+      <DetailRow label="Blood group" value={data.bloodGroup ?? '—'} />
+      <DetailRow label="Parent's occupation" value={data.parentOccupation ?? '—'} />
+      <DetailRow label="Vehicle number" value={data.vehicleNumber ?? '—'} />
+      <DetailRow label="Documents submitted" value={documents.length === 0 ? '—' : documents.join(', ')} />
+      <Muted>Submitted — contact the manager to correct any of these details.</Muted>
+    </Card>
   );
 }

@@ -578,6 +578,26 @@ model Tenancy {
   emergencyContactName  String?
   emergencyContactPhone String?
 
+  /// The admission form: filled once by the resident themselves, after which
+  /// only an admin can change it. `registrationCompletedAt` is what the app
+  /// checks to decide whether the resident still owes this form.
+  fatherName               String?
+  motherName               String?
+  parentMobile             String?
+  dateOfBirth              DateTime? @db.Date
+  aadhaarNumber             String?
+  collegeOrInstitute       String?
+  courseOrSemester         String?
+  permanentAddress         String?
+  bloodGroup               String?
+  parentOccupation         String?
+  vehicleNumber            String?
+  documentAadhaarCard      Boolean   @default(false)
+  documentCollegeId        Boolean   @default(false)
+  documentPassportPhoto    Boolean   @default(false)
+  documentOtherDescription String?
+  registrationCompletedAt  DateTime? @db.Timestamptz(3)
+
   createdAt DateTime @default(now()) @db.Timestamptz(3)
   updatedAt DateTime @updatedAt @db.Timestamptz(3)
 

@@ -44,6 +44,7 @@ export {
   type Role,
 } from './roles.js';
 export {
+  aadhaarNumberSchema,
   dateOnlySchema,
   emailSchema,
   idSchema,
@@ -102,6 +103,7 @@ export {
   paymentSettingsSchema,
   recordPaymentSchema,
   startOnlinePaymentSchema,
+  submitRegistrationSchema,
   updateBedStatusSchema,
   updateComplaintSchema,
   updateFacilitySchema,
@@ -110,6 +112,7 @@ export {
   updateMealTimingSchema,
   updateMenuSchema,
   updatePhotoSchema,
+  updateRegistrationSchema,
   updateResidentSchema,
   updateRoomSchema,
   updateRuleSchema,

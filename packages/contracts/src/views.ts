@@ -170,6 +170,31 @@ export interface ResidentDetailView extends ResidentSummaryView {
     readonly roomNumber: string;
   }>;
   readonly complaints: readonly ComplaintSummaryView[];
+  readonly registration: RegistrationDetailsView;
+}
+
+/**
+ * The admission form's contents — filled once by the resident, from then on
+ * editable only by an admin. `completedAt` is null until the resident submits
+ * it for the first time.
+ */
+export interface RegistrationDetailsView {
+  readonly fatherName: string | null;
+  readonly motherName: string | null;
+  readonly parentMobile: string | null;
+  readonly dateOfBirth: string | null;
+  readonly aadhaarNumber: string | null;
+  readonly collegeOrInstitute: string | null;
+  readonly courseOrSemester: string | null;
+  readonly permanentAddress: string | null;
+  readonly bloodGroup: string | null;
+  readonly parentOccupation: string | null;
+  readonly vehicleNumber: string | null;
+  readonly documentAadhaarCard: boolean;
+  readonly documentCollegeId: boolean;
+  readonly documentPassportPhoto: boolean;
+  readonly documentOtherDescription: string | null;
+  readonly completedAt: string | null;
 }
 
 export interface InvoiceItemView {
@@ -373,6 +398,7 @@ export interface ResidentHomeView {
     readonly fullName: string;
     readonly status: TenancyStatusName;
     readonly joiningDate: string;
+    readonly registrationCompletedAt: string | null;
   };
   readonly placement: {
     readonly roomNumber: string;

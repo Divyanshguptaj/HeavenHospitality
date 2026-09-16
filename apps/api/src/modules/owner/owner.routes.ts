@@ -25,6 +25,7 @@ import {
   updateMealTimingSchema,
   updateMenuSchema,
   updatePhotoSchema,
+  updateRegistrationSchema,
   updateResidentSchema,
   updateRoomSchema,
   updateRuleSchema,
@@ -119,6 +120,7 @@ import {
   getResident,
   listResidents,
   moveResident,
+  updateRegistration,
   updateResident,
 } from '../residents/residents.service.js';
 import {
@@ -529,6 +531,19 @@ ownerRouter.patch(
       params: (typeof idParam)['params'];
     }>(req);
     return updateResident(getActor(req), params.id, body);
+  }),
+);
+
+ownerRouter.patch(
+  '/residents/:id/registration',
+  requirePermission('resident:write'),
+  validate({ ...idParam, body: updateRegistrationSchema }),
+  handle((req) => {
+    const { body, params } = getValidated<{
+      body: typeof updateRegistrationSchema;
+      params: (typeof idParam)['params'];
+    }>(req);
+    return updateRegistration(getActor(req), params.id, body);
   }),
 );
 

@@ -1,6 +1,7 @@
 import { z } from 'zod';
 
 import {
+  aadhaarNumberSchema,
   dateOnlySchema,
   idSchema,
   nonNegativePaiseSchema,
@@ -318,6 +319,38 @@ export const updateResidentSchema = z.object({
   emergencyContactPhone: z.string().trim().max(20).nullable().optional(),
   status: z.enum(TENANCY_STATUSES).optional(),
 });
+
+// --- Registration (the admission form) ---------------------------------------
+
+/**
+ * The admission form a resident fills once, themselves. Every field mirrors
+ * the paper "Student Registration Form" the property already used, so an
+ * admin who has filled it in on paper for years recognises this immediately.
+ */
+export const submitRegistrationSchema = z.object({
+  fatherName: z.string().trim().min(1).max(120),
+  motherName: z.string().trim().min(1).max(120),
+  parentMobile: phoneSchema,
+  dateOfBirth: dateOnlySchema,
+  aadhaarNumber: aadhaarNumberSchema,
+  collegeOrInstitute: z.string().trim().max(160).optional(),
+  courseOrSemester: z.string().trim().max(120).optional(),
+  permanentAddress: z.string().trim().min(1).max(400),
+  bloodGroup: z.string().trim().min(1).max(10),
+  parentOccupation: z.string().trim().max(120).optional(),
+  vehicleNumber: z.string().trim().max(20).optional(),
+  documentAadhaarCard: z.boolean().default(false),
+  documentCollegeId: z.boolean().default(false),
+  documentPassportPhoto: z.boolean().default(false),
+  documentOtherDescription: z.string().trim().max(120).optional(),
+  /// The digital equivalent of the signature box: cannot submit without it.
+  termsAccepted: z.literal(true),
+});
+
+/// Same fields, all optional — what an admin may correct afterward. No
+/// `termsAccepted`: that is the resident's own act, not something an admin
+/// re-attests to on their behalf.
+export const updateRegistrationSchema = submitRegistrationSchema.omit({ termsAccepted: true }).partial();
 
 export const moveResidentSchema = z.object({
   toBedId: idSchema,

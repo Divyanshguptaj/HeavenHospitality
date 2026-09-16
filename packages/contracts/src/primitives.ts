@@ -84,6 +84,19 @@ export const slugSchema = z
 
 export const nonEmptyStringSchema = z.string().trim().min(1);
 
+/** A 12-digit Aadhaar number. Spaces (as printed on the card) are stripped, not stored. */
+export const aadhaarNumberSchema = z
+  .string()
+  .trim()
+  .transform((value, ctx) => {
+    const digits = value.replace(/\s+/g, '');
+    if (!/^\d{12}$/.test(digits)) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'Must be a 12-digit Aadhaar number' });
+      return z.NEVER;
+    }
+    return digits;
+  });
+
 /**
  * Free-text supplied by users (complaint descriptions, notes). Bounded so a
  * request body cannot be used to bloat the database or a log line.

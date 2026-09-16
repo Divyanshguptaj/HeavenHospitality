@@ -259,6 +259,7 @@ export function FormField({
   autoCapitalize,
   autoFocus,
   editable = true,
+  multiline = false,
 }: {
   readonly label: string;
   readonly value: string;
@@ -268,6 +269,7 @@ export function FormField({
   readonly autoCapitalize?: 'none' | 'sentences' | 'words' | 'characters';
   readonly autoFocus?: boolean;
   readonly editable?: boolean;
+  readonly multiline?: boolean;
 }) {
   const theme = useTheme();
   return (
@@ -282,9 +284,11 @@ export function FormField({
         autoCapitalize={autoCapitalize}
         autoFocus={autoFocus}
         editable={editable}
+        multiline={multiline}
         accessibilityLabel={label}
         style={[
           styles.fieldInput,
+          multiline && styles.fieldInputMultiline,
           {
             backgroundColor: editable ? theme.surface : theme.surfaceSubtle,
             borderColor: theme.border,
@@ -293,6 +297,35 @@ export function FormField({
         ]}
       />
     </View>
+  );
+}
+
+/** A checkbox row — "documents submitted", "I agree to the terms", and the like. */
+export function CheckboxRow({
+  label,
+  checked,
+  onToggle,
+}: {
+  readonly label: string;
+  readonly checked: boolean;
+  readonly onToggle: () => void;
+}) {
+  const theme = useTheme();
+  return (
+    <Pressable
+      onPress={onToggle}
+      style={styles.checkboxRow}
+      accessibilityRole="checkbox"
+      accessibilityState={{ checked }}
+      accessibilityLabel={label}
+    >
+      <Ionicons
+        name={checked ? 'checkbox' : 'square-outline'}
+        size={22}
+        color={checked ? theme.primary : theme.textMuted}
+      />
+      <Text style={[styles.body, { color: theme.textPrimary }]}>{label}</Text>
+    </Pressable>
   );
 }
 
@@ -424,6 +457,12 @@ const styles = StyleSheet.create({
     paddingHorizontal: layout.spacing[4],
     fontSize: layout.fontSize.md,
   },
+  fieldInputMultiline: {
+    minHeight: layout.minTouchTarget * 2,
+    paddingTop: layout.spacing[3],
+    textAlignVertical: 'top',
+  },
+  checkboxRow: { flexDirection: 'row', alignItems: 'center', gap: layout.spacing[3] },
   detailRow: { flexDirection: 'row', gap: layout.spacing[4], alignItems: 'flex-start' },
   detailLabel: { fontSize: layout.fontSize.sm, width: 96 },
   detailValue: { flex: 1 },

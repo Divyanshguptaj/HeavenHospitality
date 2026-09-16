@@ -9,6 +9,7 @@ import type {
   OccupancyView,
   PaymentView,
   PropertyPhotoView,
+  RegistrationDetailsView,
   ResidentDetailView,
   ResidentSummaryView,
   RoomView,
@@ -286,6 +287,17 @@ export const useUpdateResident = () =>
     ({ id, ...body }: { id: string } & Record<string, unknown>) =>
       apiRequest<ResidentSummaryView>(`${OWNER}/residents/${id}`, { method: 'PATCH', body }),
     [...OCCUPANCY_KEYS, ['owner', 'residents'], ['owner', 'resident']],
+  );
+
+/** Corrects a resident's own admission form, after they have submitted it once. */
+export const useUpdateRegistration = () =>
+  useOwnerMutation(
+    ({ id, ...body }: { id: string } & Record<string, unknown>) =>
+      apiRequest<RegistrationDetailsView>(`${OWNER}/residents/${id}/registration`, {
+        method: 'PATCH',
+        body,
+      }),
+    [['owner', 'resident']],
   );
 
 /**

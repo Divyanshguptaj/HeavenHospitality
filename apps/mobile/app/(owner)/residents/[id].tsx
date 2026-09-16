@@ -4,7 +4,18 @@ import { useLocalSearchParams } from 'expo-router';
 import { useEffect, useState } from 'react';
 import { StyleSheet, View } from 'react-native';
 
-import { useOwnerResident, useUpdateElectricityShare, useUpdateResident } from '../../../src/api/owner';
+import {
+  useOwnerResident,
+  useUpdateElectricityShare,
+  useUpdateRegistration,
+  useUpdateResident,
+} from '../../../src/api/owner';
+import {
+  RegistrationFields,
+  optionalField,
+  registrationToFormValues,
+  type RegistrationFormValues,
+} from '../../../src/components/RegistrationForm';
 import {
   Badge,
   Button,
@@ -215,6 +226,8 @@ export default function OwnerResidentDetailScreen() {
         )}
       </Card>
 
+      <RegistrationCard tenancyId={id} registration={data.registration} />
+
       <Card>
         <CardTitle>Recent invoices</CardTitle>
         {data.invoices.length === 0 ? (
@@ -276,6 +289,113 @@ export default function OwnerResidentDetailScreen() {
         </Card>
       )}
     </Screen>
+  );
+}
+
+/**
+ * The admission form. Blank until the resident submits it themselves; from
+ * then on the owner is the only one who can change it.
+ */
+function RegistrationCard({
+  tenancyId,
+  registration,
+}: {
+  readonly tenancyId: string;
+  readonly registration: ResidentDetailView['registration'];
+}) {
+  const updateRegistration = useUpdateRegistration();
+  const [editing, setEditing] = useState(false);
+  const [values, setValues] = useState<RegistrationFormValues>(() => registrationToFormValues(registration));
+  const [error, setError] = useState<string | null>(null);
+
+  function patch(next: Partial<RegistrationFormValues>): void {
+    setValues((current) => ({ ...current, ...next }));
+  }
+
+  async function save(): Promise<void> {
+    setError(null);
+    try {
+      await updateRegistration.mutateAsync({
+        id: tenancyId,
+        fatherName: values.fatherName.trim(),
+        motherName: values.motherName.trim(),
+        parentMobile: values.parentMobile.trim(),
+        dateOfBirth: values.dateOfBirth.trim(),
+        aadhaarNumber: values.aadhaarNumber.trim(),
+        collegeOrInstitute: optionalField(values.collegeOrInstitute),
+        courseOrSemester: optionalField(values.courseOrSemester),
+        permanentAddress: values.permanentAddress.trim(),
+        bloodGroup: values.bloodGroup.trim(),
+        parentOccupation: optionalField(values.parentOccupation),
+        vehicleNumber: optionalField(values.vehicleNumber),
+        documentAadhaarCard: values.documentAadhaarCard,
+        documentCollegeId: values.documentCollegeId,
+        documentPassportPhoto: values.documentPassportPhoto,
+        documentOtherDescription: optionalField(values.documentOtherDescription),
+      });
+      setEditing(false);
+    } catch (caught) {
+      setError(caught instanceof ApiRequestError ? caught.message : 'Could not save.');
+    }
+  }
+
+  if (registration.completedAt === null) {
+    return (
+      <Card>
+        <CardTitle>Registration</CardTitle>
+        <Muted>This resident has not submitted the admission form yet.</Muted>
+      </Card>
+    );
+  }
+
+  const documents = [
+    registration.documentAadhaarCard ? 'Aadhaar card' : null,
+    registration.documentCollegeId ? 'College ID' : null,
+    registration.documentPassportPhoto ? 'Passport photo' : null,
+    registration.documentOtherDescription,
+  ].filter((entry): entry is string => entry !== null && entry !== '');
+
+  return (
+    <Card>
+      <View style={styles.cardHeader}>
+        <CardTitle>Registration</CardTitle>
+        {!editing && <Button label="Edit" variant="secondary" onPress={() => setEditing(true)} />}
+      </View>
+
+      {editing ? (
+        <>
+          <RegistrationFields values={values} onChange={patch} />
+          {error !== null && <Muted>{error}</Muted>}
+          <View style={styles.actionsRow}>
+            <Button
+              label="Cancel"
+              variant="secondary"
+              onPress={() => {
+                setEditing(false);
+                setValues(registrationToFormValues(registration));
+                setError(null);
+              }}
+            />
+            <Button label={updateRegistration.isPending ? 'Saving…' : 'Save'} onPress={() => void save()} />
+          </View>
+        </>
+      ) : (
+        <>
+          <DetailRow label="Father's name" value={registration.fatherName ?? '—'} />
+          <DetailRow label="Mother's name" value={registration.motherName ?? '—'} />
+          <DetailRow label="Parent's mobile" value={registration.parentMobile ?? '—'} />
+          <DetailRow label="Date of birth" value={registration.dateOfBirth ?? '—'} />
+          <DetailRow label="Aadhaar number" value={registration.aadhaarNumber ?? '—'} />
+          <DetailRow label="College / institute" value={registration.collegeOrInstitute ?? '—'} />
+          <DetailRow label="Course / semester" value={registration.courseOrSemester ?? '—'} />
+          <DetailRow label="Permanent address" value={registration.permanentAddress ?? '—'} />
+          <DetailRow label="Blood group" value={registration.bloodGroup ?? '—'} />
+          <DetailRow label="Parent's occupation" value={registration.parentOccupation ?? '—'} />
+          <DetailRow label="Vehicle number" value={registration.vehicleNumber ?? '—'} />
+          <DetailRow label="Documents submitted" value={documents.length === 0 ? '—' : documents.join(', ')} />
+        </>
+      )}
+    </Card>
   );
 }
 

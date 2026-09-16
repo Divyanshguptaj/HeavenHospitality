@@ -3,8 +3,12 @@ import type {
   InvoiceSummaryView,
   NoticeView,
   PaymentView,
+  RegistrationDetailsView,
   ResidentHomeView,
+  submitRegistrationSchema,
 } from '@heaven/contracts';
+import type { Tenancy } from '@prisma/client';
+import type { z } from 'zod';
 
 import { AppError } from '../../errors/AppError.js';
 import { currentPeriodKey, fromPrismaDate, todayInZone, toPrismaDate } from '../../lib/dates.js';
@@ -97,6 +101,7 @@ export async function getResidentHome(actor: Actor): Promise<ResidentHomeView> {
       fullName: tenancy.user.fullName,
       status: tenancy.status,
       joiningDate: fromPrismaDate(tenancy.joiningDate),
+      registrationCompletedAt: tenancy.registrationCompletedAt?.toISOString() ?? null,
     },
     placement:
       allocation === undefined
@@ -275,4 +280,95 @@ export async function getResidentPaymentDetails(actor: Actor): Promise<{
     upiId: settings.upiId,
     upiQrImageUrl: settings.upiQrImageUrl,
   };
+}
+
+type RegistrationFields = Pick<
+  Tenancy,
+  | 'fatherName'
+  | 'motherName'
+  | 'parentMobile'
+  | 'dateOfBirth'
+  | 'aadhaarNumber'
+  | 'collegeOrInstitute'
+  | 'courseOrSemester'
+  | 'permanentAddress'
+  | 'bloodGroup'
+  | 'parentOccupation'
+  | 'vehicleNumber'
+  | 'documentAadhaarCard'
+  | 'documentCollegeId'
+  | 'documentPassportPhoto'
+  | 'documentOtherDescription'
+  | 'registrationCompletedAt'
+>;
+
+export function toRegistrationView(tenancy: RegistrationFields): RegistrationDetailsView {
+  return {
+    fatherName: tenancy.fatherName,
+    motherName: tenancy.motherName,
+    parentMobile: tenancy.parentMobile,
+    dateOfBirth: tenancy.dateOfBirth === null ? null : fromPrismaDate(tenancy.dateOfBirth),
+    aadhaarNumber: tenancy.aadhaarNumber,
+    collegeOrInstitute: tenancy.collegeOrInstitute,
+    courseOrSemester: tenancy.courseOrSemester,
+    permanentAddress: tenancy.permanentAddress,
+    bloodGroup: tenancy.bloodGroup,
+    parentOccupation: tenancy.parentOccupation,
+    vehicleNumber: tenancy.vehicleNumber,
+    documentAadhaarCard: tenancy.documentAadhaarCard,
+    documentCollegeId: tenancy.documentCollegeId,
+    documentPassportPhoto: tenancy.documentPassportPhoto,
+    documentOtherDescription: tenancy.documentOtherDescription,
+    completedAt: tenancy.registrationCompletedAt?.toISOString() ?? null,
+  };
+}
+
+export async function getRegistration(actor: Actor): Promise<RegistrationDetailsView> {
+  const { tenancyId } = await getActiveTenancyForActor(actor);
+  const tenancy = await prisma.tenancy.findUniqueOrThrow({ where: { id: tenancyId } });
+  return toRegistrationView(tenancy);
+}
+
+/**
+ * The one-time admission form. Once submitted, only an admin can change it —
+ * enforced here, not just hidden in the UI, since the endpoint is reachable
+ * directly by anyone holding a resident's token.
+ */
+export async function submitRegistration(
+  actor: Actor,
+  input: z.infer<typeof submitRegistrationSchema>,
+): Promise<RegistrationDetailsView> {
+  const { tenancyId } = await getActiveTenancyForActor(actor);
+
+  const existing = await prisma.tenancy.findUniqueOrThrow({
+    where: { id: tenancyId },
+    select: { registrationCompletedAt: true },
+  });
+  if (existing.registrationCompletedAt !== null) {
+    throw new AppError('ALREADY_EXISTS', 'This form has already been submitted. Contact the manager to correct it.');
+  }
+
+  const tenancy = await prisma.tenancy.update({
+    where: { id: tenancyId },
+    data: {
+      fatherName: input.fatherName,
+      motherName: input.motherName,
+      parentMobile: input.parentMobile,
+      dateOfBirth: toPrismaDate(input.dateOfBirth),
+      aadhaarNumber: input.aadhaarNumber,
+      collegeOrInstitute: input.collegeOrInstitute ?? null,
+      courseOrSemester: input.courseOrSemester ?? null,
+      permanentAddress: input.permanentAddress,
+      bloodGroup: input.bloodGroup,
+      parentOccupation: input.parentOccupation ?? null,
+      vehicleNumber: input.vehicleNumber ?? null,
+      documentAadhaarCard: input.documentAadhaarCard,
+      documentCollegeId: input.documentCollegeId,
+      documentPassportPhoto: input.documentPassportPhoto,
+      documentOtherDescription: input.documentOtherDescription ?? null,
+      registrationCompletedAt: new Date(),
+    },
+  });
+
+  return toRegistrationView(tenancy);
 }

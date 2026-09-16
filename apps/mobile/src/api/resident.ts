@@ -7,8 +7,11 @@ import type {
   MealTypeName,
   PaymentView,
   ReceiptView,
+  RegistrationDetailsView,
   ResidentHomeView,
+  submitRegistrationSchema,
 } from '@heaven/contracts';
+import type { z } from 'zod';
 import { useMutation, useQuery, useQueryClient, type UseQueryResult } from '@tanstack/react-query';
 
 import { apiRequest } from '../lib/apiClient';
@@ -33,6 +36,7 @@ export const residentKeys = {
   complaints: ['me', 'complaints'] as const,
   complaint: (id: string) => ['me', 'complaint', id] as const,
   absences: (from: string, to: string) => ['me', 'absences', from, to] as const,
+  registration: ['me', 'registration'] as const,
 };
 
 export interface PaymentDetails {
@@ -59,6 +63,12 @@ export const useResidentHome = (): UseQueryResult<ResidentHomeView, Error> =>
   useQuery({
     queryKey: residentKeys.home,
     queryFn: ({ signal }) => apiRequest<ResidentHomeView>(`${ME}/home`, { signal }),
+  });
+
+export const useRegistration = (): UseQueryResult<RegistrationDetailsView, Error> =>
+  useQuery({
+    queryKey: residentKeys.registration,
+    queryFn: ({ signal }) => apiRequest<RegistrationDetailsView>(`${ME}/registration`, { signal }),
   });
 
 export const useResidentInvoices = (): UseQueryResult<InvoiceSummaryView[], Error> =>
@@ -158,6 +168,13 @@ export const useCreateComplaint = () =>
     (input: { title: string; description: string; category: ComplaintCategoryName }) =>
       apiRequest<ComplaintDetailView>(`${ME}/complaints`, { method: 'POST', body: input }),
     [residentKeys.complaints, residentKeys.home],
+  );
+
+export const useSubmitRegistration = () =>
+  useResidentMutation(
+    (input: z.infer<typeof submitRegistrationSchema>) =>
+      apiRequest<RegistrationDetailsView>(`${ME}/registration`, { method: 'POST', body: input }),
+    [residentKeys.registration, residentKeys.home],
   );
 
 export interface PaymentOrder {

@@ -3,6 +3,7 @@ import {
   idSchema,
   markAbsenceSchema,
   startOnlinePaymentSchema,
+  submitRegistrationSchema,
   type ApiSuccess,
 } from '@heaven/contracts';
 import { Router, type NextFunction, type Request, type Response } from 'express';
@@ -23,12 +24,14 @@ import {
 } from '../payments/payments.service.js';
 import { getActiveTenancyForActor } from '../property/property.context.js';
 import {
+  getRegistration,
   getResidentHome,
   getResidentInvoice,
   getResidentPaymentDetails,
   listResidentElectricity,
   listResidentInvoices,
   listResidentPayments,
+  submitRegistration,
 } from './resident.service.js';
 
 /**
@@ -60,6 +63,20 @@ const idParam = { params: z.object({ id: idSchema }) } as const;
 residentRouter.get(
   '/home',
   handle((req) => getResidentHome(getActor(req))),
+);
+
+residentRouter.get(
+  '/registration',
+  handle((req) => getRegistration(getActor(req))),
+);
+residentRouter.post(
+  '/registration',
+  requirePermission('self:write'),
+  validate({ body: submitRegistrationSchema }),
+  handle((req) => {
+    const { body } = getValidated<{ body: typeof submitRegistrationSchema }>(req);
+    return submitRegistration(getActor(req), body);
+  }),
 );
 residentRouter.get(
   '/invoices',

@@ -1,5 +1,6 @@
-import type { ResidentDetailView, ResidentSummaryView } from '@heaven/contracts';
+import type { ResidentDetailView, ResidentSummaryView, updateRegistrationSchema } from '@heaven/contracts';
 import { Prisma } from '@prisma/client';
+import type { z } from 'zod';
 
 import { AppError } from '../../errors/AppError.js';
 import type { Loose } from '../../lib/types.js';
@@ -18,6 +19,7 @@ import { prisma } from '../../lib/prisma.js';
 import type { Actor } from '../../middleware/authenticate.js';
 import { generateDepositInvoice, recomputeInvoice } from '../billing/invoice.service.js';
 import { getPropertyContext } from '../property/property.context.js';
+import { toRegistrationView } from '../resident/resident.service.js';
 
 /**
  * Residents.
@@ -237,7 +239,45 @@ export async function getResident(actor: Actor, tenancyId: string): Promise<Resi
       residentName: tenancy.user.fullName,
       roomNumber: room?.number ?? null,
     })),
+    registration: toRegistrationView(tenancy),
   };
+}
+
+/** Admin correction of the resident's own admission form, after they have submitted it once. */
+export async function updateRegistration(
+  actor: Actor,
+  tenancyId: string,
+  input: z.infer<typeof updateRegistrationSchema>,
+): Promise<ResidentDetailView['registration']> {
+  const { propertyId } = await getPropertyContext(actor, 'resident:write');
+
+  const existing = await prisma.tenancy.findFirst({ where: { id: tenancyId, propertyId }, select: { id: true } });
+  if (existing === null) throw new AppError('NOT_FOUND', 'Resident not found.');
+
+  const tenancy = await prisma.tenancy.update({
+    where: { id: tenancyId },
+    data: {
+      ...(input.fatherName === undefined ? {} : { fatherName: input.fatherName }),
+      ...(input.motherName === undefined ? {} : { motherName: input.motherName }),
+      ...(input.parentMobile === undefined ? {} : { parentMobile: input.parentMobile }),
+      ...(input.dateOfBirth === undefined ? {} : { dateOfBirth: toPrismaDate(input.dateOfBirth) }),
+      ...(input.aadhaarNumber === undefined ? {} : { aadhaarNumber: input.aadhaarNumber }),
+      ...(input.collegeOrInstitute === undefined ? {} : { collegeOrInstitute: input.collegeOrInstitute }),
+      ...(input.courseOrSemester === undefined ? {} : { courseOrSemester: input.courseOrSemester }),
+      ...(input.permanentAddress === undefined ? {} : { permanentAddress: input.permanentAddress }),
+      ...(input.bloodGroup === undefined ? {} : { bloodGroup: input.bloodGroup }),
+      ...(input.parentOccupation === undefined ? {} : { parentOccupation: input.parentOccupation }),
+      ...(input.vehicleNumber === undefined ? {} : { vehicleNumber: input.vehicleNumber }),
+      ...(input.documentAadhaarCard === undefined ? {} : { documentAadhaarCard: input.documentAadhaarCard }),
+      ...(input.documentCollegeId === undefined ? {} : { documentCollegeId: input.documentCollegeId }),
+      ...(input.documentPassportPhoto === undefined ? {} : { documentPassportPhoto: input.documentPassportPhoto }),
+      ...(input.documentOtherDescription === undefined
+        ? {}
+        : { documentOtherDescription: input.documentOtherDescription }),
+    },
+  });
+
+  return toRegistrationView(tenancy);
 }
 
 /** Owner-facing lookup so an existing person is reused instead of duplicated. */
