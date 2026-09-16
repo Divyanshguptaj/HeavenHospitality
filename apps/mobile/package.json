@@ -4,8 +4,8 @@
   "private": true,
   "main": "expo-router/entry",
   "scripts": {
-    "start": "expo start",
-    "android": "expo start --android",
+    "start": "node scripts/adb-reverse.js && expo start",
+    "android": "node scripts/adb-reverse.js && expo start --android",
     "ios": "expo start --ios",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "doctor": "expo-doctor"
