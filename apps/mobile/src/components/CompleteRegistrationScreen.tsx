@@ -1,4 +1,4 @@
-import * as ImagePicker from 'expo-image-picker';
+import type * as ImagePickerModule from 'expo-image-picker';
 import { useState } from 'react';
 import { Alert, Image, StyleSheet, View } from 'react-native';
 
@@ -29,7 +29,24 @@ export function CompleteRegistrationScreen() {
     setValues((current) => ({ ...current, ...next }));
   }
 
+  // Loaded on demand, not at module scope: this native module only exists in a
+  // dev client that was rebuilt after it was added, and importing it eagerly
+  // would crash the whole resident section for anyone on an older build.
+  async function loadImagePicker(): Promise<typeof ImagePickerModule | null> {
+    try {
+      return await import('expo-image-picker');
+    } catch {
+      Alert.alert(
+        'Update needed',
+        'The photo picker needs a newer version of the app. Ask the developer to rebuild it.',
+      );
+      return null;
+    }
+  }
+
   async function pickFromLibrary(): Promise<void> {
+    const ImagePicker = await loadImagePicker();
+    if (ImagePicker === null) return;
     const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
     if (!permission.granted) {
       Alert.alert('Permission needed', 'Allow photo library access to attach the document.');
@@ -41,6 +58,8 @@ export function CompleteRegistrationScreen() {
   }
 
   async function takePhoto(): Promise<void> {
+    const ImagePicker = await loadImagePicker();
+    if (ImagePicker === null) return;
     const permission = await ImagePicker.requestCameraPermissionsAsync();
     if (!permission.granted) {
       Alert.alert('Permission needed', 'Allow camera access to attach the document.');
