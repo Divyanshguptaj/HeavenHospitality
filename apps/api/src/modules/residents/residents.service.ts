@@ -272,6 +272,7 @@ export async function updateRegistration(
       ...(input.documentOtherDescription === undefined
         ? {}
         : { documentOtherDescription: input.documentOtherDescription }),
+      ...(input.documentImageUrl === undefined ? {} : { documentImageUrl: input.documentImageUrl }),
     },
   });
 

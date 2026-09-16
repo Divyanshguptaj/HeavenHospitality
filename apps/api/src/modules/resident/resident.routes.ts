@@ -23,6 +23,7 @@ import {
   startOnlinePayment,
 } from '../payments/payments.service.js';
 import { getActiveTenancyForActor } from '../property/property.context.js';
+import { createUploadSignature } from '../uploads/cloudinary.service.js';
 import {
   getRegistration,
   getResidentHome,
@@ -78,6 +79,13 @@ residentRouter.post(
     return submitRegistration(getActor(req), body);
   }),
 );
+
+residentRouter.get(
+  '/uploads/cloudinary-signature',
+  requirePermission('self:write'),
+  handle(() => Promise.resolve(createUploadSignature())),
+);
+
 residentRouter.get(
   '/invoices',
   handle((req) => listResidentInvoices(getActor(req))),

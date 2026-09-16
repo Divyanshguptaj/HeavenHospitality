@@ -1,7 +1,7 @@
 import { REGISTRATION_DOCUMENT_TYPE_LABELS } from '@heaven/contracts';
 import { router } from 'expo-router';
 import { useState } from 'react';
-import { Alert } from 'react-native';
+import { Alert, Image, StyleSheet } from 'react-native';
 
 import { useRegistration } from '../../src/api/resident';
 import { useAuthStore } from '../../src/auth/authStore';
@@ -18,6 +18,7 @@ import {
   Screen,
 } from '../../src/components/ui';
 import { ApiRequestError } from '../../src/lib/apiClient';
+import { layout } from '../../src/theme';
 
 export default function ProfileScreen() {
   const user = useAuthStore((state) => state.user);
@@ -143,7 +144,14 @@ function RegistrationCard() {
       <DetailRow label="Parent's occupation" value={data.parentOccupation ?? '—'} />
       <DetailRow label="Vehicle number" value={data.vehicleNumber ?? '—'} />
       <DetailRow label="Document submitted" value={documentLabel} />
+      {data.documentImageUrl !== null && (
+        <Image source={{ uri: data.documentImageUrl }} style={styles.documentImage} resizeMode="cover" />
+      )}
       <Muted>Submitted — contact the manager to correct any of these details.</Muted>
     </Card>
   );
 }
+
+const styles = StyleSheet.create({
+  documentImage: { width: '100%', height: 200, borderRadius: layout.radius.lg },
+});

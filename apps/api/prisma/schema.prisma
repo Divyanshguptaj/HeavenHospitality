@@ -602,6 +602,8 @@ model Tenancy {
   vehicleNumber            String?
   documentType             RegistrationDocumentType?
   documentOtherDescription String?
+  /// A Cloudinary URL — the file itself lives there, never in this database.
+  documentImageUrl         String?
   registrationCompletedAt  DateTime? @db.Timestamptz(3)
 
   createdAt DateTime @default(now()) @db.Timestamptz(3)

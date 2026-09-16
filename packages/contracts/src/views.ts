@@ -193,6 +193,7 @@ export interface RegistrationDetailsView {
   readonly vehicleNumber: string | null;
   readonly documentType: RegistrationDocumentType | null;
   readonly documentOtherDescription: string | null;
+  readonly documentImageUrl: string | null;
   readonly completedAt: string | null;
 }
 

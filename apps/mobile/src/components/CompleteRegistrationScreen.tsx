@@ -4,6 +4,7 @@ import { Alert, Image, StyleSheet, View } from 'react-native';
 
 import { useSubmitRegistration } from '../api/resident';
 import { ApiRequestError } from '../lib/apiClient';
+import { uploadToCloudinary } from '../lib/cloudinary';
 import { layout } from '../theme';
 import { EMPTY_REGISTRATION_FORM, RegistrationFields, type RegistrationFormValues } from './RegistrationForm';
 import { Body, Button, Card, CardTitle, CheckboxRow, Muted, PageHeading, Screen } from './ui';
@@ -13,15 +14,14 @@ import { Body, Button, Card, CardTitle, CheckboxRow, Muted, PageHeading, Screen 
  * submitted once. After that, the resident can only view it — corrections go
  * through the manager, from the owner's Residents screen.
  *
- * The attached photo stays on the phone: this project has no document storage
- * configured yet, so there is nowhere on the server to put it. It still shows
- * a thumbnail here so picking one feels complete, and it is easy to wire up
- * an actual upload later without changing this screen's shape.
+ * The attached photo goes straight from the phone to Cloudinary; only the
+ * resulting URL is sent to the API, which never sees the file itself.
  */
 export function CompleteRegistrationScreen() {
   const [values, setValues] = useState<RegistrationFormValues>(EMPTY_REGISTRATION_FORM);
   const [termsAccepted, setTermsAccepted] = useState(false);
   const [photoUri, setPhotoUri] = useState<string | null>(null);
+  const [uploading, setUploading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const submit = useSubmitRegistration();
 
@@ -71,6 +71,7 @@ export function CompleteRegistrationScreen() {
   }
 
   async function handleSubmit(): Promise<void> {
+    if (uploading || submit.isPending) return;
     setError(null);
     if (values.documentType === null) {
       setError('Choose which document you are submitting.');
@@ -84,6 +85,17 @@ export function CompleteRegistrationScreen() {
       setError('Please agree to the terms and conditions to continue.');
       return;
     }
+    let documentImageUrl: string;
+    try {
+      setUploading(true);
+      documentImageUrl = await uploadToCloudinary(photoUri);
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : 'Could not upload the photo. Please try again.');
+      return;
+    } finally {
+      setUploading(false);
+    }
+
     try {
       await submit.mutateAsync({
         fatherName: values.fatherName.trim(),
@@ -100,6 +112,7 @@ export function CompleteRegistrationScreen() {
         documentType: values.documentType,
         documentOtherDescription:
           values.documentOtherDescription.trim() === '' ? undefined : values.documentOtherDescription.trim(),
+        documentImageUrl,
         termsAccepted: true,
       });
     } catch (caught) {
@@ -139,7 +152,7 @@ export function CompleteRegistrationScreen() {
         />
         {error !== null && <Muted>{error}</Muted>}
         <Button
-          label={submit.isPending ? 'Submitting…' : 'Submit'}
+          label={uploading ? 'Uploading photo…' : submit.isPending ? 'Submitting…' : 'Submit'}
           onPress={() => void handleSubmit()}
         />
       </Card>

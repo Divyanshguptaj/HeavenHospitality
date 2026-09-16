@@ -137,6 +137,11 @@ const envSchema = z
     S3_ACCESS_KEY_ID: z.string().optional(),
     S3_SECRET_ACCESS_KEY: z.string().optional(),
 
+    CLOUDINARY_CLOUD_NAME: z.string().optional(),
+    CLOUDINARY_API_KEY: z.string().optional(),
+    CLOUDINARY_API_SECRET: z.string().optional(),
+    CLOUDINARY_FOLDER: z.string().default('heaven-hospitality/registration-documents'),
+
     SMTP_URL: z.string().optional(),
     MAIL_FROM: z.string().default('Heaven Hospitality <no-reply@heavenhospitality.in>'),
   })
@@ -264,4 +269,8 @@ export const features = {
   razorpay: env.RAZORPAY_KEY_ID !== undefined && env.RAZORPAY_KEY_SECRET !== undefined,
   objectStorage: env.S3_BUCKET !== undefined,
   email: env.SMTP_URL !== undefined,
+  cloudinary:
+    env.CLOUDINARY_CLOUD_NAME !== undefined &&
+    env.CLOUDINARY_API_KEY !== undefined &&
+    env.CLOUDINARY_API_SECRET !== undefined,
 } as const;

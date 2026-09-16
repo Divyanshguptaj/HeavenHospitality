@@ -2,7 +2,7 @@ import { REGISTRATION_DOCUMENT_TYPE_LABELS, type ResidentDetailView } from '@hea
 import { formatINR } from '@heaven/money';
 import { useLocalSearchParams } from 'expo-router';
 import { useEffect, useState } from 'react';
-import { StyleSheet, View } from 'react-native';
+import { Image, StyleSheet, View } from 'react-native';
 
 import {
   useOwnerResident,
@@ -393,6 +393,9 @@ function RegistrationCard({
           <DetailRow label="Parent's occupation" value={registration.parentOccupation ?? '—'} />
           <DetailRow label="Vehicle number" value={registration.vehicleNumber ?? '—'} />
           <DetailRow label="Document submitted" value={documentLabel} />
+          {registration.documentImageUrl !== null && (
+            <Image source={{ uri: registration.documentImageUrl }} style={styles.documentImage} resizeMode="cover" />
+          )}
         </>
       )}
     </Card>
@@ -476,4 +479,5 @@ const styles = StyleSheet.create({
   },
   electricityAmount: { flexDirection: 'row', alignItems: 'center', gap: layout.spacing[3] },
   electricityEdit: { gap: layout.spacing[2], paddingVertical: layout.spacing[2] },
+  documentImage: { width: '100%', height: 200, borderRadius: layout.radius.lg },
 });

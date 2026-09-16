@@ -297,6 +297,7 @@ type RegistrationFields = Pick<
   | 'vehicleNumber'
   | 'documentType'
   | 'documentOtherDescription'
+  | 'documentImageUrl'
   | 'registrationCompletedAt'
 >;
 
@@ -315,6 +316,7 @@ export function toRegistrationView(tenancy: RegistrationFields): RegistrationDet
     vehicleNumber: tenancy.vehicleNumber,
     documentType: tenancy.documentType,
     documentOtherDescription: tenancy.documentOtherDescription,
+    documentImageUrl: tenancy.documentImageUrl,
     completedAt: tenancy.registrationCompletedAt?.toISOString() ?? null,
   };
 }
@@ -360,6 +362,7 @@ export async function submitRegistration(
       vehicleNumber: input.vehicleNumber,
       documentType: input.documentType,
       documentOtherDescription: input.documentOtherDescription ?? null,
+      documentImageUrl: input.documentImageUrl,
       registrationCompletedAt: new Date(),
     },
   });

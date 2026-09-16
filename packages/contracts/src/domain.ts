@@ -363,6 +363,8 @@ const registrationFieldsSchema = z.object({
   /// form's checklist, digitised as a choice rather than a set of checkboxes.
   documentType: z.enum(REGISTRATION_DOCUMENT_TYPES),
   documentOtherDescription: z.string().trim().max(120).optional(),
+  /// Uploaded to Cloudinary by the client; this is just the URL it handed back.
+  documentImageUrl: z.string().trim().url().max(500),
 });
 
 export const submitRegistrationSchema = registrationFieldsSchema
