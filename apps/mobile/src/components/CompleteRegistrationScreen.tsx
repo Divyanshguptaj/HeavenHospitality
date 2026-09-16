@@ -9,6 +9,21 @@ import { layout, useTheme } from '../theme';
 import { EMPTY_REGISTRATION_FORM, RegistrationFields, type RegistrationFormValues } from './RegistrationForm';
 import { Body, Button, Card, CardTitle, CheckboxRow, Muted, PageHeading, Screen } from './ui';
 
+/** Checked before the photo upload, not after — a missed field shouldn't cost an upload. */
+function firstMissingFieldError(values: RegistrationFormValues): string | null {
+  if (values.fatherName.trim() === '') return "Enter the father's name.";
+  if (values.motherName.trim() === '') return "Enter the mother's name.";
+  if (values.parentMobile.trim() === '') return "Enter the parent's mobile number.";
+  if (values.dateOfBirth.trim() === '') return 'Choose a date of birth.';
+  if (values.aadhaarNumber.trim() === '') return 'Enter the Aadhaar number.';
+  if (values.collegeOrInstitute.trim() === '') return 'Enter the college or institute.';
+  if (values.permanentAddress.trim() === '') return 'Enter the permanent address.';
+  if (values.bloodGroup.trim() === '') return 'Enter the blood group.';
+  if (values.parentOccupation.trim() === '') return "Enter the parent's occupation.";
+  if (values.vehicleNumber.trim() === '') return 'Enter the vehicle number.';
+  return null;
+}
+
 /**
  * The admission form, blocking the rest of the resident section until it is
  * submitted once. After that, the resident can only view it — corrections go
@@ -74,6 +89,11 @@ export function CompleteRegistrationScreen() {
   async function handleSubmit(): Promise<void> {
     if (uploading || submit.isPending) return;
     setError(null);
+    const fieldError = firstMissingFieldError(values);
+    if (fieldError !== null) {
+      setError(fieldError);
+      return;
+    }
     if (values.documentType === null) {
       setError('Choose which document you are submitting.');
       return;

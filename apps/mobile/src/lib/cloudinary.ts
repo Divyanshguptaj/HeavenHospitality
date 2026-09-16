@@ -23,7 +23,13 @@ export async function uploadToCloudinary(localUri: string): Promise<string> {
   if (localUri.startsWith('http://') || localUri.startsWith('https://')) {
     // A remote stand-in (the "test photo" button) rather than something the
     // device picked — fetched into a blob so it uploads the same way either way.
-    const source = await fetch(localUri);
+    let source: Response;
+    try {
+      source = await fetch(localUri);
+    } catch (cause) {
+      console.error('[cloudinary] could not fetch the test photo', localUri, cause);
+      throw new Error('Could not reach the test photo — check the phone has an internet connection.');
+    }
     body.append('file', await source.blob(), 'document.jpg');
   } else {
     const fileName = localUri.split('/').pop() ?? 'document.jpg';
@@ -38,13 +44,24 @@ export async function uploadToCloudinary(localUri: string): Promise<string> {
   body.append('signature', signed.signature);
   body.append('folder', signed.folder);
 
-  const response = await fetch(`https://api.cloudinary.com/v1_1/${signed.cloudName}/image/upload`, {
-    method: 'POST',
-    body,
-  });
+  let response: Response;
+  try {
+    response = await fetch(`https://api.cloudinary.com/v1_1/${signed.cloudName}/image/upload`, {
+      method: 'POST',
+      body,
+    });
+  } catch (cause) {
+    // Cloudinary is on the public internet, not behind the local dev tunnel —
+    // this fails whenever the phone itself has no working WiFi or mobile data,
+    // independent of whether the API is reachable.
+    console.error('[cloudinary] upload request failed', cause);
+    throw new Error('Could not reach Cloudinary — check the phone has an internet connection (WiFi or mobile data).');
+  }
 
   if (!response.ok) {
-    throw new Error('Could not upload the photo. Please try again.');
+    const responseText = await response.text();
+    console.error('[cloudinary] upload rejected', response.status, responseText);
+    throw new Error('Cloudinary rejected the upload. Please try again.');
   }
 
   const payload = (await response.json()) as { secure_url?: string };
