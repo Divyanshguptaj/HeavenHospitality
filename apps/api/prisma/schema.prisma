@@ -633,6 +633,10 @@ enum InvoiceItemKind {
   LATE_FEE
   OTHER
   DISCOUNT
+  /// A one-time security deposit, always its own invoice — never mixed with
+  /// rent, so it can be paid in full, in parts, or not yet without touching
+  /// what is owed for the room itself.
+  DEPOSIT
 }
 
 model Invoice {
