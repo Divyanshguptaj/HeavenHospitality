@@ -456,6 +456,12 @@ export async function createResident(
       create: { userId: user.id, propertyId, role: 'RESIDENT' },
     });
 
+    // The membership role scopes authority at this property; the account's own
+    // role is what sign-in and the JWT actually carry, so it must move too.
+    if (user.role === 'NON_RESIDENT') {
+      await tx.user.update({ where: { id: user.id }, data: { role: 'RESIDENT' } });
+    }
+
     const tenancy = await tx.tenancy.create({
       data: {
         propertyId,
@@ -790,6 +796,10 @@ export async function exitResident(
     if (otherActiveTenancy === null) {
       await tx.propertyMembership.updateMany({
         where: { userId: tenancy.userId, propertyId, role: 'RESIDENT' },
+        data: { role: 'NON_RESIDENT' },
+      });
+      await tx.user.updateMany({
+        where: { id: tenancy.userId, role: 'RESIDENT' },
         data: { role: 'NON_RESIDENT' },
       });
     }
