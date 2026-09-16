@@ -142,6 +142,17 @@ export function CompleteRegistrationScreen() {
           <Button label="Take photo" variant="secondary" onPress={() => void takePhoto()} />
           <Button label="Choose from gallery" variant="secondary" onPress={() => void pickFromLibrary()} />
         </View>
+
+        {/* Only in a dev build, and only until the picker's native module is in
+            the installed dev client — a way to test the rest of the form and
+            the upload without needing a real camera/gallery pick every time. */}
+        {__DEV__ && (
+          <Button
+            label="Use a test photo"
+            variant="secondary"
+            onPress={() => setPhotoUri('https://picsum.photos/seed/heaven-hospitality/800/600')}
+          />
+        )}
       </Card>
 
       <Card>

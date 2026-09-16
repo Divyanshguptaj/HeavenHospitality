@@ -20,12 +20,19 @@ export async function uploadToCloudinary(localUri: string): Promise<string> {
   const signed = await apiRequest<CloudinarySignature>('/me/uploads/cloudinary-signature');
 
   const body = new FormData();
-  const fileName = localUri.split('/').pop() ?? 'document.jpg';
-  body.append('file', {
-    uri: localUri,
-    type: 'image/jpeg',
-    name: fileName,
-  } as unknown as Blob);
+  if (localUri.startsWith('http://') || localUri.startsWith('https://')) {
+    // A remote stand-in (the "test photo" button) rather than something the
+    // device picked — fetched into a blob so it uploads the same way either way.
+    const source = await fetch(localUri);
+    body.append('file', await source.blob(), 'document.jpg');
+  } else {
+    const fileName = localUri.split('/').pop() ?? 'document.jpg';
+    body.append('file', {
+      uri: localUri,
+      type: 'image/jpeg',
+      name: fileName,
+    } as unknown as Blob);
+  }
   body.append('api_key', signed.apiKey);
   body.append('timestamp', String(signed.timestamp));
   body.append('signature', signed.signature);
