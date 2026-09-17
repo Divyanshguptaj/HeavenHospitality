@@ -13,6 +13,8 @@ export interface AuthenticatedUser {
   readonly role: Role;
   readonly phoneVerified: boolean;
   readonly mustChangePassword: boolean;
+  /** Null until the admission form is submitted — checked before any tenancy exists. */
+  readonly registrationCompletedAt: string | null;
   readonly memberships: ReadonlyArray<{
     readonly propertyId: string;
     readonly propertySlug: string;
@@ -44,6 +46,8 @@ interface AuthState {
     password: string;
   }) => Promise<void>;
   readonly signOut: () => Promise<void>;
+  /** Called right after the admission form is submitted, so the redirect gate clears without a re-login. */
+  readonly markRegistrationComplete: (completedAt: string) => void;
 }
 
 /**
@@ -62,7 +66,7 @@ async function applySession(session: SessionResponse): Promise<AuthenticatedUser
   return session.user;
 }
 
-export const useAuthStore = create<AuthState>((set) => ({
+export const useAuthStore = create<AuthState>((set, get) => ({
   status: 'restoring',
   user: null,
 
@@ -140,6 +144,12 @@ export const useAuthStore = create<AuthState>((set) => ({
     await clearRefreshToken();
     setAccessToken(null);
     set({ status: 'signedOut', user: null });
+  },
+
+  markRegistrationComplete: (completedAt: string) => {
+    const current = get().user;
+    if (current === null) return;
+    set({ user: { ...current, registrationCompletedAt: completedAt } });
   },
 }));
 

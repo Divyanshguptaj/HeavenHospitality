@@ -10,6 +10,7 @@ import { errorHandler } from './middleware/errorHandler.js';
 import { notFound } from './middleware/notFound.js';
 import { generalLimiter, publicLimiter } from './middleware/rateLimit.js';
 import { requestId } from './middleware/requestId.js';
+import { accountRouter } from './modules/account/account.routes.js';
 import { authRouter } from './modules/auth/auth.routes.js';
 import { healthRouter } from './modules/health/health.routes.js';
 import { ownerRouter } from './modules/owner/owner.routes.js';
@@ -112,6 +113,7 @@ export function createApp(): Express {
   // Owner operations and the resident's own view of their stay. Both routers
   // authenticate; each route then declares the permission it needs.
   app.use(`${API_PREFIX}/owner`, ownerRouter);
+  app.use(`${API_PREFIX}/me`, accountRouter);
   app.use(`${API_PREFIX}/me`, residentRouter);
 
   app.use(notFound);

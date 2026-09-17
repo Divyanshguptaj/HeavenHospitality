@@ -17,9 +17,9 @@ import {
 } from '../../lib/dates.js';
 import { prisma } from '../../lib/prisma.js';
 import type { Actor } from '../../middleware/authenticate.js';
+import { toRegistrationView } from '../account/account.service.js';
 import { generateDepositInvoice, recomputeInvoice } from '../billing/invoice.service.js';
 import { getPropertyContext } from '../property/property.context.js';
-import { toRegistrationView } from '../resident/resident.service.js';
 
 /**
  * Residents.
@@ -39,7 +39,29 @@ function isUniqueViolation(error: unknown): boolean {
 }
 
 const TENANCY_INCLUDE = {
-  user: { select: { id: true, fullName: true, email: true, phone: true } },
+  user: {
+    select: {
+      id: true,
+      fullName: true,
+      email: true,
+      phone: true,
+      fatherName: true,
+      motherName: true,
+      parentMobile: true,
+      dateOfBirth: true,
+      aadhaarNumber: true,
+      collegeOrInstitute: true,
+      courseOrSemester: true,
+      permanentAddress: true,
+      bloodGroup: true,
+      parentOccupation: true,
+      vehicleNumber: true,
+      documentType: true,
+      documentOtherDescription: true,
+      documentImageUrl: true,
+      registrationCompletedAt: true,
+    },
+  },
   allocations: {
     where: { endedAt: null },
     include: {
@@ -239,7 +261,7 @@ export async function getResident(actor: Actor, tenancyId: string): Promise<Resi
       residentName: tenancy.user.fullName,
       roomNumber: room?.number ?? null,
     })),
-    registration: toRegistrationView(tenancy),
+    registration: toRegistrationView(tenancy.user),
   };
 }
 
@@ -251,11 +273,14 @@ export async function updateRegistration(
 ): Promise<ResidentDetailView['registration']> {
   const { propertyId } = await getPropertyContext(actor, 'resident:write');
 
-  const existing = await prisma.tenancy.findFirst({ where: { id: tenancyId, propertyId }, select: { id: true } });
-  if (existing === null) throw new AppError('NOT_FOUND', 'Resident not found.');
+  const tenancy = await prisma.tenancy.findFirst({
+    where: { id: tenancyId, propertyId },
+    select: { userId: true },
+  });
+  if (tenancy === null) throw new AppError('NOT_FOUND', 'Resident not found.');
 
-  const tenancy = await prisma.tenancy.update({
-    where: { id: tenancyId },
+  const user = await prisma.user.update({
+    where: { id: tenancy.userId },
     data: {
       ...(input.fatherName === undefined ? {} : { fatherName: input.fatherName }),
       ...(input.motherName === undefined ? {} : { motherName: input.motherName }),
@@ -276,7 +301,7 @@ export async function updateRegistration(
     },
   });
 
-  return toRegistrationView(tenancy);
+  return toRegistrationView(user);
 }
 
 /** Owner-facing lookup so an existing person is reused instead of duplicated. */

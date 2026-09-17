@@ -123,6 +123,28 @@ model User {
   lastFailedLoginAt   DateTime? @db.Timestamptz(3)
   lastLoginAt         DateTime? @db.Timestamptz(3)
 
+  /// The admission form: filled once, at signup, by the person themselves —
+  /// before any tenancy exists, which is why these live on the account and not
+  /// on a stay. After that, only an admin can change it.
+  /// `registrationCompletedAt` is what the app checks to decide whether the
+  /// account still owes this form.
+  fatherName               String?
+  motherName               String?
+  parentMobile             String?
+  dateOfBirth              DateTime? @db.Date
+  aadhaarNumber            String?
+  collegeOrInstitute       String?
+  courseOrSemester         String?
+  permanentAddress         String?
+  bloodGroup               String?
+  parentOccupation         String?
+  vehicleNumber            String?
+  documentType             RegistrationDocumentType?
+  documentOtherDescription String?
+  /// A Cloudinary URL — the file itself lives there, never in this database.
+  documentImageUrl         String?
+  registrationCompletedAt  DateTime? @db.Timestamptz(3)
+
   createdAt DateTime @default(now()) @db.Timestamptz(3)
   updatedAt DateTime @updatedAt @db.Timestamptz(3)
 
@@ -585,26 +607,6 @@ model Tenancy {
 
   emergencyContactName  String?
   emergencyContactPhone String?
-
-  /// The admission form: filled once by the resident themselves, after which
-  /// only an admin can change it. `registrationCompletedAt` is what the app
-  /// checks to decide whether the resident still owes this form.
-  fatherName               String?
-  motherName               String?
-  parentMobile             String?
-  dateOfBirth              DateTime? @db.Date
-  aadhaarNumber             String?
-  collegeOrInstitute       String?
-  courseOrSemester         String?
-  permanentAddress         String?
-  bloodGroup               String?
-  parentOccupation         String?
-  vehicleNumber            String?
-  documentType             RegistrationDocumentType?
-  documentOtherDescription String?
-  /// A Cloudinary URL — the file itself lives there, never in this database.
-  documentImageUrl         String?
-  registrationCompletedAt  DateTime? @db.Timestamptz(3)
 
   createdAt DateTime @default(now()) @db.Timestamptz(3)
   updatedAt DateTime @updatedAt @db.Timestamptz(3)

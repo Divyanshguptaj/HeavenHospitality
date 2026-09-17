@@ -1,9 +1,7 @@
 import { Ionicons } from '@expo/vector-icons';
 import { Redirect, Tabs } from 'expo-router';
 
-import { useResidentHome } from '../../src/api/resident';
 import { useAuthStore } from '../../src/auth/authStore';
-import { CompleteRegistrationScreen } from '../../src/components/CompleteRegistrationScreen';
 import { layout, useTheme } from '../../src/theme';
 
 /**
@@ -13,19 +11,15 @@ import { layout, useTheme } from '../../src/theme';
  * independently and resolves the subject from the token, so a resident who
  * reached these screens some other way still could not see anyone else's data.
  *
- * A resident who has never submitted the admission form sees only that form —
- * no tab bar, nothing else — until it is submitted once. After that, this
- * check never blocks them again: `registrationCompletedAt` is set for good.
+ * The admission form is handled earlier, by the root layout, before anyone
+ * reaches here — a resident always has one on file by the time they do.
  */
 export default function ResidentLayout() {
   const theme = useTheme();
   const status = useAuthStore((state) => state.status);
-  const home = useResidentHome();
 
   if (status === 'restoring') return null;
   if (status === 'signedOut') return <Redirect href="/(auth)/login" />;
-  if (home.isPending) return null;
-  if (home.data?.resident.registrationCompletedAt === null) return <CompleteRegistrationScreen />;
 
   return (
     <Tabs

@@ -398,7 +398,6 @@ export interface ResidentHomeView {
     readonly fullName: string;
     readonly status: TenancyStatusName;
     readonly joiningDate: string;
-    readonly registrationCompletedAt: string | null;
   };
   readonly placement: {
     readonly roomNumber: string;

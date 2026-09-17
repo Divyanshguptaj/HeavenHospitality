@@ -15,6 +15,12 @@
  * makes "sign up" a zero-privilege act — the frontend cannot ask for a role, and
  * the only path to RESIDENT or ADMIN is an owner/admin action on the server.
  *
+ * The admission form is the one place a NON_RESIDENT gets to act on their own
+ * account before any tenancy exists — but that is gated by ROLE (`requireRole`),
+ * not by a permission here. Permissions in this file are all property-scoped
+ * (checked against a PropertyMembership), and a NON_RESIDENT holds no membership
+ * at all — there is nothing for a permission to attach to yet.
+ *
  * This matrix is a frozen constant, not a database table. A runtime permission
  * editor is a feature in its own right and a privilege-escalation surface.
  *

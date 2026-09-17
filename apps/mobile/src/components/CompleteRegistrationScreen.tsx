@@ -1,8 +1,10 @@
 import type * as ImagePickerModule from 'expo-image-picker';
+import { router } from 'expo-router';
 import { useState } from 'react';
 import { ActivityIndicator, Alert, Image, StyleSheet, Text, View } from 'react-native';
 
 import { useSubmitRegistration } from '../api/resident';
+import { useAuthStore } from '../auth/authStore';
 import { ApiRequestError } from '../lib/apiClient';
 import { uploadToCloudinary } from '../lib/cloudinary';
 import { layout, useTheme } from '../theme';
@@ -25,15 +27,16 @@ function firstMissingFieldError(values: RegistrationFormValues): string | null {
 }
 
 /**
- * The admission form, blocking the rest of the resident section until it is
- * submitted once. After that, the resident can only view it — corrections go
- * through the manager, from the owner's Residents screen.
+ * The admission form. Shown once, right after signing in or finishing signup,
+ * before anything else in the app — submitted once, it never appears again for
+ * that account. After that, only an admin can change it, from Residents.
  *
  * The attached photo goes straight from the phone to Cloudinary; only the
  * resulting URL is sent to the API, which never sees the file itself.
  */
 export function CompleteRegistrationScreen() {
   const theme = useTheme();
+  const markRegistrationComplete = useAuthStore((state) => state.markRegistrationComplete);
   const [values, setValues] = useState<RegistrationFormValues>(EMPTY_REGISTRATION_FORM);
   const [termsAccepted, setTermsAccepted] = useState(false);
   const [photoUri, setPhotoUri] = useState<string | null>(null);
@@ -118,7 +121,7 @@ export function CompleteRegistrationScreen() {
     }
 
     try {
-      await submit.mutateAsync({
+      const result = await submit.mutateAsync({
         fatherName: values.fatherName.trim(),
         motherName: values.motherName.trim(),
         parentMobile: values.parentMobile.trim(),
@@ -136,6 +139,10 @@ export function CompleteRegistrationScreen() {
         documentImageUrl,
         termsAccepted: true,
       });
+      // The root layout's redirect only clears once the store agrees the form
+      // is done — otherwise it would send us straight back here.
+      markRegistrationComplete(result.completedAt ?? new Date().toISOString());
+      router.replace('/');
     } catch (caught) {
       setError(caught instanceof ApiRequestError ? caught.message : 'Could not submit. Please try again.');
     }

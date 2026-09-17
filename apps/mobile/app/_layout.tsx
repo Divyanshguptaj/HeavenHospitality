@@ -58,9 +58,18 @@ function RootNavigator() {
   // A resident or an admin is sent to their own section; everyone else — signed
   // out, or signed in as a NON_RESIDENT — lands in the public one. Nobody is
   // ever routed to a login screen by default.
+  //
+  // The one thing that comes first: the admission form. It is filled once, at
+  // signup, before any tenancy exists — so anyone signed in who hasn't done it
+  // yet (NON_RESIDENT or RESIDENT; an admin never needs to) is sent there
+  // instead, ahead of their normal destination.
   useEffect(() => {
     if (status === 'signedIn') {
-      router.replace(isAdmin(user) ? '/(owner)' : isResident(user) ? '/(resident)' : '/(public)');
+      if (!isAdmin(user) && user?.registrationCompletedAt === null) {
+        router.replace('/(auth)/registration');
+      } else {
+        router.replace(isAdmin(user) ? '/(owner)' : isResident(user) ? '/(resident)' : '/(public)');
+      }
     } else if (status === 'signedOut') {
       router.replace('/(public)');
     }
@@ -89,6 +98,7 @@ function RootNavigator() {
       <Stack.Screen name="(resident)" options={{ headerShown: false }} />
       <Stack.Screen name="(owner)" options={{ headerShown: false }} />
       <Stack.Screen name="(auth)/welcome" options={{ headerShown: false }} />
+      <Stack.Screen name="(auth)/registration" options={{ headerShown: false }} />
       <Stack.Screen name="(auth)/login" options={{ title: 'Sign in' }} />
       <Stack.Screen name="(auth)/signup-phone" options={{ title: 'Create account' }} />
       <Stack.Screen name="(auth)/verify-otp" options={{ title: 'Verify number' }} />

@@ -31,6 +31,8 @@ export interface AuthenticatedUserView {
   readonly role: Role;
   readonly phoneVerified: boolean;
   readonly mustChangePassword: boolean;
+  /** Null until the admission form is submitted — checked before any tenancy exists. */
+  readonly registrationCompletedAt: string | null;
   readonly memberships: ReadonlyArray<{
     readonly propertyId: string;
     readonly propertySlug: string;
@@ -69,6 +71,7 @@ function toUserView(user: UserWithMemberships): AuthenticatedUserView {
     role: user.role,
     phoneVerified: user.phoneVerifiedAt !== null,
     mustChangePassword: user.mustChangePassword,
+    registrationCompletedAt: user.registrationCompletedAt?.toISOString() ?? null,
     memberships: user.memberships.map((membership) => ({
       propertyId: membership.propertyId,
       propertySlug: membership.property.slug,
