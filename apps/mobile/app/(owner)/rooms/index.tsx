@@ -45,7 +45,10 @@ export default function OwnerRoomsScreen() {
     );
   }
 
-  if (occupancy.error) {
+  if (occupancy.data === undefined) {
+    // A background refetch (after a mutation, say) can fail while stale data
+    // from before is still good to show — that case falls through below
+    // instead of replacing a working screen with an error.
     return (
       <Screen center>
         <ErrorState
