@@ -12,8 +12,9 @@ import { FormField } from './ui';
 
 /**
  * The admission form's fields, as plain strings for text inputs — every one
- * required except course/semester, mirroring the paper form the property
- * already used, where a blank field meant something was missed.
+ * required except course/semester and vehicle number, mirroring the paper
+ * form the property already used, where a blank field meant something was
+ * missed.
  */
 export interface RegistrationFormValues {
   readonly fatherName: string;
@@ -136,6 +137,7 @@ export function RegistrationFields({
         label="Vehicle number"
         value={values.vehicleNumber}
         onChangeText={(v) => onChange({ vehicleNumber: v })}
+        placeholder="Optional"
         autoCapitalize="characters"
       />
 

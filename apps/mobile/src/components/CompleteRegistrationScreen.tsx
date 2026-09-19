@@ -1,5 +1,4 @@
 import type * as ImagePickerModule from 'expo-image-picker';
-import { router } from 'expo-router';
 import { useState } from 'react';
 import { ActivityIndicator, Alert, Image, StyleSheet, Text, View } from 'react-native';
 
@@ -8,7 +7,12 @@ import { useAuthStore } from '../auth/authStore';
 import { ApiRequestError } from '../lib/apiClient';
 import { uploadToCloudinary } from '../lib/cloudinary';
 import { layout, useTheme } from '../theme';
-import { EMPTY_REGISTRATION_FORM, RegistrationFields, type RegistrationFormValues } from './RegistrationForm';
+import {
+  EMPTY_REGISTRATION_FORM,
+  RegistrationFields,
+  optionalField,
+  type RegistrationFormValues,
+} from './RegistrationForm';
 import { Body, Button, Card, CardTitle, CheckboxRow, Muted, PageHeading, Screen } from './ui';
 
 /** Checked before the photo upload, not after — a missed field shouldn't cost an upload. */
@@ -22,7 +26,6 @@ function firstMissingFieldError(values: RegistrationFormValues): string | null {
   if (values.permanentAddress.trim() === '') return 'Enter the permanent address.';
   if (values.bloodGroup.trim() === '') return 'Enter the blood group.';
   if (values.parentOccupation.trim() === '') return "Enter the parent's occupation.";
-  if (values.vehicleNumber.trim() === '') return 'Enter the vehicle number.';
   return null;
 }
 
@@ -135,21 +138,23 @@ export function CompleteRegistrationScreen() {
         dateOfBirth: values.dateOfBirth.trim(),
         aadhaarNumber: values.aadhaarNumber.trim(),
         collegeOrInstitute: values.collegeOrInstitute.trim(),
-        courseOrSemester: values.courseOrSemester.trim() === '' ? undefined : values.courseOrSemester.trim(),
+        courseOrSemester: optionalField(values.courseOrSemester),
         permanentAddress: values.permanentAddress.trim(),
         bloodGroup: values.bloodGroup.trim(),
         parentOccupation: values.parentOccupation.trim(),
-        vehicleNumber: values.vehicleNumber.trim(),
+        vehicleNumber: optionalField(values.vehicleNumber),
         documentType: values.documentType,
         documentOtherDescription:
           values.documentOtherDescription.trim() === '' ? undefined : values.documentOtherDescription.trim(),
         documentImageUrl,
         termsAccepted: true,
       });
-      // The root layout's redirect only clears once the store agrees the form
-      // is done — otherwise it would send us straight back here.
+      // No navigation here: updating the store is what clears the root
+      // layout's redirect gate, and its own effect replaces this screen once
+      // it sees that — racing it with an explicit `replace('/')` (which
+      // matches no real route) risks that call winning and stranding us on
+      // neither this screen nor the destination.
       markRegistrationComplete(result.completedAt ?? new Date().toISOString());
-      router.replace('/');
     } catch (caught) {
       setError(caught instanceof ApiRequestError ? caught.message : 'Could not submit. Please try again.');
     }

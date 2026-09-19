@@ -90,7 +90,7 @@ export async function submitRegistration(
       permanentAddress: input.permanentAddress,
       bloodGroup: input.bloodGroup,
       parentOccupation: input.parentOccupation,
-      vehicleNumber: input.vehicleNumber,
+      vehicleNumber: input.vehicleNumber ?? null,
       documentType: input.documentType,
       documentOtherDescription: input.documentOtherDescription ?? null,
       documentImageUrl: input.documentImageUrl,

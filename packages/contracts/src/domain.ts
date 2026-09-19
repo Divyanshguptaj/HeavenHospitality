@@ -343,9 +343,10 @@ export const updateResidentSchema = z.object({
  * the paper "Student Registration Form" the property already used, so an
  * admin who has filled it in on paper for years recognises this immediately.
  *
- * Only course/semester is optional — a student between institutes may
- * genuinely have none to give. Everything else on the paper form was always
- * filled in, so the digital one asks for it too.
+ * Course/semester and vehicle number are the only optional fields — a
+ * student between institutes may have no course to give, and plenty of
+ * residents have no vehicle at all. Everything else on the paper form was
+ * always filled in, so the digital one asks for it too.
  */
 const registrationFieldsSchema = z.object({
   fatherName: z.string().trim().min(1).max(120),
@@ -358,7 +359,7 @@ const registrationFieldsSchema = z.object({
   permanentAddress: z.string().trim().min(1).max(400),
   bloodGroup: z.string().trim().min(1).max(10),
   parentOccupation: z.string().trim().min(1).max(120),
-  vehicleNumber: z.string().trim().min(1).max(20),
+  vehicleNumber: z.string().trim().max(20).optional(),
   /// Which single document this submission is standing in for — the physical
   /// form's checklist, digitised as a choice rather than a set of checkboxes.
   documentType: z.enum(REGISTRATION_DOCUMENT_TYPES),
