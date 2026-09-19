@@ -51,9 +51,16 @@ export function CompleteRegistrationScreen() {
   // Loaded on demand, not at module scope: this native module only exists in a
   // dev client that was rebuilt after it was added, and importing it eagerly
   // would crash the whole resident section for anyone on an older build.
+  //
+  // Metro "guards" a module whose top-level code throws — it logs the error
+  // itself and hands back whatever partial exports resulted, rather than
+  // rejecting the `import()` — so a missing native module shows up as
+  // functions that are `undefined`, not as a catchable exception.
   async function loadImagePicker(): Promise<typeof ImagePickerModule | null> {
     try {
-      return await import('expo-image-picker');
+      const module = await import('expo-image-picker');
+      if (typeof module.launchImageLibraryAsync !== 'function') throw new Error('native module missing');
+      return module;
     } catch {
       Alert.alert(
         'Update needed',

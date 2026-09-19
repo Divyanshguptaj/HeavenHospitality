@@ -10,12 +10,21 @@ import type * as ContactsModule from 'expo-contacts';
  * `expo-contacts` is a native module: loaded on demand rather than at module
  * scope, so a dev client built before it was added degrades to a friendly
  * message instead of crashing the screen that imports this file.
+ *
+ * Metro's module loader "guards" a module whose top-level code throws — it
+ * logs the error itself and hands back whatever partial exports resulted,
+ * rather than rejecting the `import()` — so a missing native module shows up
+ * as functions that are `undefined`, not as a catchable exception.
  */
 export async function presentAddContact(name: string, phone: string): Promise<void> {
   let Contacts: typeof ContactsModule;
   try {
     Contacts = await import('expo-contacts');
   } catch {
+    Alert.alert('Update needed', 'Saving a contact needs a newer version of the app.');
+    return;
+  }
+  if (typeof Contacts.requestPermissionsAsync !== 'function') {
     Alert.alert('Update needed', 'Saving a contact needs a newer version of the app.');
     return;
   }
