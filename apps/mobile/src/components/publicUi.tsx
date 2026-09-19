@@ -18,7 +18,6 @@ import type { UseQueryResult } from '@tanstack/react-query';
 import { ApiRequestError } from '../lib/apiClient';
 import { layout, useTheme } from '../theme';
 
-import { Logo } from './Logo';
 import { ErrorState, LoadingState, Screen } from './ui';
 
 /**
@@ -184,12 +183,13 @@ export function Hero({
         />
       )}
       <View style={styles.heroScrim} />
-      <View
-        style={[styles.heroMark, { backgroundColor: theme.primary, borderColor: theme.textPrimary }]}
+      <Image
+        // eslint-disable-next-line @typescript-eslint/no-require-imports -- Metro static-asset require, not a CJS import.
+        source={require('../../assets/icon/logo.png')}
+        style={styles.heroMark}
+        resizeMode="cover"
         accessible={false}
-      >
-        <Logo size={20} color={theme.textInverse} />
-      </View>
+      />
       <View style={styles.heroText}>
         <Text accessibilityRole="header" style={styles.heroTitle}>
           {title}
@@ -371,9 +371,6 @@ const styles = StyleSheet.create({
     width: 36,
     height: 36,
     borderRadius: layout.radius.md,
-    borderWidth: 1.5,
-    alignItems: 'center',
-    justifyContent: 'center',
   },
   heroText: { padding: layout.spacing[5], gap: layout.spacing[2] },
   heroTitle: {

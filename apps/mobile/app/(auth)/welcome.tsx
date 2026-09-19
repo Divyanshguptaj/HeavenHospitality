@@ -1,8 +1,7 @@
 import { router } from 'expo-router';
-import { SafeAreaView, StyleSheet, Text, View } from 'react-native';
+import { Image, SafeAreaView, StyleSheet, Text, View } from 'react-native';
 
 import { usePublicProperty } from '../../src/api/public';
-import { Logo } from '../../src/components/Logo';
 import { Body, Button } from '../../src/components/ui';
 import { layout, useTheme } from '../../src/theme';
 
@@ -24,9 +23,12 @@ export default function WelcomeScreen() {
       <View style={styles.content}>
         <View style={styles.hero}>
           <View style={[styles.markShadow, { backgroundColor: theme.textPrimary }]}>
-            <View style={[styles.mark, { backgroundColor: theme.primary, borderColor: theme.textPrimary }]}>
-              <Logo size={34} color={theme.textInverse} />
-            </View>
+            <Image
+              // eslint-disable-next-line @typescript-eslint/no-require-imports -- Metro static-asset require, not a CJS import.
+              source={require('../../assets/icon/logo.png')}
+              style={styles.mark}
+              resizeMode="cover"
+            />
           </View>
           <Text accessibilityRole="header" style={[styles.title, { color: theme.textPrimary }]}>
             {data?.name ?? 'Welcome'}
@@ -73,10 +75,7 @@ const styles = StyleSheet.create({
     height: 68,
     marginRight: 4,
     marginBottom: 4,
-    borderWidth: 1.5,
     borderRadius: layout.radius.lg,
-    alignItems: 'center',
-    justifyContent: 'center',
   },
   title: { fontSize: layout.fontSize['3xl'], fontWeight: '700', letterSpacing: -0.4 },
   subtitle: {

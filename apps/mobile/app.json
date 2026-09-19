@@ -4,16 +4,26 @@
     "slug": "heaven-hospitality",
     "version": "0.1.0",
     "orientation": "portrait",
+    "icon": "./assets/icon/icon.png",
     "scheme": "heavenhospitality",
     "userInterfaceStyle": "automatic",
     "newArchEnabled": true,
+    "splash": {
+      "image": "./assets/icon/splash-icon.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#000000"
+    },
     "ios": {
       "supportsTablet": false,
       "bundleIdentifier": "in.heavenhospitality.app"
     },
     "android": {
       "package": "in.heavenhospitality.app",
-      "edgeToEdgeEnabled": true
+      "edgeToEdgeEnabled": true,
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/icon/adaptive-icon.png",
+        "backgroundColor": "#a5621f"
+      }
     },
     "plugins": [
       "expo-router",
