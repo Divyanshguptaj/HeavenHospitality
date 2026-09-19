@@ -13,9 +13,8 @@ import {
   QueryScreen,
   SectionHeader,
   facilityIcon,
-  openExternal,
-  whatsappUrl,
 } from '../../src/components/publicUi';
+import { presentAddContact } from '../../src/lib/saveContact';
 import { layout, useTheme } from '../../src/theme';
 
 /**
@@ -34,7 +33,6 @@ export default function HomeScreen() {
     <QueryScreen query={query} emptyMessage="This property is not published right now.">
       {(home) => {
         const { property, availability, todayMenu } = home;
-        const enquiry = `Hi, I saw ${property.name} in the app and I would like to know about availability.`;
 
         return (
           <>
@@ -67,17 +65,8 @@ export default function HomeScreen() {
                 <Button
                   label="Enquire"
                   variant="secondary"
-                  accessibilityLabel={`Enquire about ${property.name}`}
-                  onPress={() => {
-                    // WhatsApp when the owner publishes one, the dialler
-                    // otherwise. Most enquiries about a PG arrive on WhatsApp.
-                    void openExternal(
-                      property.contact.whatsappPhone === null
-                        ? `tel:${property.contact.phone}`
-                        : whatsappUrl(property.contact.whatsappPhone, enquiry),
-                      'This device cannot open that app. The number is on the Contact page.',
-                    );
-                  }}
+                  accessibilityLabel={`Save ${property.name}'s number to enquire`}
+                  onPress={() => void presentAddContact(property.name, property.contact.phone)}
                 />
               </View>
             </Card>
