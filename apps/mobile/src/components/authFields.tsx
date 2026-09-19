@@ -222,7 +222,10 @@ const styles = StyleSheet.create({
     paddingHorizontal: layout.spacing[4],
     fontSize: layout.fontSize['2xl'],
     fontWeight: '600',
-    textAlign: 'center',
+    // Left-aligned, not centered: with no value yet, a centered empty input
+    // puts the cursor in the middle of the box, not at the first placeholder
+    // dash where the first digit is actually about to go.
+    textAlign: 'left',
     letterSpacing: 12,
   },
 });
