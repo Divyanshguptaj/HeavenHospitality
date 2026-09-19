@@ -145,6 +145,17 @@ export function PasswordField({
  * are consistently worse to use — they fight paste, SMS autofill and backspace.
  * This is one field, spaced out, with autofill left intact.
  */
+/**
+ * One box per digit, not a single wide text field.
+ *
+ * A single centered field has no good answer for where the cursor sits while
+ * empty — centering it floats the caret in the middle of the box, nowhere
+ * near the first digit about to be typed; left-aligning it instead means the
+ * typed code hugs the left edge with the rest of the box sitting empty. Six
+ * boxes sidestep the whole problem: each digit lands in its own evenly-spaced
+ * cell (so the row reads as centered), and the "cursor" is just a highlight
+ * on the next empty box — which starts, correctly, on the first one.
+ */
 export function OtpField({
   value,
   onChangeText,
@@ -158,6 +169,8 @@ export function OtpField({
 }) {
   const theme = useTheme();
   const completed = useRef(false);
+  const inputRef = useRef<TextInput>(null);
+  const [focused, setFocused] = useState(false);
 
   // Fires once the code is complete, so the common case needs no button press.
   useEffect(() => {
@@ -169,23 +182,54 @@ export function OtpField({
   }, [value, onComplete]);
 
   return (
-    <TextInput
-      value={value}
-      onChangeText={(next) => onChangeText(next.replace(/\D/g, '').slice(0, OTP_CODE_LENGTH))}
-      style={[
-        styles.otp,
-        { backgroundColor: theme.surface, borderColor: theme.border, color: theme.textPrimary },
-      ]}
-      placeholder="------"
-      placeholderTextColor={theme.textMuted}
-      keyboardType="number-pad"
-      textContentType="oneTimeCode"
-      autoComplete="sms-otp"
-      accessibilityLabel={`${OTP_CODE_LENGTH} digit verification code`}
-      editable={editable}
-      autoFocus
-      maxLength={OTP_CODE_LENGTH}
-    />
+    <Pressable
+      onPress={() => {
+        // The OS can dismiss the keyboard (swipe down, the back gesture)
+        // without ever blurring the input, so it still believes it's
+        // focused — and `.focus()` on an already-"focused" input is a
+        // no-op. Blurring first forces a real focus cycle either way.
+        inputRef.current?.blur();
+        inputRef.current?.focus();
+      }}
+      accessibilityRole="none"
+      style={styles.otpRow}
+    >
+      {Array.from({ length: OTP_CODE_LENGTH }, (_unused, index) => {
+        const digit = value[index] ?? '';
+        const isCursor = focused && editable && index === value.length;
+        return (
+          <View
+            key={index}
+            style={[
+              styles.otpBox,
+              {
+                backgroundColor: theme.surface,
+                borderColor: isCursor ? theme.primary : theme.border,
+                borderWidth: isCursor ? 2 : 1,
+              },
+            ]}
+          >
+            <Text style={[styles.otpDigit, { color: theme.textPrimary }]}>{digit}</Text>
+          </View>
+        );
+      })}
+      <TextInput
+        ref={inputRef}
+        value={value}
+        onChangeText={(next) => onChangeText(next.replace(/\D/g, '').slice(0, OTP_CODE_LENGTH))}
+        onFocus={() => setFocused(true)}
+        onBlur={() => setFocused(false)}
+        keyboardType="number-pad"
+        textContentType="oneTimeCode"
+        autoComplete="sms-otp"
+        accessibilityLabel={`${OTP_CODE_LENGTH} digit verification code`}
+        editable={editable}
+        autoFocus
+        maxLength={OTP_CODE_LENGTH}
+        caretHidden
+        style={styles.otpHiddenInput}
+      />
+    </Pressable>
   );
 }
 
@@ -215,17 +259,27 @@ const styles = StyleSheet.create({
   },
   toggle: { paddingHorizontal: layout.spacing[4], justifyContent: 'center' },
   toggleText: { fontSize: layout.fontSize.sm, fontWeight: '600' },
-  otp: {
-    borderWidth: 1,
+  otpRow: {
+    flexDirection: 'row',
+    justifyContent: 'center',
+    gap: layout.spacing[2],
+  },
+  otpBox: {
+    width: 44,
+    height: 56,
     borderRadius: layout.radius.lg,
-    minHeight: 56,
-    paddingHorizontal: layout.spacing[4],
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  otpDigit: {
     fontSize: layout.fontSize['2xl'],
     fontWeight: '600',
-    // Left-aligned, not centered: with no value yet, a centered empty input
-    // puts the cursor in the middle of the box, not at the first placeholder
-    // dash where the first digit is actually about to go.
-    textAlign: 'left',
-    letterSpacing: 12,
+  },
+  // Captures real keystrokes off-screen — the boxes above are what's shown.
+  otpHiddenInput: {
+    position: 'absolute',
+    width: 1,
+    height: 1,
+    opacity: 0,
   },
 });
