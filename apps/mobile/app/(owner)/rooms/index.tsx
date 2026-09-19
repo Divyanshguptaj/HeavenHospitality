@@ -39,7 +39,7 @@ export default function OwnerRoomsScreen() {
 
   if (occupancy.isPending) {
     return (
-      <Screen>
+      <Screen center>
         <LoadingState label="Loading occupancy…" />
       </Screen>
     );
@@ -47,7 +47,7 @@ export default function OwnerRoomsScreen() {
 
   if (occupancy.error) {
     return (
-      <Screen>
+      <Screen center>
         <ErrorState
           message={
             occupancy.error instanceof ApiRequestError

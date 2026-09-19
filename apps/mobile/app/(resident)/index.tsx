@@ -56,7 +56,7 @@ export default function ResidentHomeScreen() {
 
   if (isPending) {
     return (
-      <Screen>
+      <Screen center>
         <LoadingState label="Loading your stay…" />
       </Screen>
     );

@@ -56,7 +56,7 @@ export default function PropertyInfoScreen() {
 
   if (settings.isPending) {
     return (
-      <Screen>
+      <Screen center>
         <LoadingState label="Loading the property profile…" />
       </Screen>
     );
@@ -64,7 +64,7 @@ export default function PropertyInfoScreen() {
 
   if (settings.error || data === undefined) {
     return (
-      <Screen>
+      <Screen center>
         <ErrorState
           message={settings.error instanceof ApiRequestError ? settings.error.message : 'Please try again.'}
           onRetry={() => void settings.refetch()}

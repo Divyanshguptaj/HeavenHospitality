@@ -70,7 +70,7 @@ export default function OwnerRoomDetailScreen() {
 
   if (room.isPending) {
     return (
-      <Screen>
+      <Screen center>
         <LoadingState label="Loading the room…" />
       </Screen>
     );
@@ -78,7 +78,7 @@ export default function OwnerRoomDetailScreen() {
 
   if (room.error) {
     return (
-      <Screen>
+      <Screen center>
         <ErrorState
           message={room.error instanceof ApiRequestError ? room.error.message : 'Please try again.'}
           onRetry={() => void room.refetch()}

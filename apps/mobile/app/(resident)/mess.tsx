@@ -52,7 +52,7 @@ export default function MessScreen() {
 
   if (home.isPending) {
     return (
-      <Screen>
+      <Screen center>
         <LoadingState label="Loading the menu…" />
       </Screen>
     );
@@ -60,7 +60,7 @@ export default function MessScreen() {
 
   if (home.error) {
     return (
-      <Screen>
+      <Screen center>
         <ErrorState
           message={home.error instanceof ApiRequestError ? home.error.message : 'Please try again.'}
           onRetry={() => void home.refetch()}

@@ -30,7 +30,7 @@ export default function MessMenuScreen() {
 
   if (menu.isPending || settings.isPending) {
     return (
-      <Screen>
+      <Screen center>
         <LoadingState label="Loading the menu…" />
       </Screen>
     );
@@ -39,7 +39,7 @@ export default function MessMenuScreen() {
   if (menu.error || settings.error || menu.data === undefined || settings.data === undefined) {
     const error = menu.error ?? settings.error;
     return (
-      <Screen>
+      <Screen center>
         <ErrorState
           message={error instanceof ApiRequestError ? error.message : 'Please try again.'}
           onRetry={() => {

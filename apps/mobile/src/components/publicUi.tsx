@@ -88,7 +88,7 @@ export function QueryScreen<T>({
 
   if (isPending) {
     return (
-      <Screen>
+      <Screen center>
         <LoadingState label="Loading…" />
       </Screen>
     );
@@ -107,7 +107,7 @@ export function QueryScreen<T>({
             : 'Something went wrong. Please try again.';
 
     return (
-      <Screen>
+      <Screen center>
         <ErrorState message={message} onRetry={() => void refetch()} />
       </Screen>
     );

@@ -35,7 +35,7 @@ export default function OwnerOverviewScreen() {
 
   if (isPending) {
     return (
-      <Screen>
+      <Screen center>
         <LoadingState label="Loading your property…" />
       </Screen>
     );
@@ -43,7 +43,7 @@ export default function OwnerOverviewScreen() {
 
   if (error) {
     return (
-      <Screen>
+      <Screen center>
         <ErrorState
           message={error instanceof ApiRequestError ? error.message : 'Please try again.'}
           onRetry={() => void refetch()}

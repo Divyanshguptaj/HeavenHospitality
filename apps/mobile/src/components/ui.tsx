@@ -38,9 +38,11 @@ interface ScreenProps {
   /** Supplied when the screen owns a query, to enable pull-to-refresh. */
   readonly onRefresh?: () => void;
   readonly refreshing?: boolean;
+  /** Vertically centers the content — for a screen that is only a loading spinner or a message, never for a normal page. */
+  readonly center?: boolean;
 }
 
-export function Screen({ children, onRefresh, refreshing = false }: ScreenProps) {
+export function Screen({ children, onRefresh, refreshing = false, center = false }: ScreenProps) {
   const theme = useTheme();
 
   return (
@@ -50,7 +52,7 @@ export function Screen({ children, onRefresh, refreshing = false }: ScreenProps)
     >
       <ScrollView
         style={{ backgroundColor: theme.canvas }}
-        contentContainerStyle={styles.screenContent}
+        contentContainerStyle={[styles.screenContent, center && styles.screenContentCentered]}
         // Content can exceed the viewport on small phones; never clip it.
         keyboardShouldPersistTaps="handled"
         refreshControl={
@@ -395,6 +397,12 @@ const styles = StyleSheet.create({
     padding: layout.spacing[5],
     gap: layout.spacing[5],
     paddingBottom: layout.spacing[10],
+  },
+  // Only when `center` is passed: a lone LoadingState/ErrorState/EmptyState
+  // sits in the middle of the screen instead of pinned to the top.
+  screenContentCentered: {
+    flexGrow: 1,
+    justifyContent: 'center',
   },
   heading: { flexDirection: 'row', gap: layout.spacing[4] },
   headingBar: { width: 3, borderRadius: 2 },

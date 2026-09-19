@@ -59,7 +59,7 @@ export default function RentScreen() {
 
   if (home.isPending) {
     return (
-      <Screen>
+      <Screen center>
         <LoadingState label="Loading your bill…" />
       </Screen>
     );
@@ -67,7 +67,7 @@ export default function RentScreen() {
 
   if (home.error) {
     return (
-      <Screen>
+      <Screen center>
         <ErrorState
           message={home.error instanceof ApiRequestError ? home.error.message : 'Please try again.'}
           onRetry={() => void home.refetch()}

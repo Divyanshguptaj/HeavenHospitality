@@ -84,7 +84,7 @@ export default function OwnerResidentDetailScreen() {
 
   if (resident.isPending) {
     return (
-      <Screen>
+      <Screen center>
         <LoadingState label="Loading resident…" />
       </Screen>
     );
@@ -92,7 +92,7 @@ export default function OwnerResidentDetailScreen() {
 
   if (resident.error || data === undefined) {
     return (
-      <Screen>
+      <Screen center>
         <ErrorState
           message={resident.error instanceof ApiRequestError ? resident.error.message : 'Please try again.'}
           onRetry={() => void resident.refetch()}
