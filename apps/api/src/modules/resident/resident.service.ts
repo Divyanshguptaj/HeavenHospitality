@@ -164,6 +164,7 @@ export async function listResidentInvoices(actor: Actor): Promise<InvoiceSummary
     id: invoice.id,
     number: invoice.number,
     periodKey: invoice.periodKey,
+    category: invoice.category,
     status: invoice.status,
     issueDate: fromPrismaDate(invoice.issueDate),
     dueDate: fromPrismaDate(invoice.dueDate),

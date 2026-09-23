@@ -1,20 +1,12 @@
 import { passwordSchema } from '@heaven/contracts';
 import { router } from 'expo-router';
 import { useState } from 'react';
-import {
-  Alert,
-  KeyboardAvoidingView,
-  Platform,
-  ScrollView,
-  StyleSheet,
-  TextInput,
-  View,
-} from 'react-native';
+import { Alert, StyleSheet, TextInput, View } from 'react-native';
 
 import { useAuthStore } from '../../src/auth/authStore';
 import { submitPasswordReset, useOtpFlowStore } from '../../src/auth/otpFlowStore';
 import { FieldError, FieldLabel, PasswordField } from '../../src/components/authFields';
-import { Body, Button, Card, PageHeading } from '../../src/components/ui';
+import { Body, Button, Card, PageHeading, Screen } from '../../src/components/ui';
 import { ApiRequestError } from '../../src/lib/apiClient';
 import { layout, useTheme } from '../../src/theme';
 
@@ -74,8 +66,11 @@ export default function SetPasswordScreen() {
       if (isSignup) {
         await completeSignup({ phone, verificationToken, fullName: fullName.trim(), password });
         resetFlow();
-        // The root layout routes by role once the session lands.
-        router.replace('/');
+        // No navigation here: the root layout's own effect reacts to the
+        // session landing and replaces this screen itself. Racing it with a
+        // second `replace('/')` — which matches no real route — risks that
+        // call winning instead and skipping straight past the registration
+        // gate the effect is responsible for.
       } else {
         await submitPasswordReset({ phone, verificationToken, password });
         resetFlow();
@@ -94,81 +89,75 @@ export default function SetPasswordScreen() {
   }
 
   return (
-    <KeyboardAvoidingView
-      style={{ flex: 1, backgroundColor: theme.canvas }}
-      behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-    >
-      <ScrollView contentContainerStyle={styles.container} keyboardShouldPersistTaps="handled">
-        <PageHeading
-          title={isSignup ? 'Create your account' : 'Set a new password'}
-          subtitle={
-            isSignup
-              ? 'Almost done — add your name and set a password to sign in with.'
-              : 'You will be signed out everywhere else.'
-          }
+    <Screen>
+      <PageHeading
+        title={isSignup ? 'Create your account' : 'Set a new password'}
+        subtitle={
+          isSignup
+            ? 'Almost done — add your name and set a password to sign in with.'
+            : 'You will be signed out everywhere else.'
+        }
+      />
+
+      <Card>
+        {isSignup && (
+          <View style={styles.field}>
+            <FieldLabel>Your name</FieldLabel>
+            <TextInput
+              value={fullName}
+              onChangeText={setFullName}
+              style={[
+                styles.input,
+                {
+                  backgroundColor: theme.surface,
+                  borderColor: theme.border,
+                  color: theme.textPrimary,
+                },
+              ]}
+              placeholder="Vikram Iyer"
+              placeholderTextColor={theme.textMuted}
+              autoCapitalize="words"
+              textContentType="name"
+              accessibilityLabel="Your name"
+              editable={!submitting}
+              autoFocus
+            />
+          </View>
+        )}
+
+        <PasswordField
+          label="Password"
+          placeholder="At least 8 characters"
+          value={password}
+          onChangeText={setPassword}
+          editable={!submitting}
+          isNew
         />
 
-        <Card>
-          {isSignup && (
-            <View style={styles.field}>
-              <FieldLabel>Your name</FieldLabel>
-              <TextInput
-                value={fullName}
-                onChangeText={setFullName}
-                style={[
-                  styles.input,
-                  {
-                    backgroundColor: theme.surface,
-                    borderColor: theme.border,
-                    color: theme.textPrimary,
-                  },
-                ]}
-                placeholder="Vikram Iyer"
-                placeholderTextColor={theme.textMuted}
-                autoCapitalize="words"
-                textContentType="name"
-                accessibilityLabel="Your name"
-                editable={!submitting}
-                autoFocus
-              />
-            </View>
-          )}
+        <PasswordField
+          label="Confirm password"
+          placeholder="Type it again"
+          value={confirm}
+          onChangeText={setConfirm}
+          editable={!submitting}
+          isNew
+          onSubmitEditing={() => void handleSubmit()}
+        />
 
-          <PasswordField
-            label="Password"
-            placeholder="At least 8 characters"
-            value={password}
-            onChangeText={setPassword}
-            editable={!submitting}
-            isNew
-          />
+        <Body>At least 8 characters, including a letter and a number.</Body>
 
-          <PasswordField
-            label="Confirm password"
-            placeholder="Type it again"
-            value={confirm}
-            onChangeText={setConfirm}
-            editable={!submitting}
-            isNew
-            onSubmitEditing={() => void handleSubmit()}
-          />
+        <FieldError message={error ?? passwordProblem} />
 
-          <Body>At least 8 characters, including a letter and a number.</Body>
-
-          <FieldError message={error ?? passwordProblem} />
-
-          <Button
-            label={submitting ? 'Saving…' : isSignup ? 'Create account' : 'Change password'}
-            onPress={() => void handleSubmit()}
-          />
-        </Card>
-      </ScrollView>
-    </KeyboardAvoidingView>
+        <Button
+          label={submitting ? 'Saving…' : isSignup ? 'Create account' : 'Change password'}
+          onPress={() => void handleSubmit()}
+        />
+      </Card>
+    </Screen>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { padding: layout.spacing[5], gap: layout.spacing[5] },
   field: { gap: layout.spacing[2] },
   input: {
     minHeight: layout.minTouchTarget,

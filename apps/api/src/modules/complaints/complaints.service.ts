@@ -52,6 +52,7 @@ function toSummary(complaint: ComplaintRecord): ComplaintSummaryView {
   return {
     id: complaint.id,
     title: complaint.title,
+    description: complaint.description,
     category: complaint.category,
     status: complaint.status,
     createdAt: complaint.createdAt.toISOString(),
@@ -121,7 +122,6 @@ async function readDetail(complaintId: string, where: object): Promise<Complaint
 
   return {
     ...toSummary(complaint),
-    description: complaint.description,
     imageUrl: complaint.imageUrl,
     reopenCount: complaint.reopenCount,
     events: complaint.events.map((event) => ({

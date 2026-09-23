@@ -118,7 +118,9 @@ import {
   findUserByEmail,
   findUserByPhone,
   getResident,
+  listApplicants,
   listResidents,
+  updateApplicantRegistration,
   moveResident,
   updateRegistration,
   updateResident,
@@ -205,7 +207,10 @@ const propertyProfileSchema = z.object({
     .trim()
     .regex(/^\d{6}$/, 'Must be a 6-digit pincode')
     .optional(),
+  latitude: z.number().min(-90).max(90).optional(),
+  longitude: z.number().min(-180).max(180).optional(),
   contactPhone: z.string().trim().min(6).max(20).optional(),
+  whatsappPhone: z.string().trim().min(6).max(20).nullable().optional(),
   contactEmail: z.string().trim().email().nullable().optional(),
   isPubliclyListed: z.boolean().optional(),
 });
@@ -471,6 +476,26 @@ ownerRouter.get(
   handle((req) => {
     const { query } = getValidated<typeof residentQuery>(req);
     return listResidents(getActor(req), query);
+  }),
+);
+
+// People who signed up and completed the admission form but hold no tenancy yet.
+ownerRouter.get(
+  '/applicants',
+  requirePermission('resident:read'),
+  handle((req) => listApplicants(getActor(req))),
+);
+
+ownerRouter.patch(
+  '/applicants/:id/registration',
+  requirePermission('resident:write'),
+  validate({ ...idParam, body: updateRegistrationSchema }),
+  handle((req) => {
+    const { body, params } = getValidated<{
+      body: typeof updateRegistrationSchema;
+      params: (typeof idParam)['params'];
+    }>(req);
+    return updateApplicantRegistration(getActor(req), params.id, body);
   }),
 );
 

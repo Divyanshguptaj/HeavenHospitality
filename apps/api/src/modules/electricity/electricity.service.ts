@@ -4,6 +4,8 @@ import { AppError } from '../../errors/AppError.js';
 import type { Loose } from '../../lib/types.js';
 import { writeAudit } from '../../lib/audit.js';
 import {
+  dueDateFor,
+  firstDayOfPeriod,
   fromPrismaDate,
   todayInZone,
   toPrismaDate,
@@ -246,8 +248,12 @@ export async function recordReading(
 }
 
 /**
- * Adds (or refreshes) the electricity line on any invoice already issued for the
- * period, so a reading entered after invoicing is not silently lost.
+ * Adds (or refreshes) the electricity line on that tenancy's ELECTRICITY
+ * invoice for the period, so a reading entered after rent was already
+ * invoiced is not silently lost. Electricity is billed on its own invoice
+ * (see the `InvoiceCategory` split in invoice.service.ts), so when nothing has
+ * been raised for it yet this raises it now, rather than requiring one to
+ * already exist.
  */
 async function attachSharesToInvoices(
   propertyId: string,
@@ -269,38 +275,85 @@ async function attachSharesToInvoices(
 
   for (const share of shares) {
     const invoice = await prisma.invoice.findUnique({
-      where: { tenancyId_periodKey: { tenancyId: share.tenancyId, periodKey } },
+      where: {
+        tenancyId_periodKey_category: { tenancyId: share.tenancyId, periodKey, category: 'ELECTRICITY' },
+      },
       select: { id: true, status: true },
     });
 
-    if (invoice === null || invoice.status === 'CANCELLED') continue;
+    if (invoice !== null && invoice.status === 'CANCELLED') continue;
 
     const description = `Electricity — room ${share.reading.room.number}, ${share.reading.units} units @ ₹${(share.reading.ratePaisePerUnit / 100).toFixed(2)}/unit`;
 
     await prisma.$transaction(async (tx) => {
-      const existing = await tx.invoiceItem.findFirst({
-        where: { invoiceId: invoice.id, kind: 'ELECTRICITY' },
-      });
+      let invoiceId = invoice?.id;
 
-      if (existing === undefined || existing === null) {
-        await tx.invoiceItem.create({
+      if (invoiceId === undefined) {
+        const tenancy = await tx.tenancy.findUniqueOrThrow({
+          where: { id: share.tenancyId },
+          select: { user: { select: { fullName: true } } },
+        });
+        const sequence = await tx.invoice.count({ where: { propertyId, periodKey } });
+        const number = `INV-ELEC-${periodKey.replace('-', '')}-${String(sequence + 1).padStart(4, '0')}`;
+
+        const created = await tx.invoice.create({
           data: {
-            invoiceId: invoice.id,
-            kind: 'ELECTRICITY',
-            description,
-            amountPaise: share.sharePaise,
-            sourceType: 'ElectricityShare',
-            sourceId: share.id,
+            propertyId,
+            tenancyId: share.tenancyId,
+            periodKey,
+            category: 'ELECTRICITY',
+            number,
+            status: 'ISSUED',
+            issueDate: toPrismaDate(firstDayOfPeriod(periodKey)),
+            dueDate: toPrismaDate(dueDateFor(periodKey, settings.rentDueDay)),
+            items: {
+              create: [
+                {
+                  kind: 'ELECTRICITY',
+                  description,
+                  amountPaise: share.sharePaise,
+                  sourceType: 'ElectricityShare',
+                  sourceId: share.id,
+                },
+              ],
+            },
           },
         });
-      } else {
-        await tx.invoiceItem.update({
-          where: { id: existing.id },
-          data: { description, amountPaise: share.sharePaise, sourceId: share.id },
+        invoiceId = created.id;
+
+        await writeAudit(tx, {
+          action: 'INVOICE_ISSUED',
+          entityType: 'Invoice',
+          entityId: invoiceId,
+          propertyId,
+          summary: `Invoice ${number} issued to ${tenancy.user.fullName} for ${periodKey}`,
+          actorRole: 'SYSTEM',
         });
+      } else {
+        const existing = await tx.invoiceItem.findFirst({
+          where: { invoiceId, kind: 'ELECTRICITY' },
+        });
+
+        if (existing === undefined || existing === null) {
+          await tx.invoiceItem.create({
+            data: {
+              invoiceId,
+              kind: 'ELECTRICITY',
+              description,
+              amountPaise: share.sharePaise,
+              sourceType: 'ElectricityShare',
+              sourceId: share.id,
+            },
+          });
+        } else {
+          await tx.invoiceItem.update({
+            where: { id: existing.id },
+            data: { description, amountPaise: share.sharePaise, sourceId: share.id },
+          });
+        }
       }
 
-      await recomputeInvoice(tx, invoice.id, settings, today);
+      await recomputeInvoice(tx, invoiceId, settings, today);
     });
   }
 }

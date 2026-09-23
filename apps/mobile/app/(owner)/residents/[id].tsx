@@ -1,8 +1,8 @@
-import { REGISTRATION_DOCUMENT_TYPE_LABELS, type ResidentDetailView } from '@heaven/contracts';
+import type { ResidentDetailView } from '@heaven/contracts';
 import { formatINR } from '@heaven/money';
 import { useLocalSearchParams } from 'expo-router';
 import { useEffect, useState } from 'react';
-import { Image, StyleSheet, View } from 'react-native';
+import { StyleSheet, View } from 'react-native';
 
 import {
   useOwnerResident,
@@ -11,12 +11,7 @@ import {
   useUpdateResident,
 } from '../../../src/api/owner';
 import { DateField } from '../../../src/components/DateField';
-import {
-  RegistrationFields,
-  optionalField,
-  registrationToFormValues,
-  type RegistrationFormValues,
-} from '../../../src/components/RegistrationForm';
+import { RegistrationCard } from '../../../src/components/RegistrationCard';
 import {
   Badge,
   Button,
@@ -56,6 +51,7 @@ export default function OwnerResidentDetailScreen() {
   const { id = '' } = useLocalSearchParams<{ id: string }>();
   const resident = useOwnerResident(id);
   const updateResident = useUpdateResident();
+  const updateRegistration = useUpdateRegistration();
 
   const [editing, setEditing] = useState(false);
   const [fullName, setFullName] = useState('');
@@ -228,7 +224,11 @@ export default function OwnerResidentDetailScreen() {
         )}
       </Card>
 
-      <RegistrationCard tenancyId={id} registration={data.registration} />
+      <RegistrationCard
+        registration={data.registration}
+        saving={updateRegistration.isPending}
+        onSave={(body) => updateRegistration.mutateAsync({ id, ...body })}
+      />
 
       <Card>
         <CardTitle>Recent invoices</CardTitle>
@@ -291,114 +291,6 @@ export default function OwnerResidentDetailScreen() {
         </Card>
       )}
     </Screen>
-  );
-}
-
-/**
- * The admission form. Blank until the resident submits it themselves; from
- * then on the owner is the only one who can change it.
- */
-function RegistrationCard({
-  tenancyId,
-  registration,
-}: {
-  readonly tenancyId: string;
-  readonly registration: ResidentDetailView['registration'];
-}) {
-  const updateRegistration = useUpdateRegistration();
-  const [editing, setEditing] = useState(false);
-  const [values, setValues] = useState<RegistrationFormValues>(() => registrationToFormValues(registration));
-  const [error, setError] = useState<string | null>(null);
-
-  function patch(next: Partial<RegistrationFormValues>): void {
-    setValues((current) => ({ ...current, ...next }));
-  }
-
-  async function save(): Promise<void> {
-    setError(null);
-    try {
-      await updateRegistration.mutateAsync({
-        id: tenancyId,
-        fatherName: values.fatherName.trim(),
-        motherName: values.motherName.trim(),
-        parentMobile: values.parentMobile.trim(),
-        dateOfBirth: values.dateOfBirth.trim(),
-        aadhaarNumber: values.aadhaarNumber.trim(),
-        collegeOrInstitute: optionalField(values.collegeOrInstitute),
-        courseOrSemester: optionalField(values.courseOrSemester),
-        permanentAddress: values.permanentAddress.trim(),
-        bloodGroup: values.bloodGroup.trim(),
-        parentOccupation: optionalField(values.parentOccupation),
-        vehicleNumber: optionalField(values.vehicleNumber),
-        ...(values.documentType === null ? {} : { documentType: values.documentType }),
-        documentOtherDescription: optionalField(values.documentOtherDescription),
-      });
-      setEditing(false);
-    } catch (caught) {
-      setError(caught instanceof ApiRequestError ? caught.message : 'Could not save.');
-    }
-  }
-
-  if (registration.completedAt === null) {
-    return (
-      <Card>
-        <CardTitle>Registration</CardTitle>
-        <Muted>This resident has not submitted the admission form yet.</Muted>
-      </Card>
-    );
-  }
-
-  const documentLabel =
-    registration.documentType === null
-      ? '—'
-      : registration.documentType === 'OTHER'
-        ? (registration.documentOtherDescription ?? 'Other')
-        : REGISTRATION_DOCUMENT_TYPE_LABELS[registration.documentType];
-
-  return (
-    <Card>
-      <View style={styles.cardHeader}>
-        <CardTitle>Registration</CardTitle>
-        {!editing && <Button label="Edit" variant="secondary" onPress={() => setEditing(true)} />}
-      </View>
-
-      {editing ? (
-        <>
-          <RegistrationFields values={values} onChange={patch} />
-          {error !== null && <Muted>{error}</Muted>}
-          <View style={styles.actionsRow}>
-            <Button
-              label="Cancel"
-              variant="secondary"
-              onPress={() => {
-                setEditing(false);
-                setValues(registrationToFormValues(registration));
-                setError(null);
-              }}
-            />
-            <Button label={updateRegistration.isPending ? 'Saving…' : 'Save'} onPress={() => void save()} />
-          </View>
-        </>
-      ) : (
-        <>
-          <DetailRow label="Father's name" value={registration.fatherName ?? '—'} />
-          <DetailRow label="Mother's name" value={registration.motherName ?? '—'} />
-          <DetailRow label="Parent's mobile" value={registration.parentMobile ?? '—'} />
-          <DetailRow label="Date of birth" value={registration.dateOfBirth ?? '—'} />
-          <DetailRow label="Aadhaar number" value={registration.aadhaarNumber ?? '—'} />
-          <DetailRow label="College / institute" value={registration.collegeOrInstitute ?? '—'} />
-          <DetailRow label="Course / semester" value={registration.courseOrSemester ?? '—'} />
-          <DetailRow label="Permanent address" value={registration.permanentAddress ?? '—'} />
-          <DetailRow label="Blood group" value={registration.bloodGroup ?? '—'} />
-          <DetailRow label="Parent's occupation" value={registration.parentOccupation ?? '—'} />
-          <DetailRow label="Vehicle number" value={registration.vehicleNumber ?? '—'} />
-          <DetailRow label="Document submitted" value={documentLabel} />
-          {registration.documentImageUrl !== null && (
-            <Image source={{ uri: registration.documentImageUrl }} style={styles.documentImage} resizeMode="cover" />
-          )}
-        </>
-      )}
-    </Card>
   );
 }
 
@@ -479,5 +371,4 @@ const styles = StyleSheet.create({
   },
   electricityAmount: { flexDirection: 'row', alignItems: 'center', gap: layout.spacing[3] },
   electricityEdit: { gap: layout.spacing[2], paddingVertical: layout.spacing[2] },
-  documentImage: { width: '100%', height: 200, borderRadius: layout.radius.lg },
 });

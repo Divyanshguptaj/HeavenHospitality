@@ -142,6 +142,22 @@ const envSchema = z
     CLOUDINARY_API_SECRET: z.string().optional(),
     CLOUDINARY_FOLDER: z.string().default('heaven-hospitality/registration-documents'),
 
+    // Outbound messaging. `mock` logs instead of sending, so development never
+    // spends money; production refuses it below. `OTP_PROVIDER=sms` and
+    // `MESSAGING_PROVIDER=fast2sms` both deliver through Fast2SMS.
+    MESSAGING_PROVIDER: z.enum(['mock', 'fast2sms']).default('mock'),
+    FAST2SMS_API_KEY: z.string().optional(),
+    /** The 3-6 letter DLT-approved sender header. */
+    FAST2SMS_SENDER_ID: z.string().optional(),
+    /** The DLT "message id" of the approved OTP template. */
+    FAST2SMS_OTP_TEMPLATE_ID: z.string().optional(),
+    FAST2SMS_WHATSAPP_PHONE_NUMBER_ID: z.string().optional(),
+    /** Fast2SMS "message id" of the approved WhatsApp templates. */
+    FAST2SMS_WA_RENT_DUE_MESSAGE_ID: z.string().optional(),
+    FAST2SMS_WA_RENT_OVERDUE_MESSAGE_ID: z.string().optional(),
+    /** Only needed if Expo push security ("enhanced") is turned on for the project. */
+    EXPO_ACCESS_TOKEN: z.string().optional(),
+
     SMTP_URL: z.string().optional(),
     MAIL_FROM: z.string().default('Heaven Hospitality <no-reply@heavenhospitality.in>'),
   })
@@ -196,6 +212,31 @@ const envSchema = z
         path: ['OTP_PROVIDER'],
         message: 'OTP_PROVIDER must be "sms" when NODE_ENV=production',
       });
+    }
+
+    if (value.MESSAGING_PROVIDER !== 'fast2sms') {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['MESSAGING_PROVIDER'],
+        message: 'MESSAGING_PROVIDER must be "fast2sms" when NODE_ENV=production',
+      });
+    }
+
+    for (const key of [
+      'FAST2SMS_API_KEY',
+      'FAST2SMS_SENDER_ID',
+      'FAST2SMS_OTP_TEMPLATE_ID',
+      'FAST2SMS_WHATSAPP_PHONE_NUMBER_ID',
+      'FAST2SMS_WA_RENT_DUE_MESSAGE_ID',
+      'FAST2SMS_WA_RENT_OVERDUE_MESSAGE_ID',
+    ] as const) {
+      if (value[key] === undefined || value[key] === '') {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: [key],
+          message: `${key} is required when NODE_ENV=production`,
+        });
+      }
     }
 
     for (const key of ['BOOTSTRAP_OWNER_PHONE', 'BOOTSTRAP_OWNER_PASSWORD'] as const) {

@@ -74,7 +74,7 @@ export function DoorwayReveal({
           easing: Easing.out(Easing.quad),
           useNativeDriver: true,
         }),
-      ]).start(() => setTimeout(onFinish, 120));
+      ]).start(() => setTimeout(onFinish, 3000));
       return;
     }
 
@@ -123,7 +123,7 @@ export function DoorwayReveal({
           useNativeDriver: true,
         }),
       ]),
-    ]).start(() => setTimeout(onFinish, 200));
+    ]).start(() => setTimeout(onFinish, 3000));
   }, [reducedMotion]);
 
   const jambTop = markCenterY + JAMB.offsetY * scale - (JAMB.height * scale) / 2;
@@ -229,7 +229,7 @@ export function DoorwayReveal({
           { top: markCenterY + 110 * scale, opacity: wordOpacity, transform: [{ translateY: wordRise }] },
         ]}
       >
-        {'HEAVEN\nHOSPITALITY'}
+        {'THE HEAVEN\nHOSPITALITY'}
       </Animated.Text>
       <Animated.Text
         style={[

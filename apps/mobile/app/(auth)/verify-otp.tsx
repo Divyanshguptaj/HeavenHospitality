@@ -1,19 +1,11 @@
 import { OTP_CODE_LENGTH } from '@heaven/contracts';
 import { router } from 'expo-router';
 import { useCallback, useEffect, useState } from 'react';
-import {
-  KeyboardAvoidingView,
-  Platform,
-  Pressable,
-  ScrollView,
-  StyleSheet,
-  Text,
-  View,
-} from 'react-native';
+import { Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { useOtpFlowStore } from '../../src/auth/otpFlowStore';
 import { FieldError, OtpField } from '../../src/components/authFields';
-import { Body, Button, Card, Muted, PageHeading } from '../../src/components/ui';
+import { Body, Button, Card, Muted, PageHeading, Screen } from '../../src/components/ui';
 import { ApiRequestError } from '../../src/lib/apiClient';
 import { layout, useTheme } from '../../src/theme';
 
@@ -83,70 +75,64 @@ export default function VerifyOtpScreen() {
   }
 
   return (
-    <KeyboardAvoidingView
-      style={{ flex: 1, backgroundColor: theme.canvas }}
-      behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-    >
-      <ScrollView contentContainerStyle={styles.container} keyboardShouldPersistTaps="handled">
-        <PageHeading
-          title="Enter the code"
-          subtitle={`We sent a ${OTP_CODE_LENGTH}-digit code to ${maskedPhone}.`}
+    <Screen>
+      <PageHeading
+        title="Enter the code"
+        subtitle={`We sent a ${OTP_CODE_LENGTH}-digit code to ${maskedPhone}.`}
+      />
+
+      <Card>
+        <OtpField
+          value={code}
+          onChangeText={setCode}
+          editable={!submitting}
+          onComplete={() => void handleSubmit()}
         />
 
+        <FieldError message={error} />
+
+        <Button label={submitting ? 'Checking…' : 'Verify'} onPress={() => void handleSubmit()} />
+
+        <View style={styles.resendRow}>
+          {secondsLeft > 0 ? (
+            <Muted>Resend available in {secondsLeft}s</Muted>
+          ) : (
+            <Pressable
+              onPress={() => void handleResend()}
+              accessibilityRole="button"
+              style={styles.link}
+            >
+              <Text style={[styles.linkText, { color: theme.primary }]}>Resend code</Text>
+            </Pressable>
+          )}
+        </View>
+      </Card>
+
+      {devCode !== null && (
+        // Development only: the API omits this field entirely in production,
+        // so this block cannot render there.
         <Card>
-          <OtpField
-            value={code}
-            onChangeText={setCode}
-            editable={!submitting}
-            onComplete={() => void handleSubmit()}
-          />
-
-          <FieldError message={error} />
-
-          <Button label={submitting ? 'Checking…' : 'Verify'} onPress={() => void handleSubmit()} />
-
-          <View style={styles.resendRow}>
-            {secondsLeft > 0 ? (
-              <Muted>Resend available in {secondsLeft}s</Muted>
-            ) : (
-              <Pressable
-                onPress={() => void handleResend()}
-                accessibilityRole="button"
-                style={styles.link}
-              >
-                <Text style={[styles.linkText, { color: theme.primary }]}>Resend code</Text>
-              </Pressable>
-            )}
-          </View>
+          <Body>Development build — no SMS was sent.</Body>
+          <Text style={[styles.devCode, { color: theme.textPrimary }]}>{devCode}</Text>
         </Card>
+      )}
 
-        {devCode !== null && (
-          // Development only: the API omits this field entirely in production,
-          // so this block cannot render there.
-          <Card>
-            <Body>Development build — no SMS was sent.</Body>
-            <Text style={[styles.devCode, { color: theme.textPrimary }]}>{devCode}</Text>
-          </Card>
-        )}
-
-        <Pressable
-          onPress={() =>
-            router.replace(purpose === 'SIGNUP' ? '/(auth)/signup-phone' : '/(auth)/forgot-phone')
-          }
-          accessibilityRole="button"
-          style={styles.link}
-        >
-          <Text style={[styles.linkText, { color: theme.textSecondary }]}>
-            Use a different number
-          </Text>
-        </Pressable>
-      </ScrollView>
-    </KeyboardAvoidingView>
+      <Pressable
+        onPress={() =>
+          router.replace(purpose === 'SIGNUP' ? '/(auth)/signup-phone' : '/(auth)/forgot-phone')
+        }
+        accessibilityRole="button"
+        style={styles.link}
+      >
+        <Text style={[styles.linkText, { color: theme.textSecondary }]}>
+          Use a different number
+        </Text>
+      </Pressable>
+    </Screen>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { padding: layout.spacing[5], gap: layout.spacing[5] },
   resendRow: { alignItems: 'center' },
   link: { minHeight: layout.minTouchTarget, justifyContent: 'center', alignItems: 'center' },
   linkText: { fontSize: layout.fontSize.md, fontWeight: '600' },

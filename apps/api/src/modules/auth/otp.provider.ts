@@ -1,6 +1,7 @@
 import { env, isProduction } from '../../config/env.js';
 import { AppError } from '../../errors/AppError.js';
 import { logger } from '../../lib/logger.js';
+import { sendDltSms } from '../notifications/providers/fast2sms.client.js';
 
 /**
  * Delivery of one-time codes.
@@ -49,24 +50,23 @@ export class MockOtpProvider implements OtpProvider {
 }
 
 /**
- * Placeholder for the real gateway.
+ * Delivers the code as a DLT-approved SMS through Fast2SMS.
  *
- * Deliberately throws rather than silently doing nothing: a half-built provider
- * that resolves successfully would let production accept signups whose codes
- * were never delivered.
+ * Rejects when unconfigured or when Fast2SMS refuses, so a signup never
+ * proceeds on a code that was not sent.
  */
 export class SmsOtpProvider implements OtpProvider {
   readonly name = 'sms';
 
-  sendOtp(_phone: string, _code: string): Promise<void> {
-    // Rejected, not thrown synchronously: callers await this, and a provider
-    // that behaved differently from a real network client would hide bugs.
-    return Promise.reject(
-      new AppError(
+  async sendOtp(phone: string, code: string): Promise<void> {
+    const { FAST2SMS_SENDER_ID: senderId, FAST2SMS_OTP_TEMPLATE_ID: templateId } = env;
+    if (senderId === undefined || templateId === undefined) {
+      throw new AppError(
         'PROVIDER_UNAVAILABLE',
         'SMS delivery is not configured yet. Please try again later.',
-      ),
-    );
+      );
+    }
+    await sendDltSms({ phone, senderId, templateId, variables: [code] });
   }
 }
 

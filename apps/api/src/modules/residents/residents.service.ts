@@ -1,4 +1,9 @@
-import type { ResidentDetailView, ResidentSummaryView, updateRegistrationSchema } from '@heaven/contracts';
+import type {
+  ApplicantView,
+  ResidentDetailView,
+  ResidentSummaryView,
+  updateRegistrationSchema,
+} from '@heaven/contracts';
 import { Prisma } from '@prisma/client';
 import type { z } from 'zod';
 
@@ -20,6 +25,7 @@ import type { Actor } from '../../middleware/authenticate.js';
 import { toRegistrationView } from '../account/account.service.js';
 import { generateDepositInvoice, recomputeInvoice } from '../billing/invoice.service.js';
 import { getPropertyContext } from '../property/property.context.js';
+import { deleteCloudinaryAsset } from '../uploads/cloudinary.service.js';
 
 /**
  * Residents.
@@ -59,6 +65,7 @@ const TENANCY_INCLUDE = {
       documentType: true,
       documentOtherDescription: true,
       documentImageUrl: true,
+      photoUrl: true,
       registrationCompletedAt: true,
     },
   },
@@ -152,6 +159,54 @@ export async function listResidents(
   return tenancies.map(toSummary);
 }
 
+/**
+ * Applicants: NON_RESIDENT accounts that have filled the admission form but
+ * hold no tenancy yet — invisible to `listResidents` because they have none.
+ *
+ * Not scoped to a property: a non-resident holds no PropertyMembership (the
+ * form is filled before anyone decides where they will live), so there is
+ * nothing on the account to filter by. `getPropertyContext` still runs, to
+ * authorise the request the same way every other owner endpoint does.
+ */
+export async function listApplicants(actor: Actor): Promise<ApplicantView[]> {
+  await getPropertyContext(actor, 'resident:read');
+
+  const users = await prisma.user.findMany({
+    where: { role: 'NON_RESIDENT', registrationCompletedAt: { not: null } },
+    orderBy: { registrationCompletedAt: 'desc' },
+    select: {
+      id: true,
+      fullName: true,
+      email: true,
+      phone: true,
+      fatherName: true,
+      motherName: true,
+      parentMobile: true,
+      dateOfBirth: true,
+      aadhaarNumber: true,
+      collegeOrInstitute: true,
+      courseOrSemester: true,
+      permanentAddress: true,
+      bloodGroup: true,
+      parentOccupation: true,
+      vehicleNumber: true,
+      documentType: true,
+      documentOtherDescription: true,
+      documentImageUrl: true,
+      photoUrl: true,
+      registrationCompletedAt: true,
+    },
+  });
+
+  return users.map((user) => ({
+    userId: user.id,
+    fullName: user.fullName,
+    email: user.email,
+    phone: user.phone,
+    registration: toRegistrationView(user),
+  }));
+}
+
 export async function getResident(actor: Actor, tenancyId: string): Promise<ResidentDetailView> {
   const { propertyId } = await getPropertyContext(actor, 'resident:read');
 
@@ -165,6 +220,7 @@ export async function getResident(actor: Actor, tenancyId: string): Promise<Resi
           id: true,
           number: true,
           periodKey: true,
+          category: true,
           status: true,
           issueDate: true,
           dueDate: true,
@@ -218,6 +274,7 @@ export async function getResident(actor: Actor, tenancyId: string): Promise<Resi
       id: invoice.id,
       number: invoice.number,
       periodKey: invoice.periodKey,
+      category: invoice.category,
       status: invoice.status,
       issueDate: fromPrismaDate(invoice.issueDate),
       dueDate: fromPrismaDate(invoice.dueDate),
@@ -265,22 +322,22 @@ export async function getResident(actor: Actor, tenancyId: string): Promise<Resi
   };
 }
 
-/** Admin correction of the resident's own admission form, after they have submitted it once. */
-export async function updateRegistration(
-  actor: Actor,
-  tenancyId: string,
+async function applyRegistrationEdits(
+  userId: string,
   input: z.infer<typeof updateRegistrationSchema>,
 ): Promise<ResidentDetailView['registration']> {
-  const { propertyId } = await getPropertyContext(actor, 'resident:write');
-
-  const tenancy = await prisma.tenancy.findFirst({
-    where: { id: tenancyId, propertyId },
-    select: { userId: true },
-  });
-  if (tenancy === null) throw new AppError('NOT_FOUND', 'Resident not found.');
+  // Only fetched when a photo itself is changing — every other edit never
+  // touches Cloudinary, so it never pays for this read.
+  const previous =
+    input.documentImageUrl === undefined && input.photoUrl === undefined
+      ? null
+      : await prisma.user.findUnique({
+          where: { id: userId },
+          select: { documentImageUrl: true, photoUrl: true },
+        });
 
   const user = await prisma.user.update({
-    where: { id: tenancy.userId },
+    where: { id: userId },
     data: {
       ...(input.fatherName === undefined ? {} : { fatherName: input.fatherName }),
       ...(input.motherName === undefined ? {} : { motherName: input.motherName }),
@@ -298,10 +355,63 @@ export async function updateRegistration(
         ? {}
         : { documentOtherDescription: input.documentOtherDescription }),
       ...(input.documentImageUrl === undefined ? {} : { documentImageUrl: input.documentImageUrl }),
+      ...(input.photoUrl === undefined ? {} : { photoUrl: input.photoUrl }),
     },
   });
 
+  // Replaced, not appended to — an old photo is no longer reachable from
+  // anywhere in the app, so it should not go on sitting in Cloudinary either.
+  if (previous !== null) {
+    const replaced = [
+      previous.documentImageUrl !== input.documentImageUrl && input.documentImageUrl !== undefined
+        ? previous.documentImageUrl
+        : null,
+      previous.photoUrl !== input.photoUrl && input.photoUrl !== undefined ? previous.photoUrl : null,
+    ];
+    for (const oldUrl of replaced) {
+      if (oldUrl !== null) await deleteCloudinaryAsset(oldUrl);
+    }
+  }
+
   return toRegistrationView(user);
+}
+
+/** Admin correction of a resident's own admission form, after they have submitted it once. */
+export async function updateRegistration(
+  actor: Actor,
+  tenancyId: string,
+  input: z.infer<typeof updateRegistrationSchema>,
+): Promise<ResidentDetailView['registration']> {
+  const { propertyId } = await getPropertyContext(actor, 'resident:write');
+
+  const tenancy = await prisma.tenancy.findFirst({
+    where: { id: tenancyId, propertyId },
+    select: { userId: true },
+  });
+  if (tenancy === null) throw new AppError('NOT_FOUND', 'Resident not found.');
+
+  return applyRegistrationEdits(tenancy.userId, input);
+}
+
+/**
+ * Admin correction of an applicant's admission form — the same edit as
+ * `updateRegistration`, but reached by user id rather than a tenancy, since an
+ * applicant has none yet.
+ */
+export async function updateApplicantRegistration(
+  actor: Actor,
+  userId: string,
+  input: z.infer<typeof updateRegistrationSchema>,
+): Promise<ResidentDetailView['registration']> {
+  await getPropertyContext(actor, 'resident:write');
+
+  const applicant = await prisma.user.findFirst({
+    where: { id: userId, role: 'NON_RESIDENT', registrationCompletedAt: { not: null } },
+    select: { id: true },
+  });
+  if (applicant === null) throw new AppError('NOT_FOUND', 'Applicant not found.');
+
+  return applyRegistrationEdits(applicant.id, input);
 }
 
 /** Owner-facing lookup so an existing person is reused instead of duplicated. */
@@ -347,6 +457,13 @@ export async function findUserByEmail(
  * with (spec: mobile number + password). This is what finds someone who
  * registered themselves through the app, before they have ever been a
  * resident: their account exists, but has no email on file to search by.
+ *
+ * Reports the active tenancy's bed status too, not just whether one exists:
+ * an applicant just promoted to resident (spec §7's "assign a bed
+ * afterward from Rooms") already has an active tenancy with no bed, and that
+ * is exactly who a room's "add resident" search needs to be able to place —
+ * a plain boolean could not tell that case apart from someone genuinely
+ * already living elsewhere.
  */
 export async function findUserByPhone(
   actor: Actor,
@@ -356,7 +473,8 @@ export async function findUserByPhone(
   fullName: string;
   email: string | null;
   phone: string | null;
-  hasActiveTenancy: boolean;
+  activeTenancyId: string | null;
+  hasBed: boolean;
 } | null> {
   const { propertyId } = await getPropertyContext(actor, 'resident:read');
 
@@ -369,19 +487,23 @@ export async function findUserByPhone(
       phone: true,
       tenancies: {
         where: { propertyId, status: { in: ['ACTIVE', 'NOTICE_PERIOD'] } },
-        select: { id: true },
+        select: { id: true, allocations: { where: { endedAt: null }, select: { id: true } } },
+        take: 1,
       },
     },
   });
 
   if (user === null) return null;
 
+  const tenancy = user.tenancies[0];
+
   return {
     id: user.id,
     fullName: user.fullName,
     email: user.email,
     phone: user.phone,
-    hasActiveTenancy: user.tenancies.length > 0,
+    activeTenancyId: tenancy?.id ?? null,
+    hasBed: (tenancy?.allocations.length ?? 0) > 0,
   };
 }
 

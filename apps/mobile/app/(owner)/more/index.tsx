@@ -58,6 +58,13 @@ export default function OwnerMoreScreen() {
 
       <Card style={styles.group}>
         <NavRow
+          icon="people-outline"
+          title="Applicants"
+          subtitle="Signed up and filled the form, no room yet"
+          onPress={() => router.push('/(owner)/more/applicants')}
+        />
+        <Separator />
+        <NavRow
           icon="restaurant-outline"
           title="Mess menu"
           subtitle="The weekly menu and meal timings"

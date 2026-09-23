@@ -1,7 +1,5 @@
 import { Stack } from 'expo-router';
 
-import { useTheme } from '../../../src/theme';
-
 /**
  * A real stack for the Residents tab, not a flat Tabs screen.
  *
@@ -11,21 +9,13 @@ import { useTheme } from '../../../src/theme';
  * proper back arrow and back-button behaviour.
  */
 export default function ResidentsLayout() {
-  const theme = useTheme();
-
   return (
-    <Stack
-      screenOptions={{
-        headerStyle: { backgroundColor: theme.surface },
-        headerTintColor: theme.textPrimary,
-        headerTitleStyle: { fontWeight: '600' },
-      }}
-    >
-      {/* The list already has its own PageHeading; a second, native header
-          above it would be redundant. */}
-      <Stack.Screen name="index" options={{ headerShown: false }} />
-      <Stack.Screen name="add" options={{ title: 'Add resident' }} />
-      <Stack.Screen name="[id]" options={{ title: 'Resident' }} />
+    // Every screen below already has its own PageHeading; a native header
+    // above it too would be redundant, the same as everywhere else in the app.
+    <Stack screenOptions={{ headerShown: false }}>
+      <Stack.Screen name="index" />
+      <Stack.Screen name="add" />
+      <Stack.Screen name="[id]" />
     </Stack>
   );
 }

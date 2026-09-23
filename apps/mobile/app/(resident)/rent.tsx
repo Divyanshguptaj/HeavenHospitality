@@ -1,7 +1,7 @@
-import { INVOICE_STATUS_LABELS, PAYMENT_METHOD_LABELS } from '@heaven/contracts';
+import { INVOICE_CATEGORY_LABELS, INVOICE_STATUS_LABELS, PAYMENT_METHOD_LABELS } from '@heaven/contracts';
 import { formatINR } from '@heaven/money';
 import { useState } from 'react';
-import { Alert, Pressable, StyleSheet, Text, View } from 'react-native';
+import { Alert, Modal, Pressable, StyleSheet, Text, TouchableWithoutFeedback, View } from 'react-native';
 
 import {
   startPayment,
@@ -11,12 +11,15 @@ import {
   useResidentHome,
   useResidentInvoices,
   useResidentPayments,
+  type PaymentOrder,
 } from '../../src/api/resident';
+import { useAuthStore } from '../../src/auth/authStore';
 import {
   Badge,
   Button,
   Card,
   CardTitle,
+  CheckboxRow,
   DetailRow,
   Divider,
   EmptyState,
@@ -44,8 +47,67 @@ function statusTone(status: string): 'success' | 'warning' | 'danger' | 'neutral
  * The bill is shown as line items rather than one number — a resident should be
  * able to see exactly what the rent, electricity and any late fee are.
  */
+/**
+ * Opens Razorpay Checkout, dynamically. This native module only exists in a
+ * dev client rebuilt after it was added, and importing it eagerly would crash
+ * the whole rent screen for anyone on an older build — the same reasoning as
+ * the Aadhaar photo picker's own guarded import (see documentPhotoPicker.ts).
+ * Metro "guards" a module whose top-level code throws, so a missing native
+ * module shows up as an import with no usable `default`, not a catchable
+ * exception.
+ */
+async function openRazorpayCheckout(
+  order: PaymentOrder,
+  invoiceNumber: string,
+  prefill: { name: string; email: string | null; contact: string | null },
+): Promise<{ orderId: string; providerPaymentId: string; signature: string } | null> {
+  let RazorpayCheckout: (typeof import('react-native-razorpay'))['default'];
+  try {
+    const module = await import('react-native-razorpay');
+    if (typeof module.default?.open !== 'function') throw new Error('native module missing');
+    RazorpayCheckout = module.default;
+  } catch {
+    Alert.alert(
+      'Update needed',
+      'Online payment needs a newer version of the app. Ask the developer to rebuild it.',
+    );
+    return null;
+  }
+
+  try {
+    const result = await RazorpayCheckout.open({
+      key: order.keyId as string,
+      amount: order.amountPaise,
+      currency: order.currency,
+      order_id: order.orderId,
+      name: 'The Heaven Hospitality',
+      description: invoiceNumber,
+      prefill: {
+        name: prefill.name,
+        ...(prefill.email === null ? {} : { email: prefill.email }),
+        ...(prefill.contact === null ? {} : { contact: prefill.contact }),
+      },
+    });
+    return {
+      orderId: result.razorpay_order_id,
+      providerPaymentId: result.razorpay_payment_id,
+      signature: result.razorpay_signature,
+    };
+  } catch (error) {
+    // A cancelled checkout arrives here too, not just a real failure — Razorpay
+    // reports both the same way, so this is never treated as an error toast.
+    const description =
+      error !== null && typeof error === 'object' && 'description' in error
+        ? String((error as { description?: unknown }).description)
+        : null;
+    if (description !== null) Alert.alert('Payment not completed', description);
+    return null;
+  }
+}
+
 export default function RentScreen() {
   const theme = useTheme();
+  const user = useAuthStore((state) => state.user);
   const [tab, setTab] = useState<Tab>('bill');
 
   const home = useResidentHome();
@@ -56,6 +118,8 @@ export default function RentScreen() {
   const confirmPayment = useConfirmPayment();
 
   const [paying, setPaying] = useState(false);
+  const [payModalVisible, setPayModalVisible] = useState(false);
+  const [selectedInvoiceIds, setSelectedInvoiceIds] = useState<Set<string>>(new Set());
 
   if (home.isPending) {
     return (
@@ -82,47 +146,63 @@ export default function RentScreen() {
   const invoice = home.data.currentInvoice;
 
   /**
-   * The mock payment flow.
-   *
-   * Mirrors a real gateway exactly: the server creates the order and decides the
-   * amount, the client "pays", and the server verifies a signed token before
-   * recording anything. Swapping in Razorpay replaces the middle step only.
+   * The server creates the order and decides the amount; the client only ever
+   * hands back what the checkout (real or mock) produced, and the server
+   * verifies that before recording anything. See docs/0007-payments.md.
    */
-  async function pay(): Promise<void> {
-    if (invoice === null) return;
+  async function pay(invoiceIds: string[]): Promise<void> {
     setPaying(true);
+
+    async function settle(confirmation: { orderId: string; providerPaymentId: string; signature: string }) {
+      try {
+        const result = await confirmPayment.mutateAsync({ invoiceIds, ...confirmation });
+        Alert.alert(
+          'Payment received',
+          `Receipts ${result.receiptNumbers.join(', ')} have been issued.`,
+        );
+      } catch (error) {
+        Alert.alert(
+          'Payment failed',
+          error instanceof ApiRequestError ? error.message : 'Nothing has been charged. Please try again.',
+        );
+      }
+    }
+
     try {
-      const order = await startPayment(invoice.id);
+      const order = await startPayment(invoiceIds);
+
+      if (order.keyId !== null) {
+        // Use the first invoice's number for the Razorpay description when
+        // multiple invoices are selected; the receipt will list all of them.
+        const firstInvoice = (invoices.data ?? []).find((inv) => invoiceIds[0] === inv.id);
+        const description = firstInvoice?.number ?? invoiceIds[0] ?? '';
+        const confirmation = await openRazorpayCheckout(order, description, {
+          name: user?.fullName ?? '',
+          email: user?.email ?? null,
+          contact: user?.phone ?? null,
+        });
+        if (confirmation !== null) await settle(confirmation);
+        setPaying(false);
+        return;
+      }
+
+      // The mock provider: no real checkout exists, so this stands in for one.
+      const mock = order.mock;
+      if (mock === null) {
+        setPaying(false);
+        Alert.alert('Could not start payment', 'Please try again.');
+        return;
+      }
 
       Alert.alert(
         'Confirm payment',
-        `Pay ${formatINR(order.amountPaise, { withPaise: false })} for ${invoice.number}?\n\nThis is a test payment — no real money moves.`,
+        `Pay ${formatINR(order.amountPaise, { withPaise: false })} for ${invoiceIds.length} invoice${invoiceIds.length === 1 ? '' : 's'}?\n\nThis is a test payment — no real money moves.`,
         [
           { text: 'Cancel', style: 'cancel', onPress: () => setPaying(false) },
           {
             text: 'Pay now',
             onPress: () => {
-              confirmPayment
-                .mutateAsync({
-                  invoiceId: invoice.id,
-                  orderId: order.orderId,
-                  mockToken: order.token,
-                })
-                .then((result) => {
-                  Alert.alert(
-                    'Payment received',
-                    `Receipt ${result.receiptNumber} has been issued.`,
-                  );
-                })
-                .catch((error: unknown) => {
-                  Alert.alert(
-                    'Payment failed',
-                    error instanceof ApiRequestError
-                      ? error.message
-                      : 'Nothing has been charged. Please try again.',
-                  );
-                })
-                .finally(() => setPaying(false));
+              void settle({ orderId: order.orderId, ...mock }).finally(() => setPaying(false));
             },
           },
         ],
@@ -233,11 +313,132 @@ export default function RentScreen() {
 
               {invoice.outstandingPaise > 0 && (
                 <Button
-                  label={paying || confirmPayment.isPending ? 'Processing…' : 'Pay now (test)'}
-                  onPress={() => void pay()}
+                  label={paying || confirmPayment.isPending ? 'Processing…' : 'Pay now'}
+                  onPress={() => {
+                    // Pre-select the current invoice when the sheet opens
+                    setSelectedInvoiceIds(new Set([invoice.id]));
+                    setPayModalVisible(true);
+                  }}
                 />
               )}
             </Card>
+
+            {/* Payment selection bottom sheet modal */}
+            <Modal
+              visible={payModalVisible}
+              transparent
+              animationType="slide"
+              onRequestClose={() => setPayModalVisible(false)}
+            >
+              <View style={styles.payModal}>
+                <TouchableWithoutFeedback onPress={() => setPayModalVisible(false)}>
+                  <View style={styles.payBackdrop} />
+                </TouchableWithoutFeedback>
+
+                <View style={[styles.paySheet, { backgroundColor: theme.surface }]}>
+                <Text style={[styles.paySheetTitle, { color: theme.textPrimary }]}>
+                  Select what to pay
+                </Text>
+
+                {/* List of all outstanding invoices across all periods */}
+                {(invoices.data ?? [])
+                  .filter((inv) => inv.outstandingPaise > 0)
+                  .map((inv) => {
+                    const checked = selectedInvoiceIds.has(inv.id);
+                    return (
+                      <View key={inv.id} style={styles.payInvoiceRow}>
+                        <CheckboxRow
+                          label=""
+                          checked={checked}
+                          onToggle={() => {
+                            setSelectedInvoiceIds((prev) => {
+                              const next = new Set(prev);
+                              if (next.has(inv.id)) {
+                                next.delete(inv.id);
+                              } else {
+                                next.add(inv.id);
+                              }
+                              return next;
+                            });
+                          }}
+                        />
+                        <Pressable
+                          style={styles.payInvoiceInfo}
+                          onPress={() => {
+                            setSelectedInvoiceIds((prev) => {
+                              const next = new Set(prev);
+                              if (next.has(inv.id)) {
+                                next.delete(inv.id);
+                              } else {
+                                next.add(inv.id);
+                              }
+                              return next;
+                            });
+                          }}
+                          accessibilityRole="checkbox"
+                          accessibilityState={{ checked }}
+                          accessibilityLabel={`${INVOICE_CATEGORY_LABELS[inv.category]} ${inv.periodKey}`}
+                        >
+                          <Text style={[styles.payInvoiceLabel, { color: theme.textPrimary }]}>
+                            {INVOICE_CATEGORY_LABELS[inv.category]}
+                          </Text>
+                          <Muted>{inv.periodKey}</Muted>
+                        </Pressable>
+                        <Text style={[styles.payInvoiceAmount, { color: theme.textPrimary }]}>
+                          {formatINR(inv.outstandingPaise, { withPaise: false })}
+                        </Text>
+                      </View>
+                    );
+                  })}
+
+                <Divider />
+
+                {/* Live total of selected invoices */}
+                {(() => {
+                  const selectedTotal = (invoices.data ?? [])
+                    .filter((inv) => selectedInvoiceIds.has(inv.id))
+                    .reduce((sum, inv) => sum + inv.outstandingPaise, 0);
+                  const selectedIds = Array.from(selectedInvoiceIds);
+                  return (
+                    <>
+                      <View style={styles.payTotal}>
+                        <Text style={[styles.payTotalLabel, { color: theme.textPrimary }]}>
+                          Total
+                        </Text>
+                        <Text style={[styles.payTotalAmount, { color: theme.textPrimary }]}>
+                          {formatINR(selectedTotal, { withPaise: false })}
+                        </Text>
+                      </View>
+
+                      <Button
+                        label={
+                          paying || confirmPayment.isPending
+                            ? 'Processing…'
+                            : selectedIds.length === 0
+                              ? 'Select invoices to pay'
+                              : `Pay ${formatINR(selectedTotal, { withPaise: false })}`
+                        }
+                        onPress={() => {
+                          if (selectedIds.length === 0) return;
+                          setPayModalVisible(false);
+                          void pay(selectedIds);
+                        }}
+                      />
+                    </>
+                  );
+                })()}
+
+                <Pressable
+                  style={styles.payCancel}
+                  onPress={() => setPayModalVisible(false)}
+                  accessibilityRole="button"
+                  accessibilityLabel="Cancel"
+                >
+                  <Text style={[styles.payCancelText, { color: theme.textSecondary }]}>Cancel</Text>
+                </Pressable>
+                </View>
+              </View>
+            </Modal>
 
             <Card>
               <CardTitle>Or pay directly</CardTitle>
@@ -408,4 +609,24 @@ const styles = StyleSheet.create({
   historyTitle: { fontSize: layout.fontSize.md, fontWeight: '600' },
   receipt: { fontSize: layout.fontSize.sm, fontVariant: ['tabular-nums'] },
   electricity: { gap: layout.spacing[1], paddingVertical: layout.spacing[2] },
+  // --- Payment selection modal ---
+  payModal: { flex: 1, justifyContent: 'flex-end' },
+  payBackdrop: { ...StyleSheet.absoluteFillObject, backgroundColor: 'rgba(0,0,0,0.45)' },
+  paySheet: {
+    borderTopLeftRadius: 20,
+    borderTopRightRadius: 20,
+    padding: 24,
+    gap: 16,
+  },
+  paySheetTitle: { fontSize: 18, fontWeight: '700' },
+  payInvoiceRow: { flexDirection: 'row', alignItems: 'center', gap: 12 },
+  payInvoiceInfo: { flex: 1 },
+  payInvoiceLabel: { fontSize: 15, fontWeight: '600' },
+  payInvoiceSub: { fontSize: 13 },
+  payInvoiceAmount: { fontSize: 15, fontVariant: ['tabular-nums'] },
+  payTotal: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
+  payTotalLabel: { fontSize: 16, fontWeight: '700' },
+  payTotalAmount: { fontSize: 18, fontWeight: '700', fontVariant: ['tabular-nums'] },
+  payCancel: { alignItems: 'center', paddingVertical: 8 },
+  payCancelText: { fontSize: 15, fontWeight: '600' },
 });

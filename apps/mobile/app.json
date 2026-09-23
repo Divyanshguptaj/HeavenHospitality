@@ -1,6 +1,6 @@
 {
   "expo": {
-    "name": "Heaven Hospitality",
+    "name": "The Heaven Hospitality",
     "slug": "heaven-hospitality",
     "version": "0.1.0",
     "orientation": "portrait",
@@ -15,7 +15,20 @@
     },
     "ios": {
       "supportsTablet": false,
-      "bundleIdentifier": "in.heavenhospitality.app"
+      "bundleIdentifier": "in.heavenhospitality.app",
+      "infoPlist": {
+        "LSApplicationQueriesSchemes": [
+          "tez",
+          "gpay",
+          "phonepe",
+          "paytmmp",
+          "credpay",
+          "mobikwik",
+          "in.fampay.app",
+          "myjio",
+          "upi"
+        ]
+      }
     },
     "android": {
       "package": "in.heavenhospitality.app",
@@ -28,13 +41,14 @@
     "plugins": [
       "expo-router",
       "expo-secure-store",
-      "expo-dev-client"
+      "expo-dev-client",
+      "./plugins/withExternalAppQueries.js"
     ],
     "experiments": {
       "typedRoutes": true
     },
     "extra": {
-      "apiBaseUrl": "https://2311-2409-40c1-641b-dc7a-cdbf-974c-9b82-c06e.ngrok-free.app/api/v1",
+      "apiBaseUrl": "http://localhost:4000/api/v1",
       "propertySlug": "heaven-hospitality-kothrud",
       "router": {},
       "eas": {

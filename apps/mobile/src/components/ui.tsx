@@ -14,6 +14,7 @@ import {
   type StyleProp,
   type ViewStyle,
 } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { layout, useTheme } from '../theme';
 
@@ -44,6 +45,9 @@ interface ScreenProps {
 
 export function Screen({ children, onRefresh, refreshing = false, center = false }: ScreenProps) {
   const theme = useTheme();
+  // No screen has a native header any more, so nothing else reserves this
+  // space — every screen has to account for the status bar/notch itself.
+  const insets = useSafeAreaInsets();
 
   return (
     <KeyboardAvoidingView
@@ -52,7 +56,11 @@ export function Screen({ children, onRefresh, refreshing = false, center = false
     >
       <ScrollView
         style={{ backgroundColor: theme.canvas }}
-        contentContainerStyle={[styles.screenContent, center && styles.screenContentCentered]}
+        contentContainerStyle={[
+          styles.screenContent,
+          { paddingTop: insets.top + layout.spacing[5] },
+          center && styles.screenContentCentered,
+        ]}
         // Content can exceed the viewport on small phones; never clip it.
         keyboardShouldPersistTaps="handled"
         refreshControl={

@@ -1,4 +1,3 @@
-import { MEAL_LABELS } from '@heaven/contracts';
 import { formatINR } from '@heaven/money';
 import { router } from 'expo-router';
 import { StyleSheet, Text, View } from 'react-native';
@@ -24,9 +23,8 @@ import { layout, useTheme } from '../../src/theme';
 /**
  * The owner's overview.
  *
- * Ordered by what needs a decision today: money owed, then how many meals to
- * cook, then occupancy, then what is broken. Every figure is computed by the
- * server from live data.
+ * Ordered by what needs a decision today: money owed, then occupancy, then
+ * what is broken. Every figure is computed by the server from live data.
  */
 export default function OwnerOverviewScreen() {
   const theme = useTheme();
@@ -55,7 +53,7 @@ export default function OwnerOverviewScreen() {
     );
   }
 
-  const { occupancy, money, meals } = data;
+  const { occupancy, money } = data;
   const collected =
     money.expectedPaise === 0 ? 0 : Math.round((money.collectedPaise / money.expectedPaise) * 100);
 
@@ -96,23 +94,6 @@ export default function OwnerOverviewScreen() {
         <Muted>{collected}% of this month&apos;s billing has been collected.</Muted>
 
         <Button label="Collect a payment" onPress={() => router.push('/(owner)/collect')} />
-      </Card>
-
-      <Card>
-        <CardTitle>Meals to cook today</CardTitle>
-        <View style={styles.moneyRow}>
-          {meals.counts.map((count) => (
-            <Metric
-              key={count.mealType}
-              label={MEAL_LABELS[count.mealType]}
-              value={String(count.expected)}
-              color={theme.textPrimary}
-            />
-          ))}
-        </View>
-        <Muted>
-          From {meals.totalActiveResidents} residents, minus those who said they will be away.
-        </Muted>
       </Card>
 
       <Card>

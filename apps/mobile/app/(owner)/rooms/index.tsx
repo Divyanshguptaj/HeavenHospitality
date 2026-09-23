@@ -5,6 +5,7 @@ import { Alert, Pressable, StyleSheet, Text, TextInput, View } from 'react-nativ
 
 import { useCreateFloor, useCreateRoom, useOwnerOccupancy } from '../../../src/api/owner';
 import {
+  Accordion,
   Badge,
   Button,
   Card,
@@ -136,9 +137,11 @@ export default function OwnerRoomsScreen() {
         </Card>
       ) : (
         floors.map((floor) => (
-          <Card key={floor.id}>
-            <CardTitle>{floor.name}</CardTitle>
-
+          <Accordion
+            key={floor.id}
+            title={floor.name}
+            subtitle={`${floor.rooms.length} room${floor.rooms.length === 1 ? '' : 's'}`}
+          >
             {floor.rooms.length === 0 ? (
               <Muted>No rooms on this floor.</Muted>
             ) : (
@@ -151,37 +154,38 @@ export default function OwnerRoomsScreen() {
                   <Pressable
                     accessibilityRole="button"
                     accessibilityLabel={`Manage room ${room.number}`}
-                    style={[styles.room, { borderColor: theme.border }]}
                   >
-                    <View style={styles.roomHeader}>
-                      <Text style={[styles.roomNumber, { color: theme.primary }]}>
-                        Room {room.number}
-                      </Text>
-                      <Text style={[styles.roomMeta, { color: theme.textMuted }]}>
-                        {room.roomType} · {room.isAirConditioned ? 'AC' : 'Non-AC'} ·{' '}
-                        {formatINR(room.monthlyRentPaise, { withPaise: false })}
-                      </Text>
-                    </View>
-
-                    {room.beds.map((bed) => (
-                      <View key={bed.id} style={styles.bedRow}>
-                        <Text style={[styles.bedLabel, { color: theme.textSecondary }]}>
-                          Bed {bed.label}
+                    <Card>
+                      <View style={styles.roomHeader}>
+                        <Text style={[styles.roomNumber, { color: theme.primary }]}>
+                          Room {room.number}
                         </Text>
-                        {bed.occupant === null ? (
-                          <Badge label={bed.status} tone={bedTone(bed.status)} />
-                        ) : (
-                          <Text style={[styles.occupant, { color: theme.textPrimary }]}>
-                            {bed.occupant.residentName}
-                          </Text>
-                        )}
+                        <Text style={[styles.roomMeta, { color: theme.textMuted }]}>
+                          {room.roomType} · {room.isAirConditioned ? 'AC' : 'Non-AC'} ·{' '}
+                          {formatINR(room.monthlyRentPaise, { withPaise: false })}
+                        </Text>
                       </View>
-                    ))}
+
+                      {room.beds.map((bed) => (
+                        <View key={bed.id} style={styles.bedRow}>
+                          <Text style={[styles.bedLabel, { color: theme.textSecondary }]}>
+                            Bed {bed.label}
+                          </Text>
+                          {bed.occupant === null ? (
+                            <Badge label={bed.status} tone={bedTone(bed.status)} />
+                          ) : (
+                            <Text style={[styles.occupant, { color: theme.textPrimary }]}>
+                              {bed.occupant.residentName}
+                            </Text>
+                          )}
+                        </View>
+                      ))}
+                    </Card>
                   </Pressable>
                 </Link>
               ))
             )}
-          </Card>
+          </Accordion>
         ))
       )}
     </Screen>
@@ -430,12 +434,6 @@ const styles = StyleSheet.create({
     paddingVertical: layout.spacing[2],
     minHeight: layout.minTouchTarget,
     justifyContent: 'center',
-  },
-  room: {
-    borderWidth: 1,
-    borderRadius: layout.radius.lg,
-    padding: layout.spacing[4],
-    gap: layout.spacing[2],
   },
   roomHeader: { gap: layout.spacing[1] },
   roomNumber: { fontSize: layout.fontSize.md, fontWeight: '600' },

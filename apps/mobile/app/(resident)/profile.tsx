@@ -144,6 +144,9 @@ function RegistrationCard() {
       <DetailRow label="Parent's occupation" value={data.parentOccupation ?? '—'} />
       <DetailRow label="Vehicle number" value={data.vehicleNumber ?? '—'} />
       <DetailRow label="Document submitted" value={documentLabel} />
+      {data.photoUrl !== null && (
+        <Image source={{ uri: data.photoUrl }} style={styles.profilePhoto} resizeMode="cover" />
+      )}
       {data.documentImageUrl !== null && (
         <Image source={{ uri: data.documentImageUrl }} style={styles.documentImage} resizeMode="cover" />
       )}
@@ -154,4 +157,5 @@ function RegistrationCard() {
 
 const styles = StyleSheet.create({
   documentImage: { width: '100%', height: 200, borderRadius: layout.radius.lg },
+  profilePhoto: { width: 96, height: 96, borderRadius: layout.radius.full },
 });

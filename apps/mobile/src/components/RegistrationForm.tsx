@@ -1,12 +1,5 @@
-import {
-  REGISTRATION_DOCUMENT_TYPES,
-  REGISTRATION_DOCUMENT_TYPE_LABELS,
-  type RegistrationDetailsView,
-  type RegistrationDocumentType,
-} from '@heaven/contracts';
-import { Pressable, StyleSheet, Text, View } from 'react-native';
+import type { RegistrationDetailsView, RegistrationDocumentType } from '@heaven/contracts';
 
-import { layout, useTheme } from '../theme';
 import { DateField } from './DateField';
 import { FormField } from './ui';
 
@@ -44,7 +37,8 @@ export const EMPTY_REGISTRATION_FORM: RegistrationFormValues = {
   bloodGroup: '',
   parentOccupation: '',
   vehicleNumber: '',
-  documentType: null,
+  // Always Aadhaar now — there is no longer a choice to make here.
+  documentType: 'AADHAAR_CARD',
   documentOtherDescription: '',
 };
 
@@ -74,11 +68,11 @@ export function registrationToFormValues(details: RegistrationDetailsView): Regi
 
 /**
  * The fields from the property's paper "Student Registration Form" — father's
- * and mother's names, ID and college details, permanent address, and which
- * document this submission stands in for. No submit button and no terms
- * checkbox here: those differ between a resident filling this in for the
- * first time and an admin correcting it afterward, so the two screens that
- * use this add their own.
+ * and mother's names, ID and college details, and permanent address. No
+ * submit button and no terms checkbox here: those differ between a resident
+ * filling this in for the first time and an admin correcting it afterward,
+ * so the two screens that use this add their own — the same is true of the
+ * Aadhaar photo itself, which each of those screens attaches on its own.
  */
 export function RegistrationFields({
   values,
@@ -140,74 +134,6 @@ export function RegistrationFields({
         placeholder="Optional"
         autoCapitalize="characters"
       />
-
-      <DocumentTypeField
-        value={values.documentType}
-        onSelect={(documentType) => onChange({ documentType })}
-      />
-      {values.documentType === 'OTHER' && (
-        <FormField
-          label="Describe the document"
-          value={values.documentOtherDescription}
-          onChangeText={(v) => onChange({ documentOtherDescription: v })}
-          placeholder="e.g. Voter ID"
-        />
-      )}
     </>
   );
 }
-
-/** Which single document this submission is standing in for — a choice, not a checklist. */
-function DocumentTypeField({
-  value,
-  onSelect,
-}: {
-  readonly value: RegistrationDocumentType | null;
-  readonly onSelect: (type: RegistrationDocumentType) => void;
-}) {
-  const theme = useTheme();
-  return (
-    <View style={styles.field}>
-      <Text style={[styles.fieldLabel, { color: theme.textSecondary }]}>Which document are you submitting?</Text>
-      <View style={styles.pillRow}>
-        {REGISTRATION_DOCUMENT_TYPES.map((type) => {
-          const selected = value === type;
-          return (
-            <Pressable
-              key={type}
-              onPress={() => onSelect(type)}
-              accessibilityRole="radio"
-              accessibilityState={{ selected }}
-              style={[
-                styles.pill,
-                {
-                  backgroundColor: selected ? theme.primary : theme.surfaceSubtle,
-                  borderColor: selected ? theme.primary : theme.border,
-                },
-              ]}
-            >
-              <Text style={[styles.pillLabel, { color: selected ? theme.textInverse : theme.textSecondary }]}>
-                {REGISTRATION_DOCUMENT_TYPE_LABELS[type]}
-              </Text>
-            </Pressable>
-          );
-        })}
-      </View>
-    </View>
-  );
-}
-
-const styles = StyleSheet.create({
-  field: { gap: layout.spacing[2] },
-  fieldLabel: { fontSize: layout.fontSize.sm, fontWeight: '600' },
-  pillRow: { flexDirection: 'row', flexWrap: 'wrap', gap: layout.spacing[2] },
-  pill: {
-    borderWidth: 1,
-    borderRadius: layout.radius.full,
-    paddingHorizontal: layout.spacing[4],
-    paddingVertical: layout.spacing[2],
-    minHeight: layout.minTouchTarget,
-    justifyContent: 'center',
-  },
-  pillLabel: { fontSize: layout.fontSize.sm, fontWeight: '600' },
-});

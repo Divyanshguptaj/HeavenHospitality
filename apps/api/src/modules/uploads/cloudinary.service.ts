@@ -41,3 +41,51 @@ export function createUploadSignature(): CloudinarySignature {
     folder,
   };
 }
+
+/** The id Cloudinary destroys by — everything after `/upload/[v<version>/]`, minus the extension. */
+function publicIdFromUrl(url: string): string | null {
+  const match = /\/upload\/(?:v\d+\/)?(.+)\.[a-zA-Z0-9]+(?:\?.*)?$/.exec(url);
+  return match?.[1] ?? null;
+}
+
+/**
+ * Deletes a previously uploaded document photo, once nothing points at it any
+ * more — a registration edit that replaces the Aadhaar photo would otherwise
+ * leave the old one on Cloudinary forever, never reachable from the app again
+ * but still billed and stored.
+ *
+ * Best-effort: this runs after the database already holds the new photo, so a
+ * failure here must never surface as a failure to save the edit itself.
+ */
+export async function deleteCloudinaryAsset(url: string): Promise<void> {
+  if (!features.cloudinary) return;
+
+  const publicId = publicIdFromUrl(url);
+  if (publicId === null) {
+    console.warn('[cloudinary] could not parse a public id to delete from', url);
+    return;
+  }
+
+  const timestamp = Math.floor(Date.now() / 1000);
+  const toSign = `public_id=${publicId}&timestamp=${String(timestamp)}${env.CLOUDINARY_API_SECRET as string}`;
+  const signature = createHash('sha1').update(toSign).digest('hex');
+
+  const body = new URLSearchParams({
+    public_id: publicId,
+    api_key: env.CLOUDINARY_API_KEY as string,
+    timestamp: String(timestamp),
+    signature,
+  });
+
+  try {
+    const response = await fetch(
+      `https://api.cloudinary.com/v1_1/${env.CLOUDINARY_CLOUD_NAME as string}/image/destroy`,
+      { method: 'POST', body },
+    );
+    if (!response.ok) {
+      console.error('[cloudinary] failed to delete old asset', publicId, response.status, await response.text());
+    }
+  } catch (cause) {
+    console.error('[cloudinary] delete request for old asset failed', publicId, cause);
+  }
+}

@@ -180,8 +180,12 @@ export const useSubmitRegistration = () =>
 export interface PaymentOrder {
   readonly orderId: string;
   readonly amountPaise: number;
-  readonly token: string;
+  readonly currency: string;
   readonly provider: string;
+  /** Razorpay's public key id, needed client-side to open Checkout. Null when the mock provider is active. */
+  readonly keyId: string | null;
+  /** Set only by the mock provider — a stand-in for what a real Checkout hands back on success. */
+  readonly mock: { readonly providerPaymentId: string; readonly signature: string } | null;
 }
 
 /**
@@ -190,17 +194,17 @@ export interface PaymentOrder {
  * The amount comes back from the SERVER, computed from the invoice — the app
  * never says what is owed. See docs/0007-payments.md.
  */
-export async function startPayment(invoiceId: string): Promise<PaymentOrder> {
+export async function startPayment(invoiceIds: string[]): Promise<PaymentOrder> {
   return apiRequest<PaymentOrder>(`${ME}/payments/start`, {
     method: 'POST',
-    body: { invoiceId },
+    body: { invoiceIds },
   });
 }
 
 export const useConfirmPayment = () =>
   useResidentMutation(
-    (input: { invoiceId: string; orderId: string; mockToken: string }) =>
-      apiRequest<{ receiptNumber: string }>(`${ME}/payments/confirm`, {
+    (input: { invoiceIds: string[]; orderId: string; providerPaymentId: string; signature: string }) =>
+      apiRequest<{ receiptNumbers: string[] }>(`${ME}/payments/confirm`, {
         method: 'POST',
         body: input,
       }),

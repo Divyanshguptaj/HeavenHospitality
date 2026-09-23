@@ -1,7 +1,7 @@
 import type { Role } from '@heaven/contracts';
 import { create } from 'zustand';
 
-import { apiRequest, setAccessToken } from '../lib/apiClient';
+import { apiRequest, setAccessToken, ApiRequestError } from '../lib/apiClient';
 import { clearRefreshToken, readRefreshToken, saveRefreshToken } from '../lib/secureTokenStore';
 
 export interface AuthenticatedUser {
@@ -66,6 +66,11 @@ async function applySession(session: SessionResponse): Promise<AuthenticatedUser
   return session.user;
 }
 
+/** True only when the server itself refused the token — never for a network-level failure. */
+function isServerRejection(error: unknown): boolean {
+  return error instanceof ApiRequestError && error.status >= 400 && error.status < 500;
+}
+
 export const useAuthStore = create<AuthState>((set, get) => ({
   status: 'restoring',
   user: null,
@@ -90,20 +95,49 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       return;
     }
 
-    try {
-      const session = await apiRequest<SessionResponse>('/auth/refresh', {
+    const exchange = (): Promise<SessionResponse> =>
+      apiRequest<SessionResponse>('/auth/refresh', {
         method: 'POST',
         body: { refreshToken, client: 'mobile' },
       });
-      set({ status: 'signedIn', user: await applySession(session) });
-    } catch (error) {
-      // Expired, revoked, or reuse-detected. Discard it so the next boot is fast.
-      console.warn('[auth] session restore failed, signing out', error);
-      await clearRefreshToken().catch((clearError: unknown) => {
-        console.error('[auth] could not clear the stored refresh token', clearError);
-      });
-      setAccessToken(null);
-      set({ status: 'signedOut', user: null });
+
+    try {
+      set({ status: 'signedIn', user: await applySession(await exchange()) });
+      return;
+    } catch (firstError) {
+      // The server actually rejected this token — expired, revoked, or reuse
+      // detected — never coming back, so there is no reason to keep it, and
+      // no reason to retry.
+      if (isServerRejection(firstError)) {
+        console.warn('[auth] session rejected by the server, signing out', firstError);
+        await clearRefreshToken().catch((clearError: unknown) => {
+          console.error('[auth] could not clear the stored refresh token', clearError);
+        });
+        setAccessToken(null);
+        set({ status: 'signedOut', user: null });
+        return;
+      }
+
+      // Anything else (no connection, the API unreachable, a 5xx) says
+      // nothing about whether the token is still good — the phone might just
+      // have no signal for a moment, or the dev server might be mid-restart.
+      // One short retry recovers most of those without ever dropping to the
+      // guest screen; only a second failure gives up for this launch.
+      await new Promise((resolve) => setTimeout(resolve, 1500));
+      try {
+        set({ status: 'signedIn', user: await applySession(await exchange()) });
+        return;
+      } catch (secondError) {
+        // Still not a rejection, so — unlike above — the token is kept:
+        // discarding a perfectly valid session because the network is down
+        // would silently drop the account back to guest and, worse, skip
+        // straight past the admission-form gate, since a guest is never
+        // asked for one. This launch still can't establish a session, but
+        // the next attempt gets a real chance to.
+        console.warn('[auth] session restore failed twice, signing out for this launch', secondError);
+        setAccessToken(null);
+        set({ status: 'signedOut', user: null });
+      }
     }
   },
 

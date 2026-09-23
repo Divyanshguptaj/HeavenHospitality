@@ -6,7 +6,9 @@ import { INTRO_COLORS } from './colors';
 import { DoorwayReveal } from './DoorwayReveal';
 import { RiveIntroScene } from './RiveIntroScene';
 
-const SAFETY_TIMEOUT_MS = 4000;
+// Comfortably longer than the doorway animation (~1.8s) plus its 3s hold on
+// the wordmark, so this never preempts a normal run — only a genuinely stuck one.
+const SAFETY_TIMEOUT_MS = 6000;
 
 /** The app's opening identity, shown once per cold start over whatever the navigator renders underneath. */
 export function AppIntro({

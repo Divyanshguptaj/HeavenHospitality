@@ -34,20 +34,47 @@ export default function OwnerResidentsScreen() {
   const { filter: initialFilter } = useLocalSearchParams<{ filter?: string }>();
   const [search, setSearch] = useState('');
   const [owingOnly, setOwingOnly] = useState(initialFilter === 'owing');
+  const [floorFilter, setFloorFilter] = useState<string | null>(null);
+  const [roomFilter, setRoomFilter] = useState<string | null>(null);
   const [visibleCount, setVisibleCount] = useState(PAGE_SIZE);
   const residents = useOwnerResidents(search === '' ? undefined : search);
 
   const allRows = residents.data ?? [];
   const owing = allRows.filter((resident) => resident.outstandingPaise > 0).length;
   const totalOwed = allRows.reduce((sum, resident) => sum + resident.outstandingPaise, 0);
-  const rows = owingOnly ? allRows.filter((resident) => resident.outstandingPaise > 0) : allRows;
+
+  // Room options narrow to whichever floor is picked, so choosing a floor
+  // never leaves a stale room selected that no longer belongs to it.
+  const floorOptions = Array.from(
+    new Set(allRows.flatMap((resident) => (resident.bed === null ? [] : [resident.bed.floorName]))),
+  ).sort();
+  const roomOptions = Array.from(
+    new Set(
+      allRows.flatMap((resident) =>
+        resident.bed === null || (floorFilter !== null && resident.bed.floorName !== floorFilter)
+          ? []
+          : [resident.bed.roomNumber],
+      ),
+    ),
+  ).sort();
+
+  const rows = allRows
+    .filter((resident) => !owingOnly || resident.outstandingPaise > 0)
+    .filter((resident) => floorFilter === null || resident.bed?.floorName === floorFilter)
+    .filter((resident) => roomFilter === null || resident.bed?.roomNumber === roomFilter);
   const visibleRows = rows.slice(0, visibleCount);
 
   // A narrower search or filter should show its own first page, not whatever
   // page the previous, larger list happened to be scrolled to.
   useEffect(() => {
     setVisibleCount(PAGE_SIZE);
-  }, [search, owingOnly]);
+  }, [search, owingOnly, floorFilter, roomFilter]);
+
+  function chooseFloor(floor: string | null): void {
+    setFloorFilter(floor);
+    // The previously chosen room may not exist on the new floor.
+    setRoomFilter(null);
+  }
 
   return (
     <FlatList
@@ -119,6 +146,76 @@ export default function OwnerResidentsScreen() {
                 );
               })}
             </View>
+
+            {floorOptions.length > 0 && (
+              <View style={styles.field}>
+                <Text style={[styles.filterLabel, { color: theme.textSecondary }]}>Floor</Text>
+                <View style={styles.filters}>
+                  {[{ key: null, label: 'All floors' }, ...floorOptions.map((floor) => ({ key: floor, label: floor }))].map(
+                    (option) => {
+                      const active = floorFilter === option.key;
+                      return (
+                        <Pressable
+                          key={option.label}
+                          onPress={() => chooseFloor(option.key)}
+                          accessibilityRole="radio"
+                          accessibilityState={{ selected: active }}
+                          style={[
+                            styles.filter,
+                            { backgroundColor: active ? theme.primary : theme.surfaceSubtle },
+                          ]}
+                        >
+                          <Text
+                            style={{
+                              color: active ? theme.textInverse : theme.textSecondary,
+                              fontSize: layout.fontSize.sm,
+                              fontWeight: '600',
+                            }}
+                          >
+                            {option.label}
+                          </Text>
+                        </Pressable>
+                      );
+                    },
+                  )}
+                </View>
+              </View>
+            )}
+
+            {roomOptions.length > 0 && (
+              <View style={styles.field}>
+                <Text style={[styles.filterLabel, { color: theme.textSecondary }]}>Room</Text>
+                <View style={styles.filters}>
+                  {[{ key: null, label: 'All rooms' }, ...roomOptions.map((room) => ({ key: room, label: room }))].map(
+                    (option) => {
+                      const active = roomFilter === option.key;
+                      return (
+                        <Pressable
+                          key={option.label}
+                          onPress={() => setRoomFilter(option.key)}
+                          accessibilityRole="radio"
+                          accessibilityState={{ selected: active }}
+                          style={[
+                            styles.filter,
+                            { backgroundColor: active ? theme.primary : theme.surfaceSubtle },
+                          ]}
+                        >
+                          <Text
+                            style={{
+                              color: active ? theme.textInverse : theme.textSecondary,
+                              fontSize: layout.fontSize.sm,
+                              fontWeight: '600',
+                            }}
+                          >
+                            {option.label}
+                          </Text>
+                        </Pressable>
+                      );
+                    },
+                  )}
+                </View>
+              </View>
+            )}
           </Card>
 
           {residents.isPending && <LoadingState />}
@@ -139,11 +236,13 @@ export default function OwnerResidentsScreen() {
           <Card>
             <EmptyState
               message={
-                owingOnly
-                  ? 'Everyone has paid this month.'
-                  : search === ''
-                    ? 'No residents yet. Tap Add to bring someone in.'
-                    : 'Nobody matches that search.'
+                floorFilter !== null || roomFilter !== null
+                  ? 'Nobody matches these filters.'
+                  : owingOnly
+                    ? 'Everyone has paid this month.'
+                    : search === ''
+                      ? 'No residents yet. Tap Add to bring someone in.'
+                      : 'Nobody matches that search.'
               }
             />
           </Card>
@@ -248,6 +347,8 @@ const styles = StyleSheet.create({
   detailRow: { flexDirection: 'row', gap: layout.spacing[4] },
   detailLabel: { width: 64, fontSize: layout.fontSize.sm },
   detailValue: { flex: 1, fontSize: layout.fontSize.md },
+  field: { gap: layout.spacing[2] },
+  filterLabel: { fontSize: layout.fontSize.sm, fontWeight: '600' },
   filters: { flexDirection: 'row', flexWrap: 'wrap', gap: layout.spacing[2] },
   filter: {
     borderRadius: layout.radius.full,

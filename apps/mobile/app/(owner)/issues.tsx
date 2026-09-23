@@ -1,17 +1,8 @@
-import {
-  COMPLAINT_CATEGORY_LABELS,
-  COMPLAINT_STATUSES,
-  COMPLAINT_STATUS_LABELS,
-  MEAL_LABELS,
-} from '@heaven/contracts';
+import { COMPLAINT_CATEGORY_LABELS, COMPLAINT_STATUSES, COMPLAINT_STATUS_LABELS } from '@heaven/contracts';
 import { useState } from 'react';
 import { Alert, Pressable, StyleSheet, Text, View } from 'react-native';
 
-import {
-  useOwnerComplaints,
-  useOwnerMealCounts,
-  useUpdateComplaintStatus,
-} from '../../src/api/owner';
+import { useOwnerComplaints, useUpdateComplaintStatus } from '../../src/api/owner';
 import {
   Badge,
   Body,
@@ -35,17 +26,11 @@ function statusTone(status: string): 'danger' | 'warning' | 'success' | 'neutral
   return 'neutral';
 }
 
-/**
- * Issues: what residents have reported, and today's kitchen numbers.
- *
- * Both are things an owner deals with while walking around, which is why they
- * share a screen on the phone rather than being separate sections.
- */
+/** Issues: what residents have reported, dealt with while walking around. */
 export default function OwnerIssuesScreen() {
   const theme = useTheme();
   const [filter, setFilter] = useState('ALL');
   const complaints = useOwnerComplaints(filter);
-  const meals = useOwnerMealCounts();
   const updateStatus = useUpdateComplaintStatus();
 
   const rows = complaints.data ?? [];
@@ -71,26 +56,7 @@ export default function OwnerIssuesScreen() {
 
   return (
     <Screen onRefresh={() => void complaints.refetch()} refreshing={complaints.isRefetching}>
-      <PageHeading title="Issues" subtitle="Complaints from residents, and today's meal counts." />
-
-      {meals.data !== undefined && (
-        <Card>
-          <CardTitle>Meals to cook today</CardTitle>
-          <View style={styles.mealsRow}>
-            {meals.data.counts.map((count) => (
-              <View key={count.mealType} style={styles.meal}>
-                <Text style={[styles.mealLabel, { color: theme.textMuted }]}>
-                  {MEAL_LABELS[count.mealType]}
-                </Text>
-                <Text style={[styles.mealValue, { color: theme.textPrimary }]}>
-                  {count.expected}
-                </Text>
-                <Muted>{count.absent === 0 ? 'all in' : `${count.absent} away`}</Muted>
-              </View>
-            ))}
-          </View>
-        </Card>
-      )}
+      <PageHeading title="Issues" subtitle="Complaints from residents." />
 
       <Card>
         <CardTitle>Filter</CardTitle>
@@ -149,11 +115,12 @@ export default function OwnerIssuesScreen() {
               />
             </View>
 
-            <Body>
+            <Body>{complaint.description}</Body>
+            <Muted>
               {COMPLAINT_CATEGORY_LABELS[complaint.category]} · {complaint.residentName}
-              {complaint.roomNumber !== null && ` · room ${complaint.roomNumber}`}
-            </Body>
-            <Muted>Raised {complaint.createdAt.slice(0, 10)}</Muted>
+              {complaint.roomNumber !== null && ` · room ${complaint.roomNumber}`} · raised{' '}
+              {complaint.createdAt.slice(0, 10)}
+            </Muted>
 
             <Button
               label="Change status"
@@ -173,14 +140,6 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'space-between',
     gap: layout.spacing[3],
-  },
-  mealsRow: { flexDirection: 'row', gap: layout.spacing[4] },
-  meal: { flex: 1, gap: layout.spacing[1] },
-  mealLabel: { fontSize: layout.fontSize.xs, textTransform: 'uppercase', fontWeight: '600' },
-  mealValue: {
-    fontSize: layout.fontSize['2xl'],
-    fontWeight: '600',
-    fontVariant: ['tabular-nums'],
   },
   filters: { flexDirection: 'row', flexWrap: 'wrap', gap: layout.spacing[2] },
   filter: {

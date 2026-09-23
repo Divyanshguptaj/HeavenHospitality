@@ -1,9 +1,14 @@
-import { PAYMENT_METHOD_LABELS } from '@heaven/contracts';
+import { INVOICE_CATEGORY_LABELS, PAYMENT_METHOD_LABELS } from '@heaven/contracts';
 import { formatINR } from '@heaven/money';
 import { useState } from 'react';
 import { Alert, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 
-import { useOwnerPayments, useOwnerResidents, useRecordPayment } from '../../src/api/owner';
+import {
+  useOwnerPayments,
+  useOwnerResident,
+  useOwnerResidents,
+  useRecordPayment,
+} from '../../src/api/owner';
 import {
   Badge,
   Button,
@@ -26,6 +31,14 @@ function today(): string {
 }
 
 /**
+ * Not a real UUID — just unique enough to tell one collection attempt from
+ * another, which is all the server's idempotency check needs.
+ */
+function generateIdempotencyKey(): string {
+  return `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+}
+
+/**
  * Collecting a payment, from the phone.
  *
  * This is the screen an owner actually needs while standing in the corridor:
@@ -39,33 +52,56 @@ export default function CollectScreen() {
   const recordPayment = useRecordPayment();
 
   const [selected, setSelected] = useState<string | null>(null);
-  const [amount, setAmount] = useState('');
+  const [pickedIds, setPickedIds] = useState<Set<string>>(new Set());
   const [method, setMethod] = useState<Method>('CASH');
   const [reference, setReference] = useState('');
+  // Stable for the whole attempt — a slow request that times out and gets
+  // retried, or a double-tap, carries the SAME key, so the server recognises
+  // the repeat and returns the original payment instead of a second one. Only
+  // rotated once a payment actually succeeds, never on failure.
+  const [idempotencyKey, setIdempotencyKey] = useState(generateIdempotencyKey);
 
   const owing = (residents.data ?? []).filter((r) => r.outstandingPaise > 0);
   const chosen = (residents.data ?? []).find((r) => r.tenancyId === selected);
 
-  function choose(tenancyId: string, outstandingPaise: number): void {
+  const detail = useOwnerResident(selected ?? '');
+  const unpaid = (detail.data?.invoices ?? []).filter(
+    (invoice) => invoice.outstandingPaise > 0 && invoice.status !== 'CANCELLED',
+  );
+  const paise = unpaid
+    .filter((invoice) => pickedIds.has(invoice.id))
+    .reduce((sum, invoice) => sum + invoice.outstandingPaise, 0);
+
+  function choose(tenancyId: string): void {
     setSelected(tenancyId);
-    // Pre-fill what they owe — the common case is paying in full.
-    setAmount(String(outstandingPaise / 100));
+    setPickedIds(new Set());
+    setIdempotencyKey(generateIdempotencyKey());
+  }
+
+  function toggle(invoiceId: string): void {
+    setPickedIds((current) => {
+      const next = new Set(current);
+      if (next.has(invoiceId)) next.delete(invoiceId);
+      else next.add(invoiceId);
+      return next;
+    });
+    setIdempotencyKey(generateIdempotencyKey());
   }
 
   async function submit(): Promise<void> {
-    if (chosen === undefined) return;
-    const paise = Math.round(Number(amount) * 100);
-    if (!Number.isFinite(paise) || paise <= 0) {
-      Alert.alert('Check the amount', 'Enter an amount greater than zero.');
+    if (chosen === undefined || recordPayment.isPending) return;
+    if (paise <= 0) {
+      Alert.alert('Nothing selected', 'Tick at least one bill this payment covers.');
       return;
     }
 
     try {
       const result = await recordPayment.mutateAsync({
         tenancyId: chosen.tenancyId,
-        amountPaise: paise,
+        invoiceIds: [...pickedIds],
         method,
         paidAt: today(),
+        idempotencyKey,
         ...(reference.trim() === '' ? {} : { reference: reference.trim() }),
       });
 
@@ -74,8 +110,9 @@ export default function CollectScreen() {
         `${formatINR(paise, { withPaise: false })} from ${chosen.fullName}.\nReceipt ${result.receiptNumber ?? '—'}.`,
       );
       setSelected(null);
-      setAmount('');
+      setPickedIds(new Set());
       setReference('');
+      setIdempotencyKey(generateIdempotencyKey());
     } catch (error) {
       Alert.alert(
         'Could not record',
@@ -111,7 +148,7 @@ export default function CollectScreen() {
             owing.map((resident) => (
               <Pressable
                 key={resident.tenancyId}
-                onPress={() => choose(resident.tenancyId, resident.outstandingPaise)}
+                onPress={() => choose(resident.tenancyId)}
                 accessibilityRole="button"
                 accessibilityLabel={`Collect from ${resident.fullName}`}
                 style={[styles.personRow, { borderColor: theme.border }]}
@@ -145,22 +182,41 @@ export default function CollectScreen() {
           <Muted>Owes {formatINR(chosen?.outstandingPaise ?? 0, { withPaise: false })}</Muted>
 
           <View style={styles.field}>
-            <Text style={[styles.label, { color: theme.textSecondary }]}>Amount received (₹)</Text>
-            <TextInput
-              value={amount}
-              onChangeText={setAmount}
-              keyboardType="decimal-pad"
-              style={[
-                styles.input,
-                {
-                  backgroundColor: theme.surface,
-                  borderColor: theme.border,
-                  color: theme.textPrimary,
-                },
-              ]}
-              accessibilityLabel="Amount received"
-              autoFocus
-            />
+            <Text style={[styles.label, { color: theme.textSecondary }]}>What is being paid?</Text>
+            {detail.isPending ? (
+              <LoadingState />
+            ) : unpaid.length === 0 ? (
+              <Muted>No unpaid bills.</Muted>
+            ) : (
+              unpaid.map((invoice) => {
+                const checked = pickedIds.has(invoice.id);
+                return (
+                  <Pressable
+                    key={invoice.id}
+                    onPress={() => toggle(invoice.id)}
+                    accessibilityRole="checkbox"
+                    accessibilityState={{ checked }}
+                    style={[styles.personRow, { borderColor: theme.border }]}
+                  >
+                    <View style={styles.personMain}>
+                      <Text style={[styles.name, { color: theme.textPrimary }]}>
+                        {checked ? '☑ ' : '☐ '}
+                        {INVOICE_CATEGORY_LABELS[invoice.category]}
+                      </Text>
+                      <Muted>
+                        {invoice.category === 'DEPOSIT' ? 'One-time' : invoice.periodKey}
+                      </Muted>
+                    </View>
+                    <Text style={[styles.amount, { color: theme.textPrimary }]}>
+                      {formatINR(invoice.outstandingPaise, { withPaise: false })}
+                    </Text>
+                  </Pressable>
+                );
+              })
+            )}
+            <Text style={[styles.name, { color: theme.textPrimary }]}>
+              Total received: {formatINR(paise, { withPaise: false })}
+            </Text>
           </View>
 
           <View style={styles.field}>
@@ -220,10 +276,7 @@ export default function CollectScreen() {
             onPress={() => void submit()}
           />
 
-          <Muted>
-            Applied to the oldest unpaid bill first. Anything extra is kept as credit against their
-            next bill.
-          </Muted>
+          <Muted>Only the ticked bills are marked paid; the rest stay outstanding.</Muted>
         </Card>
       )}
 

@@ -17,7 +17,8 @@ type FoundUser = {
   fullName: string;
   email: string | null;
   phone: string | null;
-  hasActiveTenancy: boolean;
+  activeTenancyId: string | null;
+  hasBed: boolean;
 };
 
 /**
@@ -119,19 +120,21 @@ export default function AddResidentScreen() {
         {found !== null && (
           <Text
             style={{
-              color: found.hasActiveTenancy ? theme.danger : theme.success,
+              color: found.activeTenancyId === null ? theme.success : theme.danger,
               fontSize: layout.fontSize.sm,
               fontWeight: '600',
             }}
           >
-            {found.hasActiveTenancy
-              ? `${found.fullName} already has an active stay here.`
-              : `Found ${found.fullName}.`}
+            {found.activeTenancyId === null
+              ? `Found ${found.fullName}.`
+              : found.hasBed
+                ? `${found.fullName} already has an active stay here.`
+                : `${found.fullName} is already a resident, waiting on a bed — assign one from Rooms.`}
           </Text>
         )}
       </Card>
 
-      {found !== null && !found.hasActiveTenancy && (
+      {found !== null && found.activeTenancyId === null && (
         <Card>
           <DateField label="Joining date" value={joiningDate} onChange={setJoiningDate} />
           <FormField

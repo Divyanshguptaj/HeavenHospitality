@@ -10,6 +10,7 @@ import {
   useDeleteRoom,
   useExitResident,
   useLastReading,
+  useMoveResident,
   useOwnerRoom,
   useOwnerSettings,
   useRecordReading,
@@ -387,6 +388,7 @@ function AssignForm({
 }) {
   const theme = useTheme();
   const createResident = useCreateResident();
+  const moveResident = useMoveResident();
 
   const [phone, setPhone] = useState('');
   const [found, setFound] = useState<{
@@ -394,7 +396,8 @@ function AssignForm({
     fullName: string;
     email: string | null;
     phone: string | null;
-    hasActiveTenancy: boolean;
+    activeTenancyId: string | null;
+    hasBed: boolean;
   } | null>(null);
   const [notFound, setNotFound] = useState(false);
   const [checking, setChecking] = useState(false);
@@ -420,9 +423,27 @@ function AssignForm({
     }
   }
 
+  // Already a resident somewhere else in the building — a real conflict, the
+  // only case this form still refuses.
+  const blocked = found !== null && found.activeTenancyId !== null && found.hasBed;
+  // Already a resident, but with no bed yet — exactly what an applicant just
+  // promoted from Applicants looks like. This bed is placed with a move, not
+  // a second tenancy, since one already exists.
+  const awaitingBed = found !== null && found.activeTenancyId !== null && !found.hasBed;
+
   async function assign(): Promise<void> {
-    if (found === null) return;
+    if (found === null || blocked) return;
     setError(null);
+
+    if (awaitingBed) {
+      try {
+        await moveResident.mutateAsync({ id: found.activeTenancyId as string, toBedId: bedId });
+        onDone();
+      } catch (caught) {
+        setError(caught instanceof ApiRequestError ? caught.message : 'Could not assign the bed.');
+      }
+      return;
+    }
 
     const depositValue = deposit.trim();
     const depositRupees = Number(depositValue);
@@ -479,14 +500,16 @@ function AssignForm({
       )}
 
       {found !== null && (
-        <Text style={[styles.owed, { color: found.hasActiveTenancy ? theme.danger : theme.success }]}>
-          {found.hasActiveTenancy
+        <Text style={[styles.owed, { color: blocked ? theme.danger : theme.success }]}>
+          {blocked
             ? `${found.fullName} already has an active stay here.`
-            : `Found ${found.fullName}.`}
+            : awaitingBed
+              ? `${found.fullName} is already a resident, waiting on a bed.`
+              : `Found ${found.fullName}.`}
         </Text>
       )}
 
-      {found !== null && !found.hasActiveTenancy && (
+      {found !== null && !blocked && !awaitingBed && (
         <FormField
           label="Security deposit (₹)"
           value={deposit}
@@ -500,9 +523,17 @@ function AssignForm({
 
       <View style={styles.searchRow}>
         <Button label="Cancel" variant="secondary" onPress={onDone} />
-        {found !== null && !found.hasActiveTenancy && (
+        {found !== null && !blocked && (
           <Button
-            label={createResident.isPending ? 'Adding…' : 'Add to this room'}
+            label={
+              awaitingBed
+                ? moveResident.isPending
+                  ? 'Assigning…'
+                  : 'Assign this bed'
+                : createResident.isPending
+                  ? 'Adding…'
+                  : 'Add to this room'
+            }
             onPress={() => void assign()}
           />
         )}

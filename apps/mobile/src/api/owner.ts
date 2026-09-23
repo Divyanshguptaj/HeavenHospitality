@@ -1,4 +1,5 @@
 import type {
+  ApplicantView,
   ComplaintDetailView,
   ComplaintSummaryView,
   DashboardView,
@@ -36,6 +37,7 @@ export const ownerKeys = {
   room: (id: string) => ['owner', 'room', id] as const,
   residents: (search?: string) => ['owner', 'residents', search ?? null] as const,
   resident: (id: string) => ['owner', 'resident', id] as const,
+  applicants: ['owner', 'applicants'] as const,
   invoices: (status?: string) => ['owner', 'invoices', status ?? null] as const,
   payments: ['owner', 'payments'] as const,
   complaints: (status?: string) => ['owner', 'complaints', status ?? null] as const,
@@ -81,6 +83,13 @@ export const useOwnerResident = (id: string): UseQueryResult<ResidentDetailView,
     queryKey: ownerKeys.resident(id),
     queryFn: ({ signal }) => apiRequest<ResidentDetailView>(`${OWNER}/residents/${id}`, { signal }),
     enabled: id !== '',
+  });
+
+/** People who signed up and completed the admission form but hold no tenancy yet. */
+export const useOwnerApplicants = (): UseQueryResult<ApplicantView[], Error> =>
+  useQuery({
+    queryKey: ownerKeys.applicants,
+    queryFn: ({ signal }) => apiRequest<ApplicantView[]>(`${OWNER}/applicants`, { signal }),
   });
 
 export const useOwnerInvoices = (status?: string): UseQueryResult<InvoiceSummaryView[], Error> =>
@@ -141,8 +150,7 @@ export const useRecordPayment = () =>
   useOwnerMutation(
     (input: {
       tenancyId: string;
-      invoiceId?: string;
-      amountPaise: number;
+      invoiceIds: string[];
       method: 'CASH' | 'UPI' | 'BANK_TRANSFER';
       paidAt: string;
       reference?: string;
@@ -278,7 +286,7 @@ export const useUpdateBedStatus = () =>
 export const useCreateResident = () =>
   useOwnerMutation(
     (body: unknown) => apiRequest<ResidentSummaryView>(`${OWNER}/residents`, { method: 'POST', body }),
-    [...OCCUPANCY_KEYS, ['owner', 'residents']],
+    [...OCCUPANCY_KEYS, ['owner', 'residents'], ownerKeys.applicants],
   );
 
 /** Edits a resident's own details — contact, rent override, deposit, emergency contact. */
@@ -300,6 +308,17 @@ export const useUpdateRegistration = () =>
     [['owner', 'resident']],
   );
 
+/** Corrects an applicant's admission form — same edit, reached by user id since they have no tenancy yet. */
+export const useUpdateApplicantRegistration = () =>
+  useOwnerMutation(
+    ({ userId, ...body }: { userId: string } & Record<string, unknown>) =>
+      apiRequest<RegistrationDetailsView>(`${OWNER}/applicants/${userId}/registration`, {
+        method: 'PATCH',
+        body,
+      }),
+    [ownerKeys.applicants],
+  );
+
 /**
  * Takes a resident off a bed. The server refuses this while rent is
  * outstanding and, once it succeeds, reverts the account to non-resident.
@@ -308,6 +327,14 @@ export const useExitResident = () =>
   useOwnerMutation(
     ({ id, ...body }: { id: string; actualExitDate: string; reason?: string }) =>
       apiRequest<ResidentSummaryView>(`${OWNER}/residents/${id}/exit`, { method: 'POST', body }),
+    [...OCCUPANCY_KEYS, ['owner', 'residents']],
+  );
+
+/** Moves a resident into a bed — their first one, or a change from one they already hold. */
+export const useMoveResident = () =>
+  useOwnerMutation(
+    ({ id, ...body }: { id: string; toBedId: string; effectiveFrom?: string; reason?: string }) =>
+      apiRequest<ResidentSummaryView>(`${OWNER}/residents/${id}/move`, { method: 'POST', body }),
     [...OCCUPANCY_KEYS, ['owner', 'residents']],
   );
 
@@ -320,7 +347,10 @@ export async function lookupUserByPhone(phone: string): Promise<{
   fullName: string;
   email: string | null;
   phone: string | null;
-  hasActiveTenancy: boolean;
+  /** An active tenancy already exists — null if this account is not a resident at all. */
+  activeTenancyId: string | null;
+  /** Only meaningful when `activeTenancyId` is set: has that stay already got a bed? */
+  hasBed: boolean;
 } | null> {
   return apiRequest(`${OWNER}/residents/lookup-by-phone?phone=${encodeURIComponent(phone)}`);
 }

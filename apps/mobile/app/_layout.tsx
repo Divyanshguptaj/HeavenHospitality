@@ -93,17 +93,20 @@ function RootNavigator() {
   }
 
   return (
-    <Stack screenOptions={{ contentStyle: { backgroundColor: theme.canvas } }}>
-      <Stack.Screen name="(public)" options={{ headerShown: false }} />
-      <Stack.Screen name="(resident)" options={{ headerShown: false }} />
-      <Stack.Screen name="(owner)" options={{ headerShown: false }} />
-      <Stack.Screen name="(auth)/welcome" options={{ headerShown: false }} />
-      <Stack.Screen name="(auth)/registration" options={{ headerShown: false }} />
-      <Stack.Screen name="(auth)/login" options={{ title: 'Sign in' }} />
-      <Stack.Screen name="(auth)/signup-phone" options={{ title: 'Create account' }} />
-      <Stack.Screen name="(auth)/verify-otp" options={{ title: 'Verify number' }} />
-      <Stack.Screen name="(auth)/set-password" options={{ title: 'Password' }} />
-      <Stack.Screen name="(auth)/forgot-phone" options={{ title: 'Reset password' }} />
+    // Every screen carries its own PageHeading, so the native header is off
+    // for the whole app, here at the root — one consistent "which page is
+    // this" treatment rather than two competing ones.
+    <Stack screenOptions={{ headerShown: false, contentStyle: { backgroundColor: theme.canvas } }}>
+      <Stack.Screen name="(public)" />
+      <Stack.Screen name="(resident)" />
+      <Stack.Screen name="(owner)" />
+      <Stack.Screen name="(auth)/welcome" />
+      <Stack.Screen name="(auth)/registration" />
+      <Stack.Screen name="(auth)/login" />
+      <Stack.Screen name="(auth)/signup-phone" />
+      <Stack.Screen name="(auth)/verify-otp" />
+      <Stack.Screen name="(auth)/set-password" />
+      <Stack.Screen name="(auth)/forgot-phone" />
     </Stack>
   );
 }

@@ -17,12 +17,8 @@ import { layout } from '../../src/theme';
 /**
  * Contact — every way of reaching the property, all of it from the database.
  *
- * There is no phone number, email address or UPI id written into this file. The
- * owner changing their number changes what this screen dials.
- *
- * Bank and UPI details appear only when the API sends them, and the API sends
- * them only when the owner has published that half. A field the owner has kept
- * private never reaches the device, so there is nothing here to hide.
+ * There is no phone number, email address or address written into this file.
+ * The owner changing their number changes what this screen dials.
  */
 export default function ContactScreen() {
   const query = usePublicContact();
@@ -50,6 +46,7 @@ export default function ContactScreen() {
               <View style={styles.actions}>
                 <Button
                   label="Call"
+                  variant="secondary"
                   accessibilityLabel={`Call ${contact.phone}`}
                   onPress={() => {
                     void openExternal(
@@ -107,47 +104,6 @@ export default function ContactScreen() {
                 }}
               />
             </Card>
-
-            {contact.paymentDetails !== null && (
-              <Card>
-                <CardTitle>Payment details</CardTitle>
-                <Body>
-                  Shared here by the property. Always confirm with the manager before transferring
-                  anything.
-                </Body>
-
-                {contact.paymentDetails.upi !== null && (
-                  <>
-                    {contact.paymentDetails.upi.upiId !== null && (
-                      <DetailRow label="UPI" value={contact.paymentDetails.upi.upiId} />
-                    )}
-                  </>
-                )}
-
-                {contact.paymentDetails.bank !== null && (
-                  <>
-                    {contact.paymentDetails.bank.bankName !== null && (
-                      <DetailRow label="Bank" value={contact.paymentDetails.bank.bankName} />
-                    )}
-                    {contact.paymentDetails.bank.accountName !== null && (
-                      <DetailRow
-                        label="Account name"
-                        value={contact.paymentDetails.bank.accountName}
-                      />
-                    )}
-                    {contact.paymentDetails.bank.accountNumber !== null && (
-                      <DetailRow
-                        label="Account no."
-                        value={contact.paymentDetails.bank.accountNumber}
-                      />
-                    )}
-                    {contact.paymentDetails.bank.ifsc !== null && (
-                      <DetailRow label="IFSC" value={contact.paymentDetails.bank.ifsc} />
-                    )}
-                  </>
-                )}
-              </Card>
-            )}
 
             <Muted>
               Visiting hours are 9:00 AM to 8:00 PM. Please call ahead so someone is free to show

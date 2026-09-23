@@ -24,11 +24,12 @@ export default function OwnerLayout() {
   if (!isAdmin(user)) return <Redirect href="/(public)" />;
 
   return (
+    // Every screen carries its own PageHeading, so the native header is off
+    // across the board — `title` stays only where it still does something:
+    // the tab bar's own label.
     <Tabs
       screenOptions={{
-        headerStyle: { backgroundColor: theme.surface },
-        headerTintColor: theme.textPrimary,
-        headerTitleStyle: { fontWeight: '600' },
+        headerShown: false,
         tabBarActiveTintColor: theme.primary,
         tabBarInactiveTintColor: theme.textMuted,
         tabBarStyle: { backgroundColor: theme.surface, borderTopColor: theme.border },
@@ -45,14 +46,10 @@ export default function OwnerLayout() {
           ),
         }}
       />
-      {/* "residents" is a nested Stack (roster + add + detail), not a flat
-          screen — its own _layout.tsx supplies headers, so this one is
-          turned off here, the same as "rooms" below. */}
       <Tabs.Screen
         name="residents"
         options={{
           title: 'Residents',
-          headerShown: false,
           tabBarIcon: ({ color, size }) => (
             <Ionicons name="people-outline" color={color} size={size} />
           ),
@@ -67,13 +64,10 @@ export default function OwnerLayout() {
           ),
         }}
       />
-      {/* "rooms" is a nested Stack (list + room detail), not a flat screen — its
-          own _layout.tsx supplies headers, so this one is turned off here. */}
       <Tabs.Screen
         name="rooms"
         options={{
           title: 'Rooms',
-          headerShown: false,
           tabBarIcon: ({ color, size }) => (
             <Ionicons name="bed-outline" color={color} size={size} />
           ),
@@ -88,14 +82,10 @@ export default function OwnerLayout() {
           ),
         }}
       />
-      {/* "more" is a nested Stack (account + the occasional-use editors below
-          it), not a flat screen — its own _layout.tsx supplies headers, so
-          this one is turned off here, the same as "rooms" and "residents". */}
       <Tabs.Screen
         name="more"
         options={{
           title: 'More',
-          headerShown: false,
           tabBarIcon: ({ color, size }) => <Ionicons name="menu-outline" color={color} size={size} />,
         }}
       />

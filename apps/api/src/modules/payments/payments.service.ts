@@ -16,8 +16,9 @@ import { prisma } from '../../lib/prisma.js';
 import type { Actor } from '../../middleware/authenticate.js';
 import { applyPaymentToInvoices } from '../billing/billing.calculations.js';
 import { recomputeInvoice } from '../billing/invoice.service.js';
+import { notify } from '../notifications/notification.service.js';
 import { getActiveTenancyForActor, getPropertyContext } from '../property/property.context.js';
-import { expectedTokenFor, paymentProvider, tokensMatch } from './payment.provider.js';
+import { paymentProvider } from './payment.provider.js';
 
 /**
  * Payments and receipts.
@@ -69,13 +70,18 @@ async function nextReceiptNumber(
  *
  * A payment without a receipt, or an invoice whose paid amount disagrees with
  * the payments against it, must not be able to exist even for an instant.
+ *
+ * The amount is never accepted from a caller: it is the sum of exactly the
+ * `targetInvoiceIds` invoices' outstanding balances, computed here inside the
+ * transaction — so rent, the AC bill and the security deposit can each be
+ * settled independently by selecting which of them a payment covers.
  */
 async function settlePayment(
   tx: TransactionClient,
   params: {
     propertyId: string;
     tenancyId: string;
-    amountPaise: number;
+    targetInvoiceIds: readonly string[];
     method: PaymentMethod;
     paidOn: DateOnly;
     settings: PropertySettings;
@@ -87,13 +93,12 @@ async function settlePayment(
     notes?: string | undefined;
     recordedByUserId?: string | undefined;
     idempotencyKey?: string | undefined;
-    /** When set, the payment is applied to this invoice before any other. */
-    preferredInvoiceId?: string | undefined;
   },
-): Promise<{ paymentId: string; receiptNumber: string }> {
+): Promise<{ paymentId: string; receiptNumbers: string[]; amountPaise: number }> {
   const outstanding = await tx.invoice.findMany({
     where: {
       tenancyId: params.tenancyId,
+      id: { in: [...params.targetInvoiceIds] },
       status: { in: ['ISSUED', 'PARTIALLY_PAID', 'OVERDUE'] },
     },
     select: { id: true, dueDate: true, totalPaise: true, amountPaidPaise: true },
@@ -105,19 +110,20 @@ async function settlePayment(
     outstandingPaise: Math.max(0, invoice.totalPaise - invoice.amountPaidPaise),
   }));
 
-  // Ordering is the calculation's job — doing it here as well meant the sort
-  // inside applyPaymentToInvoices silently undid it.
-  const { applications, unallocatedPaise } = applyPaymentToInvoices(
-    params.amountPaise,
-    payable,
-    params.preferredInvoiceId,
-  );
+  const amountPaise = sumPaise(payable.map((invoice) => invoice.outstandingPaise));
+  if (amountPaise <= 0) {
+    throw new AppError('INVOICE_NOT_PAYABLE', 'The selected invoices are already settled.');
+  }
+
+  // Every invoice in the set is targeted, so this only decides the order the
+  // (fully-covering) amount is written across them.
+  const { applications, unallocatedPaise } = applyPaymentToInvoices(amountPaise, payable);
 
   const payment = await tx.payment.create({
     data: {
       propertyId: params.propertyId,
       tenancyId: params.tenancyId,
-      amountPaise: params.amountPaise,
+      amountPaise,
       method: params.method,
       status: 'PAID',
       paidAt: toPrismaDate(params.paidOn),
@@ -155,8 +161,6 @@ async function settlePayment(
     await recomputeInvoice(tx, application.invoiceId, params.settings, params.today);
   }
 
-  const number = await nextReceiptNumber(tx, params.propertyId, params.paidOn);
-
   const tenancy = await tx.tenancy.findUniqueOrThrow({
     where: { id: params.tenancyId },
     include: {
@@ -169,49 +173,56 @@ async function settlePayment(
     },
   });
 
-  const primaryInvoiceId = applications[0]?.invoiceId ?? null;
-  const primaryInvoice =
-    primaryInvoiceId === null
-      ? null
-      : await tx.invoice.findUnique({
-          where: { id: primaryInvoiceId },
-          include: { items: true },
-        });
-
-  await tx.receipt.create({
-    data: {
-      paymentId: payment.id,
-      invoiceId: primaryInvoiceId,
-      number,
-      // A frozen copy: a later edit upstream must not change what an issued
-      // receipt says.
-      snapshot: {
-        propertyName: tenancy.property.name,
-        residentName: tenancy.user.fullName,
-        roomNumber: tenancy.allocations[0]?.bed.room.number ?? null,
-        periodKey: primaryInvoice?.periodKey ?? null,
-        method: params.method,
-        paidOn: params.paidOn,
-        totalPaidPaise: params.amountPaise,
-        unallocatedPaise,
-        lines:
-          primaryInvoice?.items.map((item) => ({
-            label: item.description,
-            amountPaise: item.amountPaise,
-          })) ?? [],
-      },
-    },
+  const settledInvoices = await tx.invoice.findMany({
+    where: { id: { in: applications.map((application) => application.invoiceId) } },
+    include: { items: true },
   });
 
-  return { paymentId: payment.id, receiptNumber: number };
+  // Issue one receipt per settled invoice — each carries a frozen snapshot of
+  // only its own line items so a later upstream edit cannot change what was
+  // printed on the receipt. Receipt numbers are gapless and sequential; each
+  // call to nextReceiptNumber advances the sequence by exactly one.
+  const receiptNumbers: string[] = [];
+  for (const settledInvoice of settledInvoices) {
+    const number = await nextReceiptNumber(tx, params.propertyId, params.paidOn);
+    const application = applications.find((a) => a.invoiceId === settledInvoice.id);
+
+    await tx.receipt.create({
+      data: {
+        paymentId: payment.id,
+        invoiceId: settledInvoice.id,
+        number,
+        // A frozen copy: a later edit upstream must not change what an issued
+        // receipt says. Lines are pulled from only this invoice so each receipt
+        // reflects what was on that invoice, not a combined total.
+        snapshot: {
+          propertyName: tenancy.property.name,
+          residentName: tenancy.user.fullName,
+          roomNumber: tenancy.allocations[0]?.bed.room.number ?? null,
+          periodKey: settledInvoice.periodKey ?? null,
+          method: params.method,
+          paidOn: params.paidOn,
+          totalPaidPaise: application?.amountPaise ?? 0,
+          unallocatedPaise: 0,
+          lines: settledInvoice.items.map((item) => ({
+            label: item.description,
+            amountPaise: item.amountPaise,
+          })),
+        },
+      },
+    });
+
+    receiptNumbers.push(number);
+  }
+
+  return { paymentId: payment.id, receiptNumbers, amountPaise };
 }
 
 // --- Owner: manual payments -------------------------------------------------
 
 export interface RecordPaymentInput {
   tenancyId: string;
-  invoiceId?: string | undefined;
-  amountPaise: number;
+  invoiceIds: string[];
   method: 'CASH' | 'UPI' | 'BANK_TRANSFER';
   paidAt: DateOnly;
   reference?: string | undefined;
@@ -249,11 +260,11 @@ export async function recordManualPayment(
     if (existing !== null) return toPaymentView(existing, existing.tenancy.user.fullName);
   }
 
-  const { paymentId } = await prisma.$transaction(async (tx) => {
+  const { paymentId, receiptNumbers, amountPaise } = await prisma.$transaction(async (tx) => {
     const result = await settlePayment(tx, {
       propertyId,
       tenancyId: input.tenancyId,
-      amountPaise: input.amountPaise,
+      targetInvoiceIds: input.invoiceIds,
       method: input.method,
       paidOn: input.paidAt,
       settings,
@@ -262,7 +273,6 @@ export async function recordManualPayment(
       notes: input.notes,
       recordedByUserId: actor.userId,
       idempotencyKey: input.idempotencyKey,
-      preferredInvoiceId: input.invoiceId,
     });
 
     await writeAudit(tx, {
@@ -270,17 +280,24 @@ export async function recordManualPayment(
       entityType: 'Payment',
       entityId: result.paymentId,
       propertyId,
-      summary: `₹${(input.amountPaise / 100).toFixed(2)} received from ${tenancy.user.fullName} via ${input.method} (receipt ${result.receiptNumber})`,
+      summary: `₹${(result.amountPaise / 100).toFixed(2)} received from ${tenancy.user.fullName} via ${input.method} (receipt ${result.receiptNumbers[0] ?? ''})`,
       actorUserId: actor.userId,
       actorRole: 'ADMIN',
       after: {
         method: input.method,
-        amountPaise: input.amountPaise,
+        amountPaise: result.amountPaise,
         reference: input.reference ?? null,
       },
     });
 
     return result;
+  });
+
+  await notify({
+    event: 'PAYMENT_RECEIVED',
+    userId: tenancy.userId,
+    dedupeKey: paymentId,
+    params: { amountPaise, receiptNumber: receiptNumbers.join(', ') },
   });
 
   const created = await prisma.payment.findUniqueOrThrow({
@@ -350,90 +367,89 @@ export async function listPayments(
   return payments.map((payment) => toPaymentView(payment, payment.tenancy.user.fullName));
 }
 
-// --- Resident: mock online payment -----------------------------------------
+// --- Resident: online payment (Razorpay, or the mock stand-in) -------------
 
 /**
  * Starts an online payment.
  *
- * The amount is read from the INVOICE, never accepted from the client — the
- * single most important rule in the payment flow.
+ * The amount is read from the INVOICES, never accepted from the client — the
+ * single most important rule in the payment flow. A resident may select any
+ * one, any two, or all three of rent, the AC bill and the deposit; the order
+ * covers exactly the sum of whichever they picked.
  */
 export async function startOnlinePayment(
   actor: Actor,
-  invoiceId: string,
-): Promise<{ orderId: string; amountPaise: number; token: string; provider: string }> {
+  invoiceIds: string[],
+): Promise<{
+  orderId: string;
+  amountPaise: number;
+  currency: string;
+  provider: string;
+  keyId: string | null;
+  mock: { providerPaymentId: string; signature: string } | null;
+}> {
   const { tenancyId } = await getActiveTenancyForActor(actor);
 
-  const invoice = await prisma.invoice.findFirst({
-    where: { id: invoiceId, tenancyId },
+  const invoices = await prisma.invoice.findMany({
+    // Scoped to the caller's own tenancy: another resident's invoice id
+    // simply does not resolve.
+    where: { id: { in: invoiceIds }, tenancyId },
     select: { id: true, totalPaise: true, amountPaidPaise: true, status: true },
   });
 
-  // Scoped to the caller's own tenancy: another resident's invoice id simply
-  // does not resolve.
-  if (invoice === null) throw new AppError('NOT_FOUND', 'Invoice not found.');
-
-  if (invoice.status === 'PAID' || invoice.status === 'CANCELLED') {
-    throw new AppError('INVOICE_NOT_PAYABLE', 'This invoice is not payable.');
+  if (invoices.length !== invoiceIds.length) throw new AppError('NOT_FOUND', 'Invoice not found.');
+  if (invoices.some((invoice) => invoice.status === 'PAID' || invoice.status === 'CANCELLED')) {
+    throw new AppError('INVOICE_NOT_PAYABLE', 'One of the selected invoices is not payable.');
   }
 
-  const payable = Math.max(0, invoice.totalPaise - invoice.amountPaidPaise);
+  const payable = sumPaise(
+    invoices.map((invoice) => Math.max(0, invoice.totalPaise - invoice.amountPaidPaise)),
+  );
   if (payable <= 0) {
-    throw new AppError('INVOICE_NOT_PAYABLE', 'This invoice is already settled.');
+    throw new AppError('INVOICE_NOT_PAYABLE', 'The selected invoices are already settled.');
   }
 
   const order = await paymentProvider.createOrder({
     amountPaise: payable,
-    reference: invoice.id,
+    invoiceIds,
   });
 
   return {
     orderId: order.orderId,
     amountPaise: order.amountPaise,
-    token: order.token,
+    currency: order.currency,
     provider: order.provider,
+    keyId: order.keyId,
+    mock: order.mock ?? null,
   };
 }
 
 /**
- * Confirms an online payment.
+ * Confirms an online payment, from the resident's own client callback.
  *
- * The token is re-derived from the server's own view of the order and compared
- * in constant time. A client cannot invent a confirmation, and cannot replay one
- * order's token against a different invoice, because the amount and invoice id
- * are bound into the signature.
+ * The provider — not this function — decides whether the signature is valid
+ * and whether the payment actually settled; see `paymentProvider.verify`. A
+ * webhook delivery for the same payment converges on the same
+ * `providerPaymentId @unique` guard below, so whichever path arrives first
+ * wins and the second is a no-op. See docs/0007-payments.md.
  */
 export async function confirmOnlinePayment(
   actor: Actor,
-  input: { orderId: string; mockToken: string; invoiceId: string },
-): Promise<{ receiptNumber: string }> {
+  input: { orderId: string; providerPaymentId: string; signature: string; invoiceIds: string[] },
+): Promise<{ receiptNumbers: string[] }> {
   const { tenancyId, propertyId, timezone, settings } = await getActiveTenancyForActor(actor);
   const today = todayInZone(timezone);
 
-  const invoice = await prisma.invoice.findFirst({
-    where: { id: input.invoiceId, tenancyId },
-    select: { id: true, totalPaise: true, amountPaidPaise: true, status: true },
+  const invoices = await prisma.invoice.findMany({
+    where: { id: { in: input.invoiceIds }, tenancyId },
+    select: { id: true },
   });
-  if (invoice === null) throw new AppError('NOT_FOUND', 'Invoice not found.');
-
-  const payable = Math.max(0, invoice.totalPaise - invoice.amountPaidPaise);
-
-  const expected = expectedTokenFor({
-    orderId: input.orderId,
-    amountPaise: payable,
-    reference: invoice.id,
-  });
-
-  if (!tokensMatch(input.mockToken, expected)) {
-    throw new AppError(
-      'PAYMENT_VERIFICATION_FAILED',
-      'We could not verify that payment. Nothing has been charged.',
-    );
-  }
+  if (invoices.length !== input.invoiceIds.length) throw new AppError('NOT_FOUND', 'Invoice not found.');
 
   const confirmation = await paymentProvider.verify({
     orderId: input.orderId,
-    token: input.mockToken,
+    providerPaymentId: input.providerPaymentId,
+    signature: input.signature,
   });
 
   // The provider payment id is unique, so a replayed confirmation cannot create
@@ -443,14 +459,14 @@ export async function confirmOnlinePayment(
     include: { receipts: { select: { number: true } } },
   });
   if (already !== null) {
-    return { receiptNumber: already.receipts[0]?.number ?? '' };
+    return { receiptNumbers: already.receipts.map((r) => r.number) };
   }
 
   const result = await prisma.$transaction(async (tx) => {
     const settled = await settlePayment(tx, {
       propertyId,
       tenancyId,
-      amountPaise: payable,
+      targetInvoiceIds: input.invoiceIds,
       method: 'ONLINE',
       paidOn: today,
       settings,
@@ -465,7 +481,7 @@ export async function confirmOnlinePayment(
       entityType: 'Payment',
       entityId: settled.paymentId,
       propertyId,
-      summary: `Online payment of ₹${(payable / 100).toFixed(2)} confirmed (receipt ${settled.receiptNumber})`,
+      summary: `Online payment of ₹${(settled.amountPaise / 100).toFixed(2)} confirmed (receipts ${settled.receiptNumbers.join(', ')})`,
       actorUserId: actor.userId,
       actorRole: 'RESIDENT',
     });
@@ -473,7 +489,107 @@ export async function confirmOnlinePayment(
     return settled;
   });
 
-  return { receiptNumber: result.receiptNumber };
+  await notify({
+    event: 'PAYMENT_RECEIVED',
+    userId: actor.userId,
+    dedupeKey: result.paymentId,
+    params: { amountPaise: result.amountPaise, receiptNumber: result.receiptNumbers.join(', ') },
+  });
+
+  return { receiptNumbers: result.receiptNumbers };
+}
+
+/**
+ * Confirms an online payment from Razorpay's webhook — the belt-and-suspenders
+ * path that settles the invoice(s) even if the resident's app closes before
+ * the client callback fires.
+ *
+ * No `Actor` here: a webhook carries no session. The tenancy and property are
+ * resolved from the invoices themselves, whose ids the order's own `notes`
+ * carried from the moment it was created — never from anything the request
+ * claims. A duplicate delivery (Razorpay retries) or a payment already
+ * settled via the client callback both converge on the same
+ * `providerPaymentId @unique` guard and become a silent no-op. See
+ * docs/0007-payments.md.
+ */
+export async function settleOnlinePaymentFromWebhook(input: {
+  invoiceIds: string[];
+  orderId: string;
+  providerPaymentId: string;
+}): Promise<void> {
+  const already = await prisma.payment.findUnique({ where: { providerPaymentId: input.providerPaymentId } });
+  if (already !== null) return;
+
+  const invoices = await prisma.invoice.findMany({
+    where: { id: { in: input.invoiceIds } },
+    select: {
+      id: true,
+      tenancyId: true,
+      propertyId: true,
+      totalPaise: true,
+      amountPaidPaise: true,
+      status: true,
+    },
+  });
+  // Nothing sane to settle against — log and move on rather than throw, so
+  // Razorpay does not retry a webhook that will never resolve.
+  const first = invoices[0];
+  if (first === undefined) return;
+  if (invoices.some((invoice) => invoice.status === 'PAID' || invoice.status === 'CANCELLED')) return;
+
+  const property = await prisma.property.findUnique({
+    where: { id: first.propertyId },
+    select: { timezone: true, settings: true },
+  });
+  if (property === null || property.settings === null) return;
+
+  const today = todayInZone(property.timezone);
+  const payable = sumPaise(
+    invoices.map((invoice) => Math.max(0, invoice.totalPaise - invoice.amountPaidPaise)),
+  );
+  if (payable <= 0) return;
+
+  const settledPayment = await prisma.$transaction(async (tx) => {
+    const settled = await settlePayment(tx, {
+      propertyId: first.propertyId,
+      tenancyId: first.tenancyId,
+      targetInvoiceIds: input.invoiceIds,
+      method: 'ONLINE',
+      paidOn: today,
+      settings: property.settings as PropertySettings,
+      today,
+      provider: 'razorpay',
+      providerOrderId: input.orderId,
+      providerPaymentId: input.providerPaymentId,
+    });
+
+    await writeAudit(tx, {
+      action: 'PAYMENT_CONFIRMED',
+      entityType: 'Payment',
+      entityId: settled.paymentId,
+      propertyId: first.propertyId,
+      summary: `Online payment of ₹${(settled.amountPaise / 100).toFixed(2)} confirmed via webhook (receipts ${settled.receiptNumbers.join(', ')})`,
+      actorRole: 'SYSTEM',
+    });
+
+    return settled;
+  });
+
+  const payer = await prisma.tenancy.findUnique({
+    where: { id: first.tenancyId },
+    select: { userId: true },
+  });
+  if (payer !== null) {
+    await notify({
+      event: 'PAYMENT_RECEIVED',
+      userId: payer.userId,
+      dedupeKey: settledPayment.paymentId,
+      params: {
+        amountPaise: settledPayment.amountPaise,
+        receiptNumber: settledPayment.receiptNumbers.join(', '),
+      },
+    });
+  }
 }
 
 // --- Receipts ---------------------------------------------------------------

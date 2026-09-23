@@ -4,6 +4,7 @@ import type {
   ComplaintCategoryName,
   ComplaintStatusName,
   FacilityIconKey,
+  InvoiceCategoryName,
   InvoiceItemKindName,
   InvoiceStatusName,
   MealTypeName,
@@ -36,7 +37,10 @@ export interface SettingsView {
     readonly city: string;
     readonly state: string;
     readonly pincode: string;
+    readonly latitude: number | null;
+    readonly longitude: number | null;
     readonly contactPhone: string;
+    readonly whatsappPhone: string | null;
     readonly contactEmail: string | null;
     readonly isPubliclyListed: boolean;
     readonly timezone: string;
@@ -194,7 +198,20 @@ export interface RegistrationDetailsView {
   readonly documentType: RegistrationDocumentType | null;
   readonly documentOtherDescription: string | null;
   readonly documentImageUrl: string | null;
+  readonly photoUrl: string | null;
   readonly completedAt: string | null;
+}
+
+/**
+ * A NON_RESIDENT who has completed the admission form but has no tenancy yet —
+ * someone the owner can review and decide whether to assign a bed.
+ */
+export interface ApplicantView {
+  readonly userId: string;
+  readonly fullName: string;
+  readonly phone: string | null;
+  readonly email: string | null;
+  readonly registration: RegistrationDetailsView;
 }
 
 export interface InvoiceItemView {
@@ -208,6 +225,7 @@ export interface InvoiceSummaryView {
   readonly id: string;
   readonly number: string;
   readonly periodKey: string;
+  readonly category: InvoiceCategoryName;
   readonly status: InvoiceStatusName;
   readonly issueDate: string;
   readonly dueDate: string;

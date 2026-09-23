@@ -1,4 +1,5 @@
 import {
+  confirmOnlinePaymentSchema,
   createComplaintSchema,
   idSchema,
   markAbsenceSchema,
@@ -100,7 +101,7 @@ residentRouter.get(
   }),
 );
 
-// --- Mock online payment ----------------------------------------------------
+// --- Online payment (Razorpay, or the mock stand-in) ------------------------
 
 residentRouter.post(
   '/payments/start',
@@ -108,26 +109,18 @@ residentRouter.post(
   validate({ body: startOnlinePaymentSchema }),
   handle((req) => {
     const { body } = getValidated<{ body: typeof startOnlinePaymentSchema }>(req);
-    // The amount is computed server-side from the invoice; the client never
+    // The amount is computed server-side from the invoices; the client never
     // supplies it. See docs/0007-payments.md.
-    return startOnlinePayment(getActor(req), body.invoiceId);
+    return startOnlinePayment(getActor(req), body.invoiceIds);
   }),
 );
-
-const confirmSchema = {
-  body: z.object({
-    invoiceId: idSchema,
-    orderId: z.string().trim().min(1).max(120),
-    mockToken: z.string().trim().min(1).max(200),
-  }),
-} as const;
 
 residentRouter.post(
   '/payments/confirm',
   requirePermission('self:write'),
-  validate(confirmSchema),
+  validate({ body: confirmOnlinePaymentSchema }),
   handle((req) => {
-    const { body } = getValidated<typeof confirmSchema>(req);
+    const { body } = getValidated<{ body: typeof confirmOnlinePaymentSchema }>(req);
     return confirmOnlinePayment(getActor(req), body);
   }),
 );

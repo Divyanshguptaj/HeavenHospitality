@@ -1,12 +1,11 @@
-import type * as ImagePickerModule from 'expo-image-picker';
 import { useState } from 'react';
-import { ActivityIndicator, Alert, Image, StyleSheet, Text, View } from 'react-native';
+import { Alert } from 'react-native';
 
 import { useSubmitRegistration } from '../api/resident';
 import { useAuthStore } from '../auth/authStore';
 import { ApiRequestError } from '../lib/apiClient';
 import { uploadToCloudinary } from '../lib/cloudinary';
-import { layout, useTheme } from '../theme';
+import { DocumentPhotoField } from './DocumentPhotoField';
 import {
   EMPTY_REGISTRATION_FORM,
   RegistrationFields,
@@ -38,65 +37,33 @@ function firstMissingFieldError(values: RegistrationFormValues): string | null {
  * resulting URL is sent to the API, which never sees the file itself.
  */
 export function CompleteRegistrationScreen() {
-  const theme = useTheme();
   const markRegistrationComplete = useAuthStore((state) => state.markRegistrationComplete);
+  const signOut = useAuthStore((state) => state.signOut);
   const [values, setValues] = useState<RegistrationFormValues>(EMPTY_REGISTRATION_FORM);
   const [termsAccepted, setTermsAccepted] = useState(false);
   const [photoUri, setPhotoUri] = useState<string | null>(null);
+  const [selfieUri, setSelfieUri] = useState<string | null>(null);
   const [uploading, setUploading] = useState(false);
+  const [signingOut, setSigningOut] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const submit = useSubmitRegistration();
 
+  function confirmSignOut(): void {
+    Alert.alert('Sign out?', 'You can finish this later — sign back in and pick up where you left off.', [
+      { text: 'Cancel', style: 'cancel' },
+      {
+        text: 'Sign out',
+        style: 'destructive',
+        onPress: () => {
+          setSigningOut(true);
+          void signOut().finally(() => setSigningOut(false));
+        },
+      },
+    ]);
+  }
+
   function patch(next: Partial<RegistrationFormValues>): void {
     setValues((current) => ({ ...current, ...next }));
-  }
-
-  // Loaded on demand, not at module scope: this native module only exists in a
-  // dev client that was rebuilt after it was added, and importing it eagerly
-  // would crash the whole resident section for anyone on an older build.
-  //
-  // Metro "guards" a module whose top-level code throws — it logs the error
-  // itself and hands back whatever partial exports resulted, rather than
-  // rejecting the `import()` — so a missing native module shows up as
-  // functions that are `undefined`, not as a catchable exception.
-  async function loadImagePicker(): Promise<typeof ImagePickerModule | null> {
-    try {
-      const module = await import('expo-image-picker');
-      if (typeof module.launchImageLibraryAsync !== 'function') throw new Error('native module missing');
-      return module;
-    } catch {
-      Alert.alert(
-        'Update needed',
-        'The photo picker needs a newer version of the app. Ask the developer to rebuild it.',
-      );
-      return null;
-    }
-  }
-
-  async function pickFromLibrary(): Promise<void> {
-    const ImagePicker = await loadImagePicker();
-    if (ImagePicker === null) return;
-    const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
-    if (!permission.granted) {
-      Alert.alert('Permission needed', 'Allow photo library access to attach the document.');
-      return;
-    }
-    const result = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ['images'], quality: 0.7 });
-    const asset = result.canceled ? undefined : result.assets[0];
-    if (asset !== undefined) setPhotoUri(asset.uri);
-  }
-
-  async function takePhoto(): Promise<void> {
-    const ImagePicker = await loadImagePicker();
-    if (ImagePicker === null) return;
-    const permission = await ImagePicker.requestCameraPermissionsAsync();
-    if (!permission.granted) {
-      Alert.alert('Permission needed', 'Allow camera access to attach the document.');
-      return;
-    }
-    const result = await ImagePicker.launchCameraAsync({ mediaTypes: ['images'], quality: 0.7 });
-    const asset = result.canceled ? undefined : result.assets[0];
-    if (asset !== undefined) setPhotoUri(asset.uri);
   }
 
   async function handleSubmit(): Promise<void> {
@@ -107,12 +74,12 @@ export function CompleteRegistrationScreen() {
       setError(fieldError);
       return;
     }
-    if (values.documentType === null) {
-      setError('Choose which document you are submitting.');
+    if (photoUri === null) {
+      setError('Attach a photo of your Aadhaar card.');
       return;
     }
-    if (photoUri === null) {
-      setError('Attach a photo of the document.');
+    if (selfieUri === null) {
+      setError('Add a photo of yourself.');
       return;
     }
     if (!termsAccepted) {
@@ -120,9 +87,11 @@ export function CompleteRegistrationScreen() {
       return;
     }
     let documentImageUrl: string;
+    let selfieUrl: string;
     try {
       setUploading(true);
       documentImageUrl = await uploadToCloudinary(photoUri);
+      selfieUrl = await uploadToCloudinary(selfieUri);
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : 'Could not upload the photo. Please try again.');
       return;
@@ -143,10 +112,9 @@ export function CompleteRegistrationScreen() {
         bloodGroup: values.bloodGroup.trim(),
         parentOccupation: values.parentOccupation.trim(),
         vehicleNumber: optionalField(values.vehicleNumber),
-        documentType: values.documentType,
-        documentOtherDescription:
-          values.documentOtherDescription.trim() === '' ? undefined : values.documentOtherDescription.trim(),
+        documentType: 'AADHAAR_CARD',
         documentImageUrl,
+        photoUrl: selfieUrl,
         termsAccepted: true,
       });
       // No navigation here: updating the store is what clears the root
@@ -167,42 +135,27 @@ export function CompleteRegistrationScreen() {
         subtitle="Fill this in once — the manager keeps it on file and can correct it later if anything changes."
       />
 
+      <Button
+        label={signingOut ? 'Signing out…' : 'Sign out instead'}
+        variant="secondary"
+        onPress={confirmSignOut}
+      />
+
       <Card>
         <CardTitle>Your details</CardTitle>
         <RegistrationFields values={values} onChange={patch} />
       </Card>
 
       <Card>
-        <CardTitle>Attach the document</CardTitle>
-        <Body>A photo of the document you selected above, so the manager can verify it.</Body>
+        <CardTitle>Aadhaar photo</CardTitle>
+        <Body>A clear photo of your Aadhaar card, so the manager can verify it.</Body>
+        <DocumentPhotoField photoUri={photoUri} uploading={uploading} onPick={setPhotoUri} />
+      </Card>
 
-        {photoUri !== null && (
-          <View style={styles.previewWrap}>
-            <Image source={{ uri: photoUri }} style={styles.preview} resizeMode="cover" />
-            {uploading && (
-              <View style={[styles.previewOverlay, { backgroundColor: 'rgba(0,0,0,0.45)' }]}>
-                <ActivityIndicator color={theme.textInverse} />
-                <Text style={[styles.previewOverlayText, { color: theme.textInverse }]}>Uploading…</Text>
-              </View>
-            )}
-          </View>
-        )}
-
-        <View style={styles.actionsRow}>
-          <Button label="Take photo" variant="secondary" onPress={() => void takePhoto()} />
-          <Button label="Choose from gallery" variant="secondary" onPress={() => void pickFromLibrary()} />
-        </View>
-
-        {/* Only in a dev build, and only until the picker's native module is in
-            the installed dev client — a way to test the rest of the form and
-            the upload without needing a real camera/gallery pick every time. */}
-        {__DEV__ && (
-          <Button
-            label="Use a test photo"
-            variant="secondary"
-            onPress={() => setPhotoUri('https://picsum.photos/seed/heaven-hospitality/800/600')}
-          />
-        )}
+      <Card>
+        <CardTitle>Your photo</CardTitle>
+        <Body>A clear, recent photo of your face, so the manager knows who you are.</Body>
+        <DocumentPhotoField photoUri={selfieUri} uploading={uploading} onPick={setSelfieUri} />
       </Card>
 
       <Card>
@@ -220,17 +173,3 @@ export function CompleteRegistrationScreen() {
     </Screen>
   );
 }
-
-const styles = StyleSheet.create({
-  previewWrap: { position: 'relative' },
-  preview: { width: '100%', height: 200, borderRadius: layout.radius.lg },
-  previewOverlay: {
-    ...StyleSheet.absoluteFillObject,
-    borderRadius: layout.radius.lg,
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: layout.spacing[2],
-  },
-  previewOverlayText: { fontSize: layout.fontSize.sm, fontWeight: '600' },
-  actionsRow: { flexDirection: 'row', gap: layout.spacing[2], flexWrap: 'wrap' },
-});

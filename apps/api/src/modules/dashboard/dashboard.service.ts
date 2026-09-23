@@ -9,7 +9,6 @@ import {
 } from '../../lib/dates.js';
 import { prisma } from '../../lib/prisma.js';
 import type { Actor } from '../../middleware/authenticate.js';
-import { getMealCounts } from '../mess/mess.service.js';
 import { getPropertyContext } from '../property/property.context.js';
 import { toRoomView } from '../property/rooms.service.js';
 
@@ -19,7 +18,7 @@ import { toRoomView } from '../property/rooms.service.js';
  * Every number is computed from the database on request — nothing is a
  * decorative placeholder, and nothing is stored in a field that could drift out
  * of date. The set is what an owner actually needs to run the day (spec §3):
- * who owes money, how many meals to cook, what is broken, which beds free up.
+ * who owes money, what is broken, which beds free up.
  */
 
 /** Vacancies further out than this are not yet actionable. */
@@ -31,7 +30,7 @@ export async function getDashboard(actor: Actor): Promise<DashboardView> {
   const today = todayInZone(timezone);
   const periodKey = currentPeriodKey(timezone);
 
-  const [beds, residents, invoices, complaints, upcoming, activity, meals] = await Promise.all([
+  const [beds, residents, invoices, complaints, upcoming, activity] = await Promise.all([
     prisma.bed.groupBy({
       by: ['status'],
       where: { room: { propertyId } },
@@ -82,7 +81,6 @@ export async function getDashboard(actor: Actor): Promise<DashboardView> {
       take: RECENT_ACTIVITY_LIMIT,
       include: { actorUser: { select: { fullName: true } } },
     }),
-    getMealCounts(propertyId, today),
   ]);
 
   const bedCountBy = new Map(beds.map((row) => [row.status, row._count._all]));
@@ -123,7 +121,6 @@ export async function getDashboard(actor: Actor): Promise<DashboardView> {
       overdueInvoiceCount: invoices.filter((invoice) => invoice.status === 'OVERDUE').length,
     },
     unpaidResidents: unpaid,
-    meals,
     openComplaints: complaints,
     // A tenancy with no current allocation has no bed to free up, whatever its
     // expected exit date says — including it here produced duplicate room/bed

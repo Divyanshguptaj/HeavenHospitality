@@ -143,6 +143,8 @@ model User {
   documentOtherDescription String?
   /// A Cloudinary URL — the file itself lives there, never in this database.
   documentImageUrl         String?
+  /// The person's own photo, also a Cloudinary URL. Required on every new submission; null only for accounts that registered before it was asked for.
+  photoUrl                 String?
   registrationCompletedAt  DateTime? @db.Timestamptz(3)
 
   createdAt DateTime @default(now()) @db.Timestamptz(3)
@@ -153,6 +155,10 @@ model User {
   auditLogs   AuditLog[]
   tenancies   Tenancy[]
   complaints  Complaint[]
+
+  deviceTokens           DeviceToken[]
+  notificationDeliveries NotificationDelivery[]
+  mutedNotificationKinds String[]               @default([])
 
   @@index([status])
   @@index([role])
@@ -669,6 +675,17 @@ enum InvoiceItemKind {
   DEPOSIT
 }
 
+/// What an invoice is FOR, distinct from what is on it — a RENT invoice can
+/// still carry a LATE_FEE or an ad-hoc OTHER/DISCOUNT item. Rent, electricity
+/// and the deposit are each billed on their own invoice, at most one per
+/// tenancy per period (see the unique index below), specifically so a resident
+/// can settle any one of the three without the other two being touched.
+enum InvoiceCategory {
+  RENT
+  ELECTRICITY
+  DEPOSIT
+}
+
 model Invoice {
   id         String   @id @default(uuid(7)) @db.Uuid
   propertyId String   @db.Uuid
@@ -676,9 +693,15 @@ model Invoice {
   tenancyId  String   @db.Uuid
   tenancy    Tenancy  @relation(fields: [tenancyId], references: [id], onDelete: Cascade)
 
-  /// "2026-09". With tenancyId this makes monthly generation idempotent.
+  /// "2026-09". With tenancyId and category this makes monthly generation
+  /// idempotent, and lets rent and electricity share a real calendar period
+  /// while remaining two separate, independently payable invoices.
   periodKey String
   number    String @unique
+
+  /// Defaults to RENT so every invoice generated before this column existed
+  /// reads as what it always was.
+  category InvoiceCategory @default(RENT)
 
   status    InvoiceStatus @default(ISSUED)
   issueDate DateTime      @db.Date
@@ -699,7 +722,7 @@ model Invoice {
   allocations PaymentAllocation[]
   receipts    Receipt[]
 
-  @@unique([tenancyId, periodKey])
+  @@unique([tenancyId, periodKey, category])
   @@index([propertyId, status])
   @@index([propertyId, periodKey])
   @@index([dueDate])
@@ -1169,6 +1192,69 @@ enum ReminderStatus {
 /// A rent reminder. The provider is mocked for now: events are recorded and
 /// shown in the owner UI, and a real WhatsApp/email sender drops in behind the
 /// same interface without touching this table.
+enum NotificationChannel {
+  PUSH
+  SMS
+  WHATSAPP
+}
+
+enum NotificationStatus {
+  PENDING
+  SENT
+  DELIVERED
+  FAILED
+  SKIPPED
+}
+
+/// One Expo push token for one installed app. A user can have several devices.
+model DeviceToken {
+  id         String    @id @default(uuid(7)) @db.Uuid
+  userId     String    @db.Uuid
+  user       User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  token      String    @unique
+  platform   String
+  createdAt  DateTime  @default(now()) @db.Timestamptz(3)
+  lastSeenAt DateTime  @default(now()) @db.Timestamptz(3)
+  /// Set when Expo reports the token dead, or the user signs out of the device.
+  disabledAt DateTime? @db.Timestamptz(3)
+
+  @@index([userId])
+}
+
+/// One attempt to tell one person about one event over one channel. Answers
+/// "did we send Rahul's rent reminder, and why did it fail?" — nothing more.
+/// The message body is never stored, only the event name.
+model NotificationDelivery {
+  id     String @id @default(uuid(7)) @db.Uuid
+  userId String @db.Uuid
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  /// e.g. "RENT_DUE_TODAY".
+  event   String
+  channel NotificationChannel
+  status  NotificationStatus  @default(PENDING)
+  provider String
+
+  /// Encodes the business meaning, e.g. "RENT_DUE_TODAY:<tenancyId>:2026-09".
+  /// Unique per channel, so re-running a job cannot send the same thing twice.
+  dedupeKey String
+
+  /// Expo ticket ids (comma-separated when the user has several devices), or
+  /// the Fast2SMS request id.
+  providerMessageId String?
+  attempts          Int     @default(0)
+  lastError         String?
+
+  createdAt   DateTime  @default(now()) @db.Timestamptz(3)
+  sentAt      DateTime? @db.Timestamptz(3)
+  deliveredAt DateTime? @db.Timestamptz(3)
+  failedAt    DateTime? @db.Timestamptz(3)
+
+  @@unique([dedupeKey, channel])
+  @@index([userId, createdAt])
+  @@index([channel, status])
+}
+
 model ReminderEvent {
   id         String   @id @default(uuid(7)) @db.Uuid
   propertyId String   @db.Uuid

@@ -1,19 +1,11 @@
 import { normalizeIndianPhone } from '@heaven/contracts';
 import { router } from 'expo-router';
 import { useState } from 'react';
-import {
-  KeyboardAvoidingView,
-  Platform,
-  Pressable,
-  ScrollView,
-  StyleSheet,
-  Text,
-  View,
-} from 'react-native';
+import { Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { useAuthStore } from '../../src/auth/authStore';
 import { FieldError, FieldLabel, PasswordField, PhoneField } from '../../src/components/authFields';
-import { Button, Card, PageHeading } from '../../src/components/ui';
+import { Button, Card, PageHeading, Screen } from '../../src/components/ui';
 import { ApiRequestError } from '../../src/lib/apiClient';
 import { layout, useTheme } from '../../src/theme';
 
@@ -50,8 +42,9 @@ export default function LoginScreen() {
 
     try {
       await signIn(normalized, password);
-      // The root layout routes by role once the session lands.
-      router.replace('/');
+      // No navigation here: the root layout's own effect reacts to the
+      // session landing and replaces this screen itself — see set-password.tsx
+      // for why racing it with an explicit `replace('/')` is unsafe.
     } catch (caught) {
       // The server reports "no such number" and "wrong password" identically;
       // the UI must not try to be more specific than that.
@@ -66,68 +59,62 @@ export default function LoginScreen() {
   }
 
   return (
-    <KeyboardAvoidingView
-      style={{ flex: 1, backgroundColor: theme.canvas }}
-      behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-    >
-      <ScrollView contentContainerStyle={styles.container} keyboardShouldPersistTaps="handled">
-        <PageHeading title="Sign in" subtitle="Use the mobile number registered with us." />
+    <Screen>
+      <PageHeading title="Sign in" subtitle="Use the mobile number registered with us." />
 
-        <Card>
-          <View style={styles.field}>
-            <FieldLabel>Mobile number</FieldLabel>
-            <PhoneField value={phone} onChangeText={setPhone} editable={!submitting} autoFocus />
-          </View>
+      <Card>
+        <View style={styles.field}>
+          <FieldLabel>Mobile number</FieldLabel>
+          <PhoneField value={phone} onChangeText={setPhone} editable={!submitting} autoFocus />
+        </View>
 
-          <PasswordField
-            label="Password"
-            value={password}
-            onChangeText={setPassword}
-            editable={!submitting}
-            onSubmitEditing={() => void handleSubmit()}
-          />
+        <PasswordField
+          label="Password"
+          value={password}
+          onChangeText={setPassword}
+          editable={!submitting}
+          onSubmitEditing={() => void handleSubmit()}
+        />
 
-          <FieldError message={error} />
+        <FieldError message={error} />
 
-          <Button
-            label={submitting ? 'Signing in…' : 'Sign in'}
-            onPress={() => void handleSubmit()}
-            accessibilityLabel={canSubmit ? 'Sign in' : 'Sign in — complete the form first'}
-          />
-
-          <Pressable
-            onPress={() => router.push('/(auth)/forgot-phone')}
-            accessibilityRole="button"
-            style={styles.link}
-          >
-            <Text style={[styles.linkText, { color: theme.primary }]}>Forgot your password?</Text>
-          </Pressable>
-        </Card>
+        <Button
+          label={submitting ? 'Signing in…' : 'Sign in'}
+          onPress={() => void handleSubmit()}
+          accessibilityLabel={canSubmit ? 'Sign in' : 'Sign in — complete the form first'}
+        />
 
         <Pressable
-          onPress={() => router.replace('/(auth)/signup-phone')}
+          onPress={() => router.push('/(auth)/forgot-phone')}
           accessibilityRole="button"
           style={styles.link}
         >
-          <Text style={[styles.linkText, { color: theme.primary }]}>
-            New here? Create an account
-          </Text>
+          <Text style={[styles.linkText, { color: theme.primary }]}>Forgot your password?</Text>
         </Pressable>
+      </Card>
 
-        <Pressable
-          onPress={() => router.replace('/(public)')}
-          accessibilityRole="button"
-          style={styles.link}
-        >
-          <Text style={[styles.linkText, { color: theme.textSecondary }]}>Continue as a guest</Text>
-        </Pressable>
-      </ScrollView>
-    </KeyboardAvoidingView>
+      <Pressable
+        onPress={() => router.replace('/(auth)/signup-phone')}
+        accessibilityRole="button"
+        style={styles.link}
+      >
+        <Text style={[styles.linkText, { color: theme.primary }]}>
+          New here? Create an account
+        </Text>
+      </Pressable>
+
+      <Pressable
+        onPress={() => router.replace('/(public)')}
+        accessibilityRole="button"
+        style={styles.link}
+      >
+        <Text style={[styles.linkText, { color: theme.textSecondary }]}>Continue as a guest</Text>
+      </Pressable>
+    </Screen>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { padding: layout.spacing[5], gap: layout.spacing[5] },
   field: { gap: layout.spacing[2] },
   link: { minHeight: layout.minTouchTarget, justifyContent: 'center', alignItems: 'center' },
   linkText: { fontSize: layout.fontSize.md, fontWeight: '600' },

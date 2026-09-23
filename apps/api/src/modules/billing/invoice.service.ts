@@ -1,6 +1,6 @@
 import type { InvoiceDetailView, InvoiceSummaryView } from '@heaven/contracts';
 import { sumPaise } from '@heaven/money';
-import type { PropertySettings } from '@prisma/client';
+import type { Prisma, PropertySettings } from '@prisma/client';
 
 import { AppError } from '../../errors/AppError.js';
 import type { Loose } from '../../lib/types.js';
@@ -49,6 +49,7 @@ function toSummary(invoice: InvoiceRecord): InvoiceSummaryView {
     id: invoice.id,
     number: invoice.number,
     periodKey: invoice.periodKey,
+    category: invoice.category,
     status: invoice.status,
     issueDate: fromPrismaDate(invoice.issueDate),
     dueDate: fromPrismaDate(invoice.dueDate),
@@ -87,54 +88,65 @@ export async function recomputeInvoice(
     invoice.items.filter((item) => item.kind !== 'LATE_FEE').map((item) => item.amountPaise),
   );
 
-  // Settlement date drives the late fee: paying late must not keep costing more
-  // afterwards. Derived from when the principal was actually covered.
-  const settledOn =
-    invoice.amountPaidPaise >= principal && invoice.amountPaidPaise > 0
-      ? await latestPaymentDate(tx, invoice.id, today)
-      : null;
+  // A deposit is never rent: it is billed on its own invoice (never mixed
+  // with a RENT item — see generateDepositInvoice), and it carries no
+  // schedule-driven late fee. Left unpaid, or paid in parts, it just sits at
+  // whatever status that leaves it — never an extra charge on top.
+  const isDepositInvoice = invoice.category === 'DEPOSIT';
 
-  const lateFee = calculateLateFee({
-    dueDate: fromPrismaDate(invoice.dueDate),
-    graceDays: settings.graceDays,
-    perDayPaise: settings.lateFeePerDayPaise,
-    capPaise: settings.lateFeeCapPaise,
-    asOf: today,
-    settledOn,
-    isWaived: invoice.lateFeeWaivedAt !== null,
-    outstandingPaise: Math.max(0, principal - invoice.amountPaidPaise),
-  });
+  let lateFeeAmountPaise = 0;
 
-  const existingLateFee = invoice.items.find((item) => item.kind === 'LATE_FEE');
+  if (!isDepositInvoice) {
+    // Settlement date drives the late fee: paying late must not keep costing
+    // more afterwards. Derived from when the principal was actually covered.
+    const settledOn =
+      invoice.amountPaidPaise >= principal && invoice.amountPaidPaise > 0
+        ? await latestPaymentDate(tx, invoice.id, today)
+        : null;
 
-  if (lateFee.amountPaise > 0) {
-    const description = `Late fee — ${lateFee.overdueDays} day(s)${lateFee.isCapped ? ' (capped)' : ''}`;
-    if (existingLateFee === undefined) {
-      await tx.invoiceItem.create({
-        data: {
-          invoiceId,
-          kind: 'LATE_FEE',
-          description,
-          amountPaise: lateFee.amountPaise,
-          sourceType: 'LateFeeRule',
-        },
-      });
-    } else if (
-      existingLateFee.amountPaise !== lateFee.amountPaise ||
-      existingLateFee.description !== description
-    ) {
-      await tx.invoiceItem.update({
-        where: { id: existingLateFee.id },
-        data: { amountPaise: lateFee.amountPaise, description },
-      });
+    const lateFee = calculateLateFee({
+      dueDate: fromPrismaDate(invoice.dueDate),
+      graceDays: settings.graceDays,
+      perDayPaise: settings.lateFeePerDayPaise,
+      capPaise: settings.lateFeeCapPaise,
+      asOf: today,
+      settledOn,
+      isWaived: invoice.lateFeeWaivedAt !== null,
+      outstandingPaise: Math.max(0, principal - invoice.amountPaidPaise),
+    });
+    lateFeeAmountPaise = lateFee.amountPaise;
+
+    const existingLateFee = invoice.items.find((item) => item.kind === 'LATE_FEE');
+
+    if (lateFee.amountPaise > 0) {
+      const description = `Late fee — ${lateFee.overdueDays} day(s)${lateFee.isCapped ? ' (capped)' : ''}`;
+      if (existingLateFee === undefined) {
+        await tx.invoiceItem.create({
+          data: {
+            invoiceId,
+            kind: 'LATE_FEE',
+            description,
+            amountPaise: lateFee.amountPaise,
+            sourceType: 'LateFeeRule',
+          },
+        });
+      } else if (
+        existingLateFee.amountPaise !== lateFee.amountPaise ||
+        existingLateFee.description !== description
+      ) {
+        await tx.invoiceItem.update({
+          where: { id: existingLateFee.id },
+          data: { amountPaise: lateFee.amountPaise, description },
+        });
+      }
+    } else if (existingLateFee !== undefined) {
+      // Waived, or settled within grace — the line is removed rather than zeroed,
+      // so the invoice does not carry a meaningless ₹0 row.
+      await tx.invoiceItem.delete({ where: { id: existingLateFee.id } });
     }
-  } else if (existingLateFee !== undefined) {
-    // Waived, or settled within grace — the line is removed rather than zeroed,
-    // so the invoice does not carry a meaningless ₹0 row.
-    await tx.invoiceItem.delete({ where: { id: existingLateFee.id } });
   }
 
-  const total = principal + lateFee.amountPaise;
+  const total = principal + lateFeeAmountPaise;
 
   await tx.invoice.update({
     where: { id: invoiceId },
@@ -169,6 +181,253 @@ async function latestPaymentDate(
   );
 }
 
+const TENANCY_FOR_BILLING_INCLUDE = {
+  user: { select: { fullName: true } },
+  allocations: {
+    include: {
+      bed: { select: { room: { select: { monthlyRentPaise: true, number: true } } } },
+    },
+    orderBy: { startedAt: 'asc' },
+  },
+} as const;
+
+type TenancyForBilling = Prisma.TenancyGetPayload<{ include: typeof TENANCY_FOR_BILLING_INCLUDE }> & {
+  electricityShares: ReadonlyArray<{
+    readonly id: string;
+    readonly sharePaise: number;
+    readonly reading: {
+      readonly units: number;
+      readonly ratePaisePerUnit: number;
+      readonly room: { readonly number: string };
+    };
+  }>;
+};
+
+/**
+ * Raises one tenancy's invoice(s) for a period, if it doesn't have them yet
+ * and there is anything to bill. The building block behind both the owner's
+ * manual "generate invoices" action and the automatic month-rollover job —
+ * neither an actor nor a request is required, so a system-triggered run
+ * calls this exactly like an owner-triggered one does.
+ *
+ * Rent and electricity are raised as two separate invoices sharing the same
+ * period, each independently checked against the tenancyId+periodKey+category
+ * unique key — so a resident can settle one without the other being touched,
+ * and re-running this after one of the two already exists still raises the
+ * other instead of skipping outright.
+ *
+ * Runs inside the caller's transaction so an invoice and its audit entry
+ * cannot diverge.
+ */
+export async function generateInvoiceForTenancy(
+  tx: TransactionClient,
+  params: {
+    propertyId: string;
+    periodKey: PeriodKey;
+    settings: PropertySettings;
+    today: DateOnly;
+    tenancy: TenancyForBilling;
+    actor?: { readonly userId: string; readonly role: string } | undefined;
+  },
+): Promise<boolean> {
+  const { propertyId, periodKey, settings, today, tenancy, actor } = params;
+
+  const roomRent = tenancy.allocations.at(-1)?.bed.room.monthlyRentPaise ?? 0;
+  const monthlyRent = tenancy.monthlyRentOverridePaise ?? roomRent;
+
+  const rent = calculateRent({
+    periodKey,
+    monthlyRentPaise: monthlyRent,
+    joiningDate: fromPrismaDate(tenancy.joiningDate),
+    exitDate: tenancy.actualExitDate === null ? null : fromPrismaDate(tenancy.actualExitDate),
+  });
+
+  let raisedAny = false;
+
+  if (rent.amountPaise > 0) {
+    raisedAny =
+      (await raiseCategoryInvoice(tx, {
+        propertyId,
+        periodKey,
+        category: 'RENT',
+        settings,
+        today,
+        tenancy,
+        actor,
+        items: [
+          {
+            kind: 'RENT' as const,
+            description: rent.isProrated
+              ? `Room rent — ${rent.occupiedDays} of ${rent.daysInPeriod} days`
+              : 'Room rent',
+            amountPaise: rent.amountPaise,
+          },
+        ],
+      })) || raisedAny;
+  }
+
+  if (tenancy.electricityShares.length > 0) {
+    raisedAny =
+      (await raiseCategoryInvoice(tx, {
+        propertyId,
+        periodKey,
+        category: 'ELECTRICITY',
+        settings,
+        today,
+        tenancy,
+        actor,
+        items: tenancy.electricityShares.map((share) => ({
+          kind: 'ELECTRICITY' as const,
+          description: `Electricity — room ${share.reading.room.number}, ${share.reading.units} units @ ₹${(share.reading.ratePaisePerUnit / 100).toFixed(2)}/unit`,
+          amountPaise: share.sharePaise,
+          sourceType: 'ElectricityShare',
+          sourceId: share.id,
+        })),
+      })) || raisedAny;
+  }
+
+  return raisedAny;
+}
+
+async function raiseCategoryInvoice(
+  tx: TransactionClient,
+  params: {
+    propertyId: string;
+    periodKey: PeriodKey;
+    category: 'RENT' | 'ELECTRICITY';
+    settings: PropertySettings;
+    today: DateOnly;
+    tenancy: TenancyForBilling;
+    actor?: { readonly userId: string; readonly role: string } | undefined;
+    items: ReadonlyArray<{
+      kind: 'RENT' | 'ELECTRICITY';
+      description: string;
+      amountPaise: number;
+      sourceType?: string;
+      sourceId?: string;
+    }>;
+  },
+): Promise<boolean> {
+  const { propertyId, periodKey, category, settings, today, tenancy, actor, items } = params;
+
+  const existing = await tx.invoice.findUnique({
+    where: { tenancyId_periodKey_category: { tenancyId: tenancy.id, periodKey, category } },
+    select: { id: true },
+  });
+  if (existing !== null) return false;
+
+  const sequence = await tx.invoice.count({ where: { propertyId, periodKey } });
+  const prefix = category === 'RENT' ? 'INV' : 'INV-ELEC';
+  const number = `${prefix}-${periodKey.replace('-', '')}-${String(sequence + 1).padStart(4, '0')}`;
+
+  const invoice = await tx.invoice.create({
+    data: {
+      propertyId,
+      tenancyId: tenancy.id,
+      periodKey,
+      category,
+      number,
+      status: 'ISSUED',
+      // Issued at the start of the period; rent and electricity are both
+      // charged in advance on the same schedule.
+      issueDate: toPrismaDate(firstDayOfPeriod(periodKey)),
+      dueDate: toPrismaDate(dueDateFor(periodKey, settings.rentDueDay)),
+      items: { create: [...items] },
+    },
+  });
+
+  await recomputeInvoice(tx, invoice.id, settings, today);
+
+  await writeAudit(tx, {
+    action: 'INVOICE_ISSUED',
+    entityType: 'Invoice',
+    entityId: invoice.id,
+    propertyId,
+    summary: `Invoice ${number} issued to ${tenancy.user.fullName} for ${periodKey}`,
+    actorUserId: actor?.userId,
+    actorRole: actor?.role ?? 'SYSTEM',
+  });
+
+  return true;
+}
+
+/**
+ * The sentinel `periodKey` a deposit invoice is filed under — never a real
+ * "YYYY-MM" period, so `@@unique([tenancyId, periodKey])` gives a tenancy at
+ * most one deposit invoice, and the monthly rollover/rent-generation code
+ * (which only ever asks for real calendar periods) never touches it.
+ */
+export const DEPOSIT_PERIOD_KEY: PeriodKey = 'DEPOSIT';
+
+/**
+ * Raises the one-time security-deposit invoice for a tenancy.
+ *
+ * Kept on its own invoice rather than as a line on the rent invoice: rent is
+ * always settled in full each period, but a deposit may be paid in full, in
+ * parts, or not yet, and a future payment needs to be able to target one
+ * without touching the other. It also carries no late fee — see the
+ * `isDepositInvoice` guard in `recomputeInvoice`.
+ */
+export async function generateDepositInvoice(
+  tx: TransactionClient,
+  params: {
+    propertyId: string;
+    tenancyId: string;
+    residentName: string;
+    amountPaise: number;
+    issueDate: DateOnly;
+    settings: PropertySettings;
+    today: DateOnly;
+    actor?: { readonly userId: string; readonly role: string } | undefined;
+  },
+): Promise<boolean> {
+  const { propertyId, tenancyId, residentName, amountPaise, issueDate, settings, today, actor } = params;
+
+  if (amountPaise <= 0) return false;
+
+  const existing = await tx.invoice.findUnique({
+    where: {
+      tenancyId_periodKey_category: { tenancyId, periodKey: DEPOSIT_PERIOD_KEY, category: 'DEPOSIT' },
+    },
+    select: { id: true },
+  });
+  if (existing !== null) return false;
+
+  const sequence = await tx.invoice.count({ where: { propertyId, periodKey: DEPOSIT_PERIOD_KEY } });
+  const number = `INV-DEPOSIT-${String(sequence + 1).padStart(4, '0')}`;
+
+  const invoice = await tx.invoice.create({
+    data: {
+      propertyId,
+      tenancyId,
+      periodKey: DEPOSIT_PERIOD_KEY,
+      category: 'DEPOSIT',
+      number,
+      status: 'ISSUED',
+      issueDate: toPrismaDate(issueDate),
+      // Due the day it's issued — a deposit isn't on rent's monthly clock, and
+      // it never accrues a late fee, so this only marks it outstanding from
+      // day one rather than putting it under any real deadline pressure.
+      dueDate: toPrismaDate(issueDate),
+      items: { create: [{ kind: 'DEPOSIT', description: 'Security deposit', amountPaise }] },
+    },
+  });
+
+  await recomputeInvoice(tx, invoice.id, settings, today);
+
+  await writeAudit(tx, {
+    action: 'INVOICE_ISSUED',
+    entityType: 'Invoice',
+    entityId: invoice.id,
+    propertyId,
+    summary: `Deposit invoice ${number} issued to ${residentName}`,
+    actorUserId: actor?.userId,
+    actorRole: actor?.role ?? 'SYSTEM',
+  });
+
+  return true;
+}
+
 /**
  * Generates one invoice per active resident for a billing period.
  *
@@ -194,13 +453,7 @@ export async function generateInvoicesForPeriod(
       OR: [{ status: { in: ['ACTIVE', 'NOTICE_PERIOD'] } }, { actualExitDate: { not: null } }],
     },
     include: {
-      user: { select: { fullName: true } },
-      allocations: {
-        include: {
-          bed: { select: { room: { select: { monthlyRentPaise: true, number: true } } } },
-        },
-        orderBy: { startedAt: 'asc' },
-      },
+      ...TENANCY_FOR_BILLING_INCLUDE,
       electricityShares: {
         where: { reading: { periodKey, status: 'ACTIVE' } },
         include: {
@@ -216,85 +469,18 @@ export async function generateInvoicesForPeriod(
   let skipped = 0;
 
   for (const tenancy of tenancies) {
-    const existing = await prisma.invoice.findUnique({
-      where: { tenancyId_periodKey: { tenancyId: tenancy.id, periodKey } },
-      select: { id: true },
-    });
-
-    if (existing !== null) {
-      skipped += 1;
-      continue;
-    }
-
-    const roomRent = tenancy.allocations.at(-1)?.bed.room.monthlyRentPaise ?? 0;
-    const monthlyRent = tenancy.monthlyRentOverridePaise ?? roomRent;
-
-    const rent = calculateRent({
-      periodKey,
-      monthlyRentPaise: monthlyRent,
-      joiningDate: fromPrismaDate(tenancy.joiningDate),
-      exitDate: tenancy.actualExitDate === null ? null : fromPrismaDate(tenancy.actualExitDate),
-    });
-
-    // Nothing to bill: they were not resident during this period at all.
-    if (rent.amountPaise === 0 && tenancy.electricityShares.length === 0) {
-      skipped += 1;
-      continue;
-    }
-
-    await prisma.$transaction(async (tx) => {
-      const sequence = await tx.invoice.count({ where: { propertyId, periodKey } });
-      const number = `INV-${periodKey.replace('-', '')}-${String(sequence + 1).padStart(4, '0')}`;
-
-      const invoice = await tx.invoice.create({
-        data: {
-          propertyId,
-          tenancyId: tenancy.id,
-          periodKey,
-          number,
-          status: 'ISSUED',
-          // Issued at the start of the period; rent is charged in advance.
-          issueDate: toPrismaDate(firstDayOfPeriod(periodKey)),
-          dueDate: toPrismaDate(dueDateFor(periodKey, settings.rentDueDay)),
-          items: {
-            create: [
-              ...(rent.amountPaise > 0
-                ? [
-                    {
-                      kind: 'RENT' as const,
-                      description: rent.isProrated
-                        ? `Room rent — ${rent.occupiedDays} of ${rent.daysInPeriod} days`
-                        : 'Room rent',
-                      amountPaise: rent.amountPaise,
-                    },
-                  ]
-                : []),
-              ...tenancy.electricityShares.map((share) => ({
-                kind: 'ELECTRICITY' as const,
-                description: `Electricity — room ${share.reading.room.number}, ${share.reading.units} units @ ₹${(share.reading.ratePaisePerUnit / 100).toFixed(2)}/unit`,
-                amountPaise: share.sharePaise,
-                sourceType: 'ElectricityShare',
-                sourceId: share.id,
-              })),
-            ],
-          },
-        },
-      });
-
-      await recomputeInvoice(tx, invoice.id, settings, today);
-
-      await writeAudit(tx, {
-        action: 'INVOICE_ISSUED',
-        entityType: 'Invoice',
-        entityId: invoice.id,
+    const wasCreated = await prisma.$transaction((tx) =>
+      generateInvoiceForTenancy(tx, {
         propertyId,
-        summary: `Invoice ${number} issued to ${tenancy.user.fullName} for ${periodKey}`,
-        actorUserId: actor.userId,
-        actorRole: 'ADMIN',
-      });
-    });
-
-    created += 1;
+        periodKey,
+        settings,
+        today,
+        tenancy,
+        actor: { userId: actor.userId, role: 'ADMIN' },
+      }),
+    );
+    if (wasCreated) created += 1;
+    else skipped += 1;
   }
 
   return { created, skipped };

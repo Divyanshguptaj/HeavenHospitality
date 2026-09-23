@@ -76,6 +76,15 @@ export const INVOICE_ITEM_KINDS = [
 ] as const;
 export type InvoiceItemKindName = (typeof INVOICE_ITEM_KINDS)[number];
 
+/**
+ * What an invoice is FOR, distinct from what is on it — a RENT invoice can
+ * still carry a LATE_FEE or an ad-hoc OTHER/DISCOUNT item. Rent, electricity
+ * and the deposit are each billed on their own invoice, so a resident can
+ * settle any one of the three without the other two being touched.
+ */
+export const INVOICE_CATEGORIES = ['RENT', 'ELECTRICITY', 'DEPOSIT'] as const;
+export type InvoiceCategoryName = (typeof INVOICE_CATEGORIES)[number];
+
 export const PAYMENT_METHODS = ['CASH', 'UPI', 'BANK_TRANSFER', 'ONLINE'] as const;
 export type PaymentMethodName = (typeof PAYMENT_METHODS)[number];
 
@@ -155,6 +164,12 @@ export const INVOICE_STATUS_LABELS: Readonly<Record<InvoiceStatusName, string>> 
   PAID: 'Paid',
   OVERDUE: 'Overdue',
   CANCELLED: 'Cancelled',
+});
+
+export const INVOICE_CATEGORY_LABELS: Readonly<Record<InvoiceCategoryName, string>> = Object.freeze({
+  RENT: 'Rent',
+  ELECTRICITY: 'AC bill',
+  DEPOSIT: 'Security',
 });
 
 export const PAYMENT_METHOD_LABELS: Readonly<Record<PaymentMethodName, string>> = Object.freeze({
@@ -366,6 +381,8 @@ const registrationFieldsSchema = z.object({
   documentOtherDescription: z.string().trim().max(120).optional(),
   /// Uploaded to Cloudinary by the client; this is just the URL it handed back.
   documentImageUrl: z.string().trim().url().max(500),
+  /// The person's own photo, uploaded the same way.
+  photoUrl: z.string().trim().url().max(500),
 });
 
 export const submitRegistrationSchema = registrationFieldsSchema
@@ -426,8 +443,11 @@ export const addInvoiceItemSchema = z.object({
 
 export const recordPaymentSchema = z.object({
   tenancyId: idSchema,
-  invoiceId: idSchema.optional(),
-  amountPaise: z.number().int().positive(),
+  // Which of the resident's outstanding invoices (rent, AC bill, security —
+  // any one, any two, or all three) this payment settles. The amount is never
+  // taken from the client: it is the sum of these invoices' outstanding
+  // balances, computed server-side.
+  invoiceIds: z.array(idSchema).min(1),
   method: z.enum(['CASH', 'UPI', 'BANK_TRANSFER']),
   paidAt: dateOnlySchema,
   reference: z.string().trim().max(60).optional(),
@@ -435,13 +455,16 @@ export const recordPaymentSchema = z.object({
 });
 
 export const startOnlinePaymentSchema = z.object({
-  invoiceId: idSchema,
+  invoiceIds: z.array(idSchema).min(1),
 });
 
 export const confirmOnlinePaymentSchema = z.object({
+  invoiceIds: z.array(idSchema).min(1),
   orderId: z.string().trim().min(1).max(120),
-  /// The mock provider's stand-in for a gateway signature.
-  mockToken: z.string().trim().min(1).max(200),
+  /// Razorpay's `razorpay_payment_id` — or the mock provider's stand-in.
+  providerPaymentId: z.string().trim().min(1).max(120),
+  /// Razorpay's `razorpay_signature` — or the mock provider's stand-in.
+  signature: z.string().trim().min(1).max(200),
 });
 
 // --- Mess -------------------------------------------------------------------
