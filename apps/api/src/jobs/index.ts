@@ -467,9 +467,16 @@ export function startScheduledJobs(): void {
     { timezone: timeZone },
   );
 
+  // A process that was down at 00:35 on the 1st would otherwise skip the whole
+  // month. `runOnce` is keyed by the period, so this is a no-op whenever the
+  // rollover already ran — it only fills the gap.
+  void runOnce('monthly-rollover', currentPeriodKey(timeZone), () =>
+    rolloverMonth(currentPeriodKey(timeZone), todayInZone(timeZone)),
+  ).catch((error: unknown) => logger.error({ err: error }, 'monthly rollover catch-up failed'));
+
   logger.info(
     { timeZone },
-    'Scheduled jobs registered: late-fees 00:30, rent-reminders 09:00, monthly-rollover 00:35 on the 1st',
+    'Scheduled jobs registered: late-fees 00:30, rent-reminders 09:00, monthly-rollover 00:35 on the 1st (also caught up at startup)',
   );
 }
 

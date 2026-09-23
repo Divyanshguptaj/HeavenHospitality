@@ -5,6 +5,7 @@ import type { PaymentMethod, PropertySettings } from '@prisma/client';
 import { AppError } from '../../errors/AppError.js';
 import type { Loose } from '../../lib/types.js';
 import { writeAudit, type TransactionClient } from '../../lib/audit.js';
+import { logger } from '../../lib/logger.js';
 import {
   fiscalYearOf,
   fromPrismaDate,
@@ -93,6 +94,8 @@ async function settlePayment(
     notes?: string | undefined;
     recordedByUserId?: string | undefined;
     idempotencyKey?: string | undefined;
+    /** What the provider actually captured. A mismatch with the invoices' current balance is refused, never settled. */
+    expectedAmountPaise?: number | null | undefined;
   },
 ): Promise<{ paymentId: string; receiptNumbers: string[]; amountPaise: number }> {
   const outstanding = await tx.invoice.findMany({
@@ -113,6 +116,13 @@ async function settlePayment(
   const amountPaise = sumPaise(payable.map((invoice) => invoice.outstandingPaise));
   if (amountPaise <= 0) {
     throw new AppError('INVOICE_NOT_PAYABLE', 'The selected invoices are already settled.');
+  }
+
+  if (params.expectedAmountPaise != null && params.expectedAmountPaise !== amountPaise) {
+    throw new AppError(
+      'PAYMENT_VERIFICATION_FAILED',
+      'The amount paid does not match what these invoices now total.',
+    );
   }
 
   // Every invoice in the set is targeted, so this only decides the order the
@@ -444,50 +454,66 @@ export async function confirmOnlinePayment(
     where: { id: { in: input.invoiceIds }, tenancyId },
     select: { id: true },
   });
-  if (invoices.length !== input.invoiceIds.length) throw new AppError('NOT_FOUND', 'Invoice not found.');
+  if (invoices.length !== input.invoiceIds.length)
+    throw new AppError('NOT_FOUND', 'Invoice not found.');
 
   const confirmation = await paymentProvider.verify({
     orderId: input.orderId,
     providerPaymentId: input.providerPaymentId,
     signature: input.signature,
+    invoiceIds: input.invoiceIds,
   });
+
+  const existingReceipts = async (): Promise<string[] | null> => {
+    const already = await prisma.payment.findUnique({
+      where: { providerPaymentId: confirmation.providerPaymentId },
+      include: { receipts: { select: { number: true } } },
+    });
+    return already === null ? null : already.receipts.map((r) => r.number);
+  };
 
   // The provider payment id is unique, so a replayed confirmation cannot create
   // a second payment — the same guard a real webhook needs.
-  const already = await prisma.payment.findUnique({
-    where: { providerPaymentId: confirmation.providerPaymentId },
-    include: { receipts: { select: { number: true } } },
-  });
-  if (already !== null) {
-    return { receiptNumbers: already.receipts.map((r) => r.number) };
+  const alreadyRecorded = await existingReceipts();
+  if (alreadyRecorded !== null) return { receiptNumbers: alreadyRecorded };
+
+  let result: Awaited<ReturnType<typeof settlePayment>>;
+  try {
+    result = await prisma.$transaction(async (tx) => {
+      const settled = await settlePayment(tx, {
+        propertyId,
+        tenancyId,
+        targetInvoiceIds: input.invoiceIds,
+        method: 'ONLINE',
+        paidOn: today,
+        settings,
+        today,
+        provider: paymentProvider.name,
+        providerOrderId: input.orderId,
+        providerPaymentId: confirmation.providerPaymentId,
+        expectedAmountPaise: confirmation.amountPaise,
+      });
+
+      await writeAudit(tx, {
+        action: 'PAYMENT_CONFIRMED',
+        entityType: 'Payment',
+        entityId: settled.paymentId,
+        propertyId,
+        summary: `Online payment of ₹${(settled.amountPaise / 100).toFixed(2)} confirmed (receipts ${settled.receiptNumbers.join(', ')})`,
+        actorUserId: actor.userId,
+        actorRole: 'RESIDENT',
+      });
+
+      return settled;
+    });
+  } catch (error) {
+    // The webhook for this same payment can commit between the check above and
+    // this transaction. Whichever lost the race finds the winner's payment and
+    // reports it as done, instead of surfacing a failure for money already taken.
+    const winner = await existingReceipts();
+    if (winner !== null) return { receiptNumbers: winner };
+    throw error;
   }
-
-  const result = await prisma.$transaction(async (tx) => {
-    const settled = await settlePayment(tx, {
-      propertyId,
-      tenancyId,
-      targetInvoiceIds: input.invoiceIds,
-      method: 'ONLINE',
-      paidOn: today,
-      settings,
-      today,
-      provider: paymentProvider.name,
-      providerOrderId: input.orderId,
-      providerPaymentId: confirmation.providerPaymentId,
-    });
-
-    await writeAudit(tx, {
-      action: 'PAYMENT_CONFIRMED',
-      entityType: 'Payment',
-      entityId: settled.paymentId,
-      propertyId,
-      summary: `Online payment of ₹${(settled.amountPaise / 100).toFixed(2)} confirmed (receipts ${settled.receiptNumbers.join(', ')})`,
-      actorUserId: actor.userId,
-      actorRole: 'RESIDENT',
-    });
-
-    return settled;
-  });
 
   await notify({
     event: 'PAYMENT_RECEIVED',
@@ -516,9 +542,28 @@ export async function settleOnlinePaymentFromWebhook(input: {
   invoiceIds: string[];
   orderId: string;
   providerPaymentId: string;
+  capturedAmountPaise: number;
 }): Promise<void> {
-  const already = await prisma.payment.findUnique({ where: { providerPaymentId: input.providerPaymentId } });
+  const already = await prisma.payment.findUnique({
+    where: { providerPaymentId: input.providerPaymentId },
+  });
   if (already !== null) return;
+
+  // Money Razorpay has already captured but this server cannot book — the
+  // webhook is acknowledged (a retry would fail the same way) but never silent:
+  // this line is what an owner reconciles or refunds from.
+  const unreconciled = (reason: string): void => {
+    logger.error(
+      {
+        reason,
+        orderId: input.orderId,
+        providerPaymentId: input.providerPaymentId,
+        invoiceIds: input.invoiceIds,
+        capturedAmountPaise: input.capturedAmountPaise,
+      },
+      'razorpay webhook: captured payment could not be settled — needs manual reconciliation',
+    );
+  };
 
   const invoices = await prisma.invoice.findMany({
     where: { id: { in: input.invoiceIds } },
@@ -534,46 +579,65 @@ export async function settleOnlinePaymentFromWebhook(input: {
   // Nothing sane to settle against — log and move on rather than throw, so
   // Razorpay does not retry a webhook that will never resolve.
   const first = invoices[0];
-  if (first === undefined) return;
-  if (invoices.some((invoice) => invoice.status === 'PAID' || invoice.status === 'CANCELLED')) return;
+  if (first === undefined) return unreconciled('invoice not found');
+  if (invoices.some((invoice) => invoice.status === 'PAID' || invoice.status === 'CANCELLED')) {
+    return unreconciled('an invoice was already paid or cancelled');
+  }
 
   const property = await prisma.property.findUnique({
     where: { id: first.propertyId },
     select: { timezone: true, settings: true },
   });
-  if (property === null || property.settings === null) return;
+  if (property === null || property.settings === null)
+    return unreconciled('property settings missing');
 
   const today = todayInZone(property.timezone);
   const payable = sumPaise(
     invoices.map((invoice) => Math.max(0, invoice.totalPaise - invoice.amountPaidPaise)),
   );
-  if (payable <= 0) return;
+  if (payable <= 0) return unreconciled('nothing outstanding on the invoices');
 
-  const settledPayment = await prisma.$transaction(async (tx) => {
-    const settled = await settlePayment(tx, {
-      propertyId: first.propertyId,
-      tenancyId: first.tenancyId,
-      targetInvoiceIds: input.invoiceIds,
-      method: 'ONLINE',
-      paidOn: today,
-      settings: property.settings as PropertySettings,
-      today,
-      provider: 'razorpay',
-      providerOrderId: input.orderId,
-      providerPaymentId: input.providerPaymentId,
+  let settledPayment: Awaited<ReturnType<typeof settlePayment>>;
+  try {
+    settledPayment = await prisma.$transaction(async (tx) => {
+      const settled = await settlePayment(tx, {
+        propertyId: first.propertyId,
+        tenancyId: first.tenancyId,
+        targetInvoiceIds: input.invoiceIds,
+        method: 'ONLINE',
+        paidOn: today,
+        settings: property.settings as PropertySettings,
+        today,
+        provider: 'razorpay',
+        providerOrderId: input.orderId,
+        providerPaymentId: input.providerPaymentId,
+        expectedAmountPaise: input.capturedAmountPaise,
+      });
+
+      await writeAudit(tx, {
+        action: 'PAYMENT_CONFIRMED',
+        entityType: 'Payment',
+        entityId: settled.paymentId,
+        propertyId: first.propertyId,
+        summary: `Online payment of ₹${(settled.amountPaise / 100).toFixed(2)} confirmed via webhook (receipts ${settled.receiptNumbers.join(', ')})`,
+        actorRole: 'SYSTEM',
+      });
+
+      return settled;
     });
-
-    await writeAudit(tx, {
-      action: 'PAYMENT_CONFIRMED',
-      entityType: 'Payment',
-      entityId: settled.paymentId,
-      propertyId: first.propertyId,
-      summary: `Online payment of ₹${(settled.amountPaise / 100).toFixed(2)} confirmed via webhook (receipts ${settled.receiptNumbers.join(', ')})`,
-      actorRole: 'SYSTEM',
+  } catch (error) {
+    // The client callback for this same payment got there first — done.
+    const winner = await prisma.payment.findUnique({
+      where: { providerPaymentId: input.providerPaymentId },
     });
-
-    return settled;
-  });
+    if (winner !== null) return;
+    // The amount no longer matches the invoices (paid in cash, a fee changed):
+    // retrying cannot fix that, so record it for a human rather than loop.
+    if (error instanceof AppError && error.code === 'PAYMENT_VERIFICATION_FAILED') {
+      return unreconciled('captured amount does not match the invoices');
+    }
+    throw error;
+  }
 
   const payer = await prisma.tenancy.findUnique({
     where: { id: first.tenancyId },

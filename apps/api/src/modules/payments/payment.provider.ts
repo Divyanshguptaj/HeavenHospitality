@@ -32,12 +32,16 @@ export interface PaymentOrder {
 
 export interface PaymentConfirmation {
   readonly providerPaymentId: string;
-  readonly amountPaise: number;
+  /** What the provider says was actually captured. Null when the provider cannot attest to an amount (the mock). */
+  readonly amountPaise: number | null;
 }
 
 export interface PaymentProvider {
   readonly name: string;
-  createOrder(params: { amountPaise: number; invoiceIds: readonly string[] }): Promise<PaymentOrder>;
+  createOrder(params: {
+    amountPaise: number;
+    invoiceIds: readonly string[];
+  }): Promise<PaymentOrder>;
   /**
    * Verifies a confirmation and returns the authoritative payment, or throws.
    *
@@ -51,7 +55,14 @@ export interface PaymentProvider {
     orderId: string;
     providerPaymentId: string;
     signature: string;
+    /** The invoices the caller claims this payment covers — checked against what the order was created for. */
+    invoiceIds: readonly string[];
   }): Promise<PaymentConfirmation>;
+}
+
+/** Order-independent, so the same set always compares and signs the same. */
+function canonicalInvoiceIds(invoiceIds: readonly string[]): string {
+  return [...invoiceIds].sort().join(',');
 }
 
 function safeEquals(a: string, b: string): boolean {
@@ -68,14 +79,23 @@ function safeEquals(a: string, b: string): boolean {
  * a confirmation for an order the server never created, because it cannot
  * produce the HMAC.
  */
-function signMock(orderId: string, providerPaymentId: string): string {
-  return createHmac('sha256', env.JWT_ACCESS_SECRET).update(`${orderId}|${providerPaymentId}`).digest('hex');
+function signMock(
+  orderId: string,
+  providerPaymentId: string,
+  invoiceIds: readonly string[],
+): string {
+  return createHmac('sha256', env.JWT_ACCESS_SECRET)
+    .update(`${orderId}|${providerPaymentId}|${canonicalInvoiceIds(invoiceIds)}`)
+    .digest('hex');
 }
 
 class MockPaymentProvider implements PaymentProvider {
   readonly name = 'mock';
 
-  createOrder(params: { amountPaise: number; invoiceIds: readonly string[] }): Promise<PaymentOrder> {
+  createOrder(params: {
+    amountPaise: number;
+    invoiceIds: readonly string[];
+  }): Promise<PaymentOrder> {
     const orderId = `mock_order_${randomUUID().replace(/-/g, '').slice(0, 20)}`;
     const providerPaymentId = `mock_pay_${orderId.replace('mock_order_', '')}`;
 
@@ -85,7 +105,10 @@ class MockPaymentProvider implements PaymentProvider {
       currency: 'INR',
       provider: this.name,
       keyId: null,
-      mock: { providerPaymentId, signature: signMock(orderId, providerPaymentId) },
+      mock: {
+        providerPaymentId,
+        signature: signMock(orderId, providerPaymentId, params.invoiceIds),
+      },
     });
   }
 
@@ -93,27 +116,36 @@ class MockPaymentProvider implements PaymentProvider {
     orderId: string;
     providerPaymentId: string;
     signature: string;
+    invoiceIds: readonly string[];
   }): Promise<PaymentConfirmation> {
-    const expected = signMock(params.orderId, params.providerPaymentId);
+    // The invoice set is part of what was signed, so a confirmation for one
+    // order cannot be replayed against different invoices.
+    const expected = signMock(params.orderId, params.providerPaymentId, params.invoiceIds);
     if (!safeEquals(params.signature, expected)) {
       throw new AppError(
         'PAYMENT_VERIFICATION_FAILED',
         'We could not verify that payment. Nothing has been charged.',
       );
     }
-    return Promise.resolve({ providerPaymentId: params.providerPaymentId, amountPaise: 0 });
+    return Promise.resolve({ providerPaymentId: params.providerPaymentId, amountPaise: null });
   }
 }
 
 /** `null` when Razorpay is not configured — every method on the class below throws before using it. */
 const razorpayClient = features.razorpay
-  ? new Razorpay({ key_id: env.RAZORPAY_KEY_ID as string, key_secret: env.RAZORPAY_KEY_SECRET as string })
+  ? new Razorpay({
+      key_id: env.RAZORPAY_KEY_ID as string,
+      key_secret: env.RAZORPAY_KEY_SECRET as string,
+    })
   : null;
 
 class RazorpayPaymentProvider implements PaymentProvider {
   readonly name = 'razorpay';
 
-  async createOrder(params: { amountPaise: number; invoiceIds: readonly string[] }): Promise<PaymentOrder> {
+  async createOrder(params: {
+    amountPaise: number;
+    invoiceIds: readonly string[];
+  }): Promise<PaymentOrder> {
     if (razorpayClient === null) {
       throw new AppError('PROVIDER_UNAVAILABLE', 'Online payments are not configured yet.');
     }
@@ -143,6 +175,7 @@ class RazorpayPaymentProvider implements PaymentProvider {
     orderId: string;
     providerPaymentId: string;
     signature: string;
+    invoiceIds: readonly string[];
   }): Promise<PaymentConfirmation> {
     if (razorpayClient === null) {
       throw new AppError('PROVIDER_UNAVAILABLE', 'Online payments are not configured yet.');
@@ -161,11 +194,42 @@ class RazorpayPaymentProvider implements PaymentProvider {
     // A verified signature proves the payment id belongs to this order — it
     // does not by itself prove Razorpay captured the money. That is only
     // known by asking Razorpay directly. See docs/0007-payments.md.
-    const payment = await razorpayClient.payments.fetch(params.providerPaymentId);
-    if (payment.status !== 'captured' && payment.status !== 'authorized') {
+    //
+    // Only `captured` counts: an `authorized` payment can still fail to
+    // capture, and the webhook path only ever settles on `payment.captured`,
+    // so accepting it here would let the two paths disagree. Auto-capture
+    // normally lands within a moment of authorization, so a short wait covers
+    // the callback firing first.
+    let payment = await razorpayClient.payments.fetch(params.providerPaymentId);
+    for (let attempt = 0; attempt < 3 && payment.status === 'authorized'; attempt += 1) {
+      await new Promise((resolve) => setTimeout(resolve, 1000));
+      payment = await razorpayClient.payments.fetch(params.providerPaymentId);
+    }
+    if (payment.status !== 'captured') {
       throw new AppError(
         'PAYMENT_VERIFICATION_FAILED',
         'Razorpay has not confirmed this payment yet.',
+      );
+    }
+
+    // The payment must belong to the order it is being confirmed against, and
+    // that order must have been created for exactly these invoices — otherwise
+    // a small payment could be presented as covering larger bills.
+    if (payment.order_id !== params.orderId) {
+      throw new AppError(
+        'PAYMENT_VERIFICATION_FAILED',
+        'We could not verify that payment. Nothing has been charged.',
+      );
+    }
+    const order = await razorpayClient.orders.fetch(params.orderId);
+    const noted = order.notes?.['invoiceIds'];
+    if (
+      typeof noted !== 'string' ||
+      canonicalInvoiceIds(JSON.parse(noted) as string[]) !== canonicalInvoiceIds(params.invoiceIds)
+    ) {
+      throw new AppError(
+        'PAYMENT_VERIFICATION_FAILED',
+        'That payment was not made for these invoices.',
       );
     }
 
@@ -182,8 +246,15 @@ export const paymentProvider: PaymentProvider = features.razorpay
  * mounted before express.json() precisely so these bytes are untouched. See
  * docs/0007-payments.md and app.ts.
  */
-export function verifyWebhookSignature(rawBody: Buffer, signatureHeader: string | undefined): boolean {
-  if (env.RAZORPAY_WEBHOOK_SECRET === undefined || signatureHeader === undefined || signatureHeader === '') {
+export function verifyWebhookSignature(
+  rawBody: Buffer,
+  signatureHeader: string | undefined,
+): boolean {
+  if (
+    env.RAZORPAY_WEBHOOK_SECRET === undefined ||
+    signatureHeader === undefined ||
+    signatureHeader === ''
+  ) {
     return false;
   }
   const expected = createHmac('sha256', env.RAZORPAY_WEBHOOK_SECRET).update(rawBody).digest('hex');

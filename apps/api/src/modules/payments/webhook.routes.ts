@@ -18,6 +18,8 @@ export const paymentWebhookRouter: Router = Router();
 interface RazorpayPaymentEntity {
   readonly id: string;
   readonly order_id: string | null;
+  /** Paise actually captured. */
+  readonly amount: number;
   readonly notes?: Record<string, unknown> | null;
 }
 
@@ -70,11 +72,18 @@ paymentWebhookRouter.post('/', async (req: Request, res: Response) => {
 
   const payment = event.payload.payment?.entity;
   const invoiceIdsRaw = payment?.notes?.['invoiceIds'];
-  const invoiceIds =
-    typeof invoiceIdsRaw === 'string' ? parseInvoiceIdsNote(invoiceIdsRaw) : null;
+  const invoiceIds = typeof invoiceIdsRaw === 'string' ? parseInvoiceIdsNote(invoiceIdsRaw) : null;
 
-  if (payment === undefined || invoiceIds === null || invoiceIds.length === 0 || payment.order_id === null) {
-    logger.error({ msg: 'razorpay webhook: payment.captured missing invoiceIds/order_id', event: event.event });
+  if (
+    payment === undefined ||
+    invoiceIds === null ||
+    invoiceIds.length === 0 ||
+    payment.order_id === null
+  ) {
+    logger.error({
+      msg: 'razorpay webhook: payment.captured missing invoiceIds/order_id',
+      event: event.event,
+    });
     // Acknowledged, not retried: a malformed payload will never resolve by
     // Razorpay sending it again.
     res.status(200).json({ ok: true, ignored: 'malformed payload' });
@@ -84,6 +93,7 @@ paymentWebhookRouter.post('/', async (req: Request, res: Response) => {
   try {
     await settleOnlinePaymentFromWebhook({
       invoiceIds,
+      capturedAmountPaise: payment.amount,
       orderId: payment.order_id,
       providerPaymentId: payment.id,
     });
