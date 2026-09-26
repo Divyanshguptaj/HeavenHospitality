@@ -15,7 +15,6 @@ import { authRouter } from './modules/auth/auth.routes.js';
 import { healthRouter } from './modules/health/health.routes.js';
 import { devicesRouter } from './modules/notifications/notification.routes.js';
 import { ownerRouter } from './modules/owner/owner.routes.js';
-import { paymentWebhookRouter } from './modules/payments/webhook.routes.js';
 import { publicRouter } from './modules/public/public.routes.js';
 import { residentRouter } from './modules/resident/resident.routes.js';
 
@@ -78,18 +77,6 @@ export function createApp(): Express {
       }),
     );
   }
-
-  // Payment webhooks mount HERE, before the JSON parser.
-  //
-  // Signature verification hashes the exact bytes the provider sent. Once
-  // express.json() has parsed and re-serialised the body those bytes differ and
-  // every signature check fails — which presents, misleadingly, as "the provider
-  // is sending invalid signatures". See docs/0007-payments.md.
-  app.use(
-    `${API_PREFIX}/payments/webhooks/razorpay`,
-    express.raw({ type: 'application/json' }),
-    paymentWebhookRouter,
-  );
 
   app.use(express.json({ limit: env.JSON_BODY_LIMIT }));
   // Only the two auth endpoints read cookies; every other route is Bearer-only.

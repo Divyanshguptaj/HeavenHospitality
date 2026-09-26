@@ -150,7 +150,7 @@ export const useRecordPayment = () =>
   useOwnerMutation(
     (input: {
       tenancyId: string;
-      invoiceIds: string[];
+      allocations: Array<{ invoiceId: string; amountPaise: number }>;
       method: 'CASH' | 'UPI' | 'BANK_TRANSFER';
       paidAt: string;
       reference?: string;

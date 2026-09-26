@@ -1,9 +1,7 @@
 import {
-  confirmOnlinePaymentSchema,
   createComplaintSchema,
   idSchema,
   markAbsenceSchema,
-  startOnlinePaymentSchema,
   type ApiSuccess,
 } from '@heaven/contracts';
 import { Router, type NextFunction, type Request, type Response } from 'express';
@@ -18,9 +16,7 @@ import {
 } from '../complaints/complaints.service.js';
 import { getAbsencesForResident, markAbsence } from '../mess/mess.service.js';
 import {
-  confirmOnlinePayment,
   getReceipt,
-  startOnlinePayment,
 } from '../payments/payments.service.js';
 import { getActiveTenancyForActor } from '../property/property.context.js';
 import {
@@ -98,30 +94,6 @@ residentRouter.get(
     const { tenancyId } = await getActiveTenancyForActor(getActor(req));
     // Scoped to the caller's tenancy: another resident's receipt id is a 404.
     return getReceipt(params.id, { tenancyId });
-  }),
-);
-
-// --- Online payment (Razorpay, or the mock stand-in) ------------------------
-
-residentRouter.post(
-  '/payments/start',
-  requirePermission('self:write'),
-  validate({ body: startOnlinePaymentSchema }),
-  handle((req) => {
-    const { body } = getValidated<{ body: typeof startOnlinePaymentSchema }>(req);
-    // The amount is computed server-side from the invoices; the client never
-    // supplies it. See docs/0007-payments.md.
-    return startOnlinePayment(getActor(req), body.invoiceIds);
-  }),
-);
-
-residentRouter.post(
-  '/payments/confirm',
-  requirePermission('self:write'),
-  validate({ body: confirmOnlinePaymentSchema }),
-  handle((req) => {
-    const { body } = getValidated<{ body: typeof confirmOnlinePaymentSchema }>(req);
-    return confirmOnlinePayment(getActor(req), body);
   }),
 );
 

@@ -127,9 +127,6 @@ const envSchema = z
     // silently half-works.
     SENTRY_DSN: z.string().url().optional(),
 
-    RAZORPAY_KEY_ID: z.string().optional(),
-    RAZORPAY_KEY_SECRET: z.string().optional(),
-    RAZORPAY_WEBHOOK_SECRET: z.string().optional(),
 
     S3_ENDPOINT: z.string().url().optional(),
     S3_REGION: z.string().default('ap-south-1'),
@@ -167,9 +164,6 @@ const envSchema = z
     // Production must not start with a half-configured integration. Failing at
     // boot is far better than discovering it at the first payment.
     const requiredInProduction: ReadonlyArray<[string, unknown]> = [
-      ['RAZORPAY_KEY_ID', value.RAZORPAY_KEY_ID],
-      ['RAZORPAY_KEY_SECRET', value.RAZORPAY_KEY_SECRET],
-      ['RAZORPAY_WEBHOOK_SECRET', value.RAZORPAY_WEBHOOK_SECRET],
       ['S3_BUCKET', value.S3_BUCKET],
       ['S3_ACCESS_KEY_ID', value.S3_ACCESS_KEY_ID],
       ['S3_SECRET_ACCESS_KEY', value.S3_SECRET_ACCESS_KEY],
@@ -307,7 +301,6 @@ export const isDevelopment = env.NODE_ENV === 'development';
 /** Integrations are enabled by configuration, never by a feature flag in code. */
 export const features = {
   sentry: env.SENTRY_DSN !== undefined,
-  razorpay: env.RAZORPAY_KEY_ID !== undefined && env.RAZORPAY_KEY_SECRET !== undefined,
   objectStorage: env.S3_BUCKET !== undefined,
   email: env.SMTP_URL !== undefined,
   cloudinary:

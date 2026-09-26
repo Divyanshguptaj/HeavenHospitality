@@ -52,7 +52,9 @@ export default function CollectScreen() {
   const recordPayment = useRecordPayment();
 
   const [selected, setSelected] = useState<string | null>(null);
-  const [pickedIds, setPickedIds] = useState<Set<string>>(new Set());
+  // Which bills this payment covers, and the rupee amount typed for each. A bill
+  // is "covered" when it has an entry; the amount starts at what it still owes.
+  const [amounts, setAmounts] = useState<Record<string, string>>({});
   const [method, setMethod] = useState<Method>('CASH');
   const [reference, setReference] = useState('');
   // Stable for the whole attempt — a slow request that times out and gets
@@ -68,37 +70,57 @@ export default function CollectScreen() {
   const unpaid = (detail.data?.invoices ?? []).filter(
     (invoice) => invoice.outstandingPaise > 0 && invoice.status !== 'CANCELLED',
   );
-  const paise = unpaid
-    .filter((invoice) => pickedIds.has(invoice.id))
-    .reduce((sum, invoice) => sum + invoice.outstandingPaise, 0);
+  const allocations = unpaid
+    .filter((invoice) => amounts[invoice.id] !== undefined)
+    .map((invoice) => ({
+      invoice,
+      amountPaise: Math.round(Number(amounts[invoice.id]) * 100),
+    }));
+  const invalid = allocations.find(
+    ({ invoice, amountPaise }) =>
+      !Number.isFinite(amountPaise) || amountPaise <= 0 || amountPaise > invoice.outstandingPaise,
+  );
+  const paise = allocations.reduce((sum, entry) => sum + (entry.amountPaise || 0), 0);
 
   function choose(tenancyId: string): void {
     setSelected(tenancyId);
-    setPickedIds(new Set());
+    setAmounts({});
     setIdempotencyKey(generateIdempotencyKey());
   }
 
-  function toggle(invoiceId: string): void {
-    setPickedIds((current) => {
-      const next = new Set(current);
-      if (next.has(invoiceId)) next.delete(invoiceId);
-      else next.add(invoiceId);
-      return next;
+  function toggle(invoiceId: string, outstandingPaise: number): void {
+    setAmounts((current) => {
+      const { [invoiceId]: existing, ...rest } = current;
+      return existing === undefined ? { ...rest, [invoiceId]: String(outstandingPaise / 100) } : rest;
     });
     setIdempotencyKey(generateIdempotencyKey());
   }
 
+  function setAmount(invoiceId: string, value: string): void {
+    setAmounts((current) => ({ ...current, [invoiceId]: value }));
+  }
+
   async function submit(): Promise<void> {
     if (chosen === undefined || recordPayment.isPending) return;
-    if (paise <= 0) {
+    if (allocations.length === 0) {
       Alert.alert('Nothing selected', 'Tick at least one bill this payment covers.');
+      return;
+    }
+    if (invalid !== undefined) {
+      Alert.alert(
+        'Check the amount',
+        `${INVOICE_CATEGORY_LABELS[invalid.invoice.category]}: enter more than 0 and at most ${formatINR(invalid.invoice.outstandingPaise, { withPaise: false })}.`,
+      );
       return;
     }
 
     try {
       const result = await recordPayment.mutateAsync({
         tenancyId: chosen.tenancyId,
-        invoiceIds: [...pickedIds],
+        allocations: allocations.map(({ invoice, amountPaise }) => ({
+          invoiceId: invoice.id,
+          amountPaise,
+        })),
         method,
         paidAt: today(),
         idempotencyKey,
@@ -110,7 +132,7 @@ export default function CollectScreen() {
         `${formatINR(paise, { withPaise: false })} from ${chosen.fullName}.\nReceipt ${result.receiptNumber ?? '—'}.`,
       );
       setSelected(null);
-      setPickedIds(new Set());
+      setAmounts({});
       setReference('');
       setIdempotencyKey(generateIdempotencyKey());
     } catch (error) {
@@ -189,28 +211,44 @@ export default function CollectScreen() {
               <Muted>No unpaid bills.</Muted>
             ) : (
               unpaid.map((invoice) => {
-                const checked = pickedIds.has(invoice.id);
+                const value = amounts[invoice.id];
+                const checked = value !== undefined;
                 return (
-                  <Pressable
-                    key={invoice.id}
-                    onPress={() => toggle(invoice.id)}
-                    accessibilityRole="checkbox"
-                    accessibilityState={{ checked }}
-                    style={[styles.personRow, { borderColor: theme.border }]}
-                  >
-                    <View style={styles.personMain}>
-                      <Text style={[styles.name, { color: theme.textPrimary }]}>
-                        {checked ? '☑ ' : '☐ '}
-                        {INVOICE_CATEGORY_LABELS[invoice.category]}
-                      </Text>
-                      <Muted>
-                        {invoice.category === 'DEPOSIT' ? 'One-time' : invoice.periodKey}
-                      </Muted>
-                    </View>
-                    <Text style={[styles.amount, { color: theme.textPrimary }]}>
-                      {formatINR(invoice.outstandingPaise, { withPaise: false })}
-                    </Text>
-                  </Pressable>
+                  <View key={invoice.id} style={[styles.billRow, { borderColor: theme.border }]}>
+                    <Pressable
+                      onPress={() => toggle(invoice.id, invoice.outstandingPaise)}
+                      accessibilityRole="checkbox"
+                      accessibilityState={{ checked }}
+                      style={styles.personRow}
+                    >
+                      <View style={styles.personMain}>
+                        <Text style={[styles.name, { color: theme.textPrimary }]}>
+                          {checked ? '☑ ' : '☐ '}
+                          {INVOICE_CATEGORY_LABELS[invoice.category]}
+                        </Text>
+                        <Muted>
+                          {invoice.category === 'DEPOSIT' ? 'One-time' : invoice.periodKey} · owes{' '}
+                          {formatINR(invoice.outstandingPaise, { withPaise: false })}
+                        </Muted>
+                      </View>
+                    </Pressable>
+                    {checked && (
+                      <TextInput
+                        value={value}
+                        onChangeText={(text) => setAmount(invoice.id, text)}
+                        keyboardType="decimal-pad"
+                        style={[
+                          styles.input,
+                          {
+                            backgroundColor: theme.surface,
+                            borderColor: theme.border,
+                            color: theme.textPrimary,
+                          },
+                        ]}
+                        accessibilityLabel={`Amount paid for ${INVOICE_CATEGORY_LABELS[invoice.category]}`}
+                      />
+                    )}
+                  </View>
                 );
               })
             )}
@@ -333,6 +371,7 @@ const styles = StyleSheet.create({
   name: { fontSize: layout.fontSize.md, fontWeight: '600' },
   amount: { fontSize: layout.fontSize.md, fontWeight: '600', fontVariant: ['tabular-nums'] },
   field: { gap: layout.spacing[2] },
+  billRow: { borderBottomWidth: StyleSheet.hairlineWidth, gap: layout.spacing[2] },
   label: { fontSize: layout.fontSize.sm, fontWeight: '600' },
   input: {
     minHeight: layout.minTouchTarget,

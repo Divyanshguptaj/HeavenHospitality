@@ -1,3 +1,4 @@
+import { notifyOwners } from '../notifications/notification.service.js';
 import type { RegistrationDetailsView, submitRegistrationSchema } from '@heaven/contracts';
 import type { User } from '@prisma/client';
 import type { z } from 'zod';
@@ -100,6 +101,20 @@ export async function submitRegistration(
       registrationCompletedAt: new Date(),
     },
   });
+
+  if (user.role === 'NON_RESIDENT') {
+    const property = await prisma.property.findFirst({
+      where: { status: 'ACTIVE' },
+      select: { id: true },
+    });
+    if (property !== null) {
+      await notifyOwners(property.id, {
+        event: 'APPLICANT_SUBMITTED',
+        dedupeKey: user.id,
+        params: { name: user.fullName },
+      });
+    }
+  }
 
   return toRegistrationView(user);
 }

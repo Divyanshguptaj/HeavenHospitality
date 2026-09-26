@@ -2,6 +2,7 @@ import type { Role } from '@heaven/contracts';
 import { create } from 'zustand';
 
 import { apiRequest, setAccessToken, ApiRequestError } from '../lib/apiClient';
+import { unregisterPush } from '../lib/pushNotifications';
 import { clearRefreshToken, readRefreshToken, saveRefreshToken } from '../lib/secureTokenStore';
 
 export interface AuthenticatedUser {
@@ -164,6 +165,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
   },
 
   signOut: async () => {
+    await unregisterPush();
     const refreshToken = await readRefreshToken();
     try {
       // Best-effort: the server revokes the session so a stolen refresh token is

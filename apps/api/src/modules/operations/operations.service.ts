@@ -1,3 +1,4 @@
+import { notifyResidents } from '../notifications/notification.service.js';
 import type {
   AttendanceStatusName,
   ExpenseView,
@@ -66,6 +67,12 @@ export async function createNotice(
       endsOn: input.endsOn === undefined ? null : toPrismaDate(input.endsOn),
       isPinned: input.isPinned,
     },
+  });
+
+  await notifyResidents(propertyId, {
+    event: 'NOTICE_POSTED',
+    dedupeKey: notice.id,
+    params: { title: notice.title },
   });
 
   return toNoticeView(notice);

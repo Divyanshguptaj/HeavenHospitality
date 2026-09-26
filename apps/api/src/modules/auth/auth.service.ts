@@ -1,3 +1,4 @@
+import { notify } from '../notifications/notification.service.js';
 import { DEFAULT_SIGNUP_ROLE, maskIndianPhone, type Role } from '@heaven/contracts';
 import type { User, UserRole } from '@prisma/client';
 
@@ -408,6 +409,13 @@ export async function resetPassword(params: {
   // compromise, so leaving the attacker's session alive would defeat the point.
   await revokeAllSessions(user.id);
 
+  await notify({
+    event: 'PASSWORD_CHANGED',
+    userId: user.id,
+    dedupeKey: String(Date.now()),
+    params: {},
+  });
+
   logger.info({ userId: user.id }, 'Password reset; all sessions revoked');
 }
 
@@ -525,4 +533,11 @@ export async function changePassword(params: {
   // Every other device is signed out: a password change is how a user responds
   // to a suspected compromise, so leaving old sessions alive would defeat it.
   await revokeAllSessions(user.id);
+
+  await notify({
+    event: 'PASSWORD_CHANGED',
+    userId: user.id,
+    dedupeKey: String(Date.now()),
+    params: {},
+  });
 }

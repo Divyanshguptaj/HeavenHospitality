@@ -443,28 +443,16 @@ export const addInvoiceItemSchema = z.object({
 
 export const recordPaymentSchema = z.object({
   tenancyId: idSchema,
-  // Which of the resident's outstanding invoices (rent, AC bill, security —
-  // any one, any two, or all three) this payment settles. The amount is never
-  // taken from the client: it is the sum of these invoices' outstanding
-  // balances, computed server-side.
-  invoiceIds: z.array(idSchema).min(1),
+  // How much of each bill (rent, AC bill, security — any subset) this payment
+  // covers. Each amount is checked against what that bill still owes.
+  allocations: z
+    .array(z.object({ invoiceId: idSchema, amountPaise: z.number().int().positive() }))
+    .min(1)
+    .max(20),
   method: z.enum(['CASH', 'UPI', 'BANK_TRANSFER']),
   paidAt: dateOnlySchema,
   reference: z.string().trim().max(60).optional(),
   notes: z.string().trim().max(300).optional(),
-});
-
-export const startOnlinePaymentSchema = z.object({
-  invoiceIds: z.array(idSchema).min(1),
-});
-
-export const confirmOnlinePaymentSchema = z.object({
-  invoiceIds: z.array(idSchema).min(1),
-  orderId: z.string().trim().min(1).max(120),
-  /// Razorpay's `razorpay_payment_id` — or the mock provider's stand-in.
-  providerPaymentId: z.string().trim().min(1).max(120),
-  /// Razorpay's `razorpay_signature` — or the mock provider's stand-in.
-  signature: z.string().trim().min(1).max(200),
 });
 
 // --- Mess -------------------------------------------------------------------

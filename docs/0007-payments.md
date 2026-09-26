@@ -1,5 +1,11 @@
 # 0007 — Payments
 
+> **Status: online payments are parked.** The Razorpay flow (order creation, checkout, webhook) lives on the
+> `razorpay-integration` branch and is not in `main`. Today residents see what they owe and pay the manager
+> by cash/UPI/transfer; the owner records it in Collect, choosing which bills (rent, AC bill, security) it covers and
+> the amount for each (default: what is owed, never more). The sections below describe the parked design.
+
+
 **Status:** Accepted · **Date:** 2026-08-23
 
 **The frontend never decides that a payment succeeded.** Not the Razorpay checkout

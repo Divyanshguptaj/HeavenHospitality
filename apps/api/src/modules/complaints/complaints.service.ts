@@ -1,3 +1,4 @@
+import { COMPLAINT_STATUS_LABELS } from '@heaven/contracts';
 import type {
   ComplaintCategoryName,
   ComplaintDetailView,
@@ -12,6 +13,7 @@ import type { Loose } from '../../lib/types.js';
 import { writeAudit } from '../../lib/audit.js';
 import { prisma } from '../../lib/prisma.js';
 import type { Actor } from '../../middleware/authenticate.js';
+import { notify, notifyOwners } from '../notifications/notification.service.js';
 import { getActiveTenancyForActor, getPropertyContext } from '../property/property.context.js';
 
 /**
@@ -169,7 +171,7 @@ export async function createComplaint(
 ): Promise<ComplaintDetailView> {
   const { tenancyId, propertyId } = await getActiveTenancyForActor(actor);
 
-  const complaintId = await prisma.$transaction(async (tx) => {
+  const created = await prisma.$transaction(async (tx) => {
     const openCount = await tx.complaint.count({
       where: {
         propertyId,
@@ -211,10 +213,16 @@ export async function createComplaint(
       actorRole: 'RESIDENT',
     });
 
-    return complaint.id;
+    return { id: complaint.id, residentName: complaint.raisedBy.fullName };
   });
 
-  return readDetail(complaintId, { raisedByUserId: actor.userId });
+  await notifyOwners(propertyId, {
+    event: 'COMPLAINT_CREATED',
+    dedupeKey: created.id,
+    params: { title: input.title, residentName: created.residentName },
+  });
+
+  return readDetail(created.id, { raisedByUserId: actor.userId });
 }
 
 /**
@@ -283,6 +291,15 @@ export async function updateComplaint(
       after: { status: input.status ?? complaint.status },
     });
   });
+
+  if (input.status !== undefined && input.status !== complaint.status) {
+    await notify({
+      event: 'COMPLAINT_STATUS_CHANGED',
+      userId: complaint.raisedByUserId,
+      dedupeKey: `${complaintId}:${input.status}:${String(complaint.reopenCount)}`,
+      params: { title: complaint.title, statusLabel: COMPLAINT_STATUS_LABELS[input.status].toLowerCase() },
+    });
+  }
 
   return readDetail(complaintId, { propertyId });
 }

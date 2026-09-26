@@ -8,6 +8,11 @@ import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { isAdmin, isResident, useAuthStore } from '../src/auth/authStore';
 import { AppIntro } from '../src/components/intro/AppIntro';
 import { ApiRequestError } from '../src/lib/apiClient';
+import {
+  configureForegroundNotifications,
+  listenForNotificationTaps,
+  registerForPush,
+} from '../src/lib/pushNotifications';
 import { useTheme } from '../src/theme';
 
 const queryClient = new QueryClient({
@@ -54,6 +59,21 @@ function RootNavigator() {
     // Exchange any stored refresh token for a live session, once, at boot.
     void restore();
   }, [restore]);
+
+  useEffect(() => {
+    void configureForegroundNotifications();
+  }, []);
+
+  // Push token registration follows the signed-in user; taps open their screen.
+  useEffect(() => {
+    if (status !== 'signedIn') return;
+    void registerForPush();
+    let stop: (() => void) | null = null;
+    void listenForNotificationTaps((route) => router.push(route as never)).then((cleanup) => {
+      stop = cleanup;
+    });
+    return () => stop?.();
+  }, [status, user?.id]);
 
   // A resident or an admin is sent to their own section; everyone else — signed
   // out, or signed in as a NON_RESIDENT — lands in the public one. Nobody is

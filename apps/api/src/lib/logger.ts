@@ -13,7 +13,6 @@ const REDACTED_PATHS = [
   'req.headers.authorization',
   'req.headers.cookie',
   'res.headers["set-cookie"]',
-  'req.headers["x-razorpay-signature"]',
   'password',
   'passwordHash',
   'currentPassword',

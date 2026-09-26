@@ -27,27 +27,21 @@ const PRISMA_UNIQUE_VIOLATION = 'P2002';
 /**
  * Runs a job at most once per (name, period).
  *
- * The INSERT *is* the lock: a second concurrent run loses the unique constraint
- * and exits. That keeps the job correct even if the deployment ever runs two
- * processes, without any coordination service.
+ * The INSERT *is* the lock: a second concurrent run inserts nothing and exits.
+ * That keeps the job correct even if the deployment ever runs two processes,
+ * without any coordination service. `skipDuplicates` (ON CONFLICT DO NOTHING)
+ * makes "already ran" a normal result instead of a logged database error.
  */
 async function runOnce(
   jobName: string,
   periodKey: string,
   work: () => Promise<string>,
 ): Promise<void> {
-  try {
-    await prisma.jobRun.create({ data: { jobName, periodKey, status: 'RUNNING' } });
-  } catch (error) {
-    if (
-      error instanceof Prisma.PrismaClientKnownRequestError &&
-      error.code === PRISMA_UNIQUE_VIOLATION
-    ) {
-      // Already run (or running) for this period. Nothing to do.
-      return;
-    }
-    throw error;
-  }
+  const claimed = await prisma.jobRun.createMany({
+    data: [{ jobName, periodKey, status: 'RUNNING' }],
+    skipDuplicates: true,
+  });
+  if (claimed.count === 0) return;
 
   try {
     const summary = await work();

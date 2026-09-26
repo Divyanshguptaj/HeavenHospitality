@@ -176,37 +176,3 @@ export const useSubmitRegistration = () =>
       apiRequest<RegistrationDetailsView>(`${ME}/registration`, { method: 'POST', body: input }),
     [residentKeys.registration, residentKeys.home],
   );
-
-export interface PaymentOrder {
-  readonly orderId: string;
-  readonly amountPaise: number;
-  readonly currency: string;
-  readonly provider: string;
-  /** Razorpay's public key id, needed client-side to open Checkout. Null when the mock provider is active. */
-  readonly keyId: string | null;
-  /** Set only by the mock provider — a stand-in for what a real Checkout hands back on success. */
-  readonly mock: { readonly providerPaymentId: string; readonly signature: string } | null;
-}
-
-/**
- * Starts an online payment.
- *
- * The amount comes back from the SERVER, computed from the invoice — the app
- * never says what is owed. See docs/0007-payments.md.
- */
-export async function startPayment(invoiceIds: string[]): Promise<PaymentOrder> {
-  return apiRequest<PaymentOrder>(`${ME}/payments/start`, {
-    method: 'POST',
-    body: { invoiceIds },
-  });
-}
-
-export const useConfirmPayment = () =>
-  useResidentMutation(
-    (input: { invoiceIds: string[]; orderId: string; providerPaymentId: string; signature: string }) =>
-      apiRequest<{ receiptNumbers: string[] }>(`${ME}/payments/confirm`, {
-        method: 'POST',
-        body: input,
-      }),
-    [residentKeys.home, residentKeys.invoices, residentKeys.payments, ['me', 'invoice']],
-  );

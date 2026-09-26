@@ -24,6 +24,7 @@ import { prisma } from '../../lib/prisma.js';
 import type { Actor } from '../../middleware/authenticate.js';
 import { toRegistrationView } from '../account/account.service.js';
 import { generateDepositInvoice, recomputeInvoice } from '../billing/invoice.service.js';
+import { notify } from '../notifications/notification.service.js';
 import { getPropertyContext } from '../property/property.context.js';
 import { deleteCloudinaryAsset } from '../uploads/cloudinary.service.js';
 
@@ -748,6 +749,25 @@ export async function createResident(
     return tenancy.id;
   });
 
+  if (input.bedId !== undefined) {
+    const placed = await prisma.tenancy.findUnique({
+      where: { id: tenancyId },
+      select: { userId: true },
+    });
+    const bed = await prisma.bed.findUnique({
+      where: { id: input.bedId },
+      select: { label: true, room: { select: { number: true } } },
+    });
+    if (placed !== null && bed !== null) {
+      await notify({
+        event: 'ROOM_ASSIGNED',
+        userId: placed.userId,
+        dedupeKey: tenancyId,
+        params: { roomNumber: bed.room.number, bedLabel: bed.label },
+      });
+    }
+  }
+
   const residents = await listResidents(actor);
   const created = residents.find((resident) => resident.tenancyId === tenancyId);
   if (created === undefined)
@@ -1001,6 +1021,14 @@ export async function exitResident(
       after: { reason: input.reason ?? null },
     });
   });
+
+  const vacated = await prisma.tenancy.findUnique({
+    where: { id: tenancyId },
+    select: { userId: true },
+  });
+  if (vacated !== null) {
+    await notify({ event: 'MOVED_OUT', userId: vacated.userId, dedupeKey: tenancyId, params: {} });
+  }
 
   const residents = await listResidents(actor, { status: 'VACATED' });
   const exited = residents.find((resident) => resident.tenancyId === tenancyId);

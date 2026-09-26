@@ -219,7 +219,7 @@ export async function notifyOwners<E extends NotificationEvent>(
       select: { id: true },
     });
     for (const owner of owners) {
-      await notify({ ...input, userId: owner.id } as NotifyInput<E>);
+      await notify({ ...input, userId: owner.id });
     }
   } catch (error) {
     logger.error({ event: input.event, err: error }, 'owner notification failed');
@@ -237,7 +237,7 @@ export async function notifyResidents<E extends NotificationEvent>(
       select: { userId: true },
     });
     for (const tenancy of tenancies) {
-      await notify({ ...input, userId: tenancy.userId } as NotifyInput<E>);
+      await notify({ ...input, userId: tenancy.userId });
     }
   } catch (error) {
     logger.error({ event: input.event, err: error }, 'resident notification failed');

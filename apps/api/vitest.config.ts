@@ -22,6 +22,16 @@ export default defineConfig({
       // would pass whether or not the code actually changed. Blanked here so the
       // suite always exercises the real CSPRNG path.
       OTP_DEV_FIXED_CODE: '',
+      // Real Fast2SMS credentials or provider choice must never reach the suite;
+      // every outbound call in tests goes through a stubbed fetch.
+      MESSAGING_PROVIDER: 'mock',
+      OTP_PROVIDER: 'mock',
+      FAST2SMS_API_KEY: 'test-key',
+      FAST2SMS_SENDER_ID: 'TESTHH',
+      FAST2SMS_OTP_TEMPLATE_ID: '111111',
+      FAST2SMS_WHATSAPP_PHONE_NUMBER_ID: '999',
+      FAST2SMS_WA_RENT_DUE_MESSAGE_ID: '11',
+      FAST2SMS_WA_RENT_OVERDUE_MESSAGE_ID: '12',
     },
   },
 });
