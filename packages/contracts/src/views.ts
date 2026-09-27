@@ -198,6 +198,7 @@ export interface RegistrationDetailsView {
   readonly documentType: RegistrationDocumentType | null;
   readonly documentOtherDescription: string | null;
   readonly documentImageUrl: string | null;
+  readonly parentDocumentUrl: string | null;
   readonly photoUrl: string | null;
   readonly completedAt: string | null;
 }

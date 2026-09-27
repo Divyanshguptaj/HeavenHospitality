@@ -33,6 +33,7 @@ type RegistrationFields = Pick<
   | 'documentType'
   | 'documentOtherDescription'
   | 'documentImageUrl'
+  | 'parentDocumentUrl'
   | 'photoUrl'
   | 'registrationCompletedAt'
 >;
@@ -53,6 +54,7 @@ export function toRegistrationView(user: RegistrationFields): RegistrationDetail
     documentType: user.documentType,
     documentOtherDescription: user.documentOtherDescription,
     documentImageUrl: user.documentImageUrl,
+    parentDocumentUrl: user.parentDocumentUrl,
     photoUrl: user.photoUrl,
     completedAt: user.registrationCompletedAt?.toISOString() ?? null,
   };
@@ -97,6 +99,7 @@ export async function submitRegistration(
       documentType: input.documentType,
       documentOtherDescription: input.documentOtherDescription ?? null,
       documentImageUrl: input.documentImageUrl,
+      parentDocumentUrl: input.parentDocumentUrl,
       photoUrl: input.photoUrl,
       registrationCompletedAt: new Date(),
     },

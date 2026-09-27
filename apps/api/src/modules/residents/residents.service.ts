@@ -66,6 +66,7 @@ const TENANCY_INCLUDE = {
       documentType: true,
       documentOtherDescription: true,
       documentImageUrl: true,
+      parentDocumentUrl: true,
       photoUrl: true,
       registrationCompletedAt: true,
     },
@@ -194,6 +195,7 @@ export async function listApplicants(actor: Actor): Promise<ApplicantView[]> {
       documentType: true,
       documentOtherDescription: true,
       documentImageUrl: true,
+      parentDocumentUrl: true,
       photoUrl: true,
       registrationCompletedAt: true,
     },
@@ -331,11 +333,13 @@ async function applyRegistrationEdits(
   // Only fetched when a photo itself is changing — every other edit never
   // touches Cloudinary, so it never pays for this read.
   const previous =
-    input.documentImageUrl === undefined && input.photoUrl === undefined
+    input.documentImageUrl === undefined &&
+    input.parentDocumentUrl === undefined &&
+    input.photoUrl === undefined
       ? null
       : await prisma.user.findUnique({
           where: { id: userId },
-          select: { documentImageUrl: true, photoUrl: true },
+          select: { documentImageUrl: true, parentDocumentUrl: true, photoUrl: true },
         });
 
   const user = await prisma.user.update({
@@ -357,6 +361,7 @@ async function applyRegistrationEdits(
         ? {}
         : { documentOtherDescription: input.documentOtherDescription }),
       ...(input.documentImageUrl === undefined ? {} : { documentImageUrl: input.documentImageUrl }),
+      ...(input.parentDocumentUrl === undefined ? {} : { parentDocumentUrl: input.parentDocumentUrl }),
       ...(input.photoUrl === undefined ? {} : { photoUrl: input.photoUrl }),
     },
   });
@@ -367,6 +372,9 @@ async function applyRegistrationEdits(
     const replaced = [
       previous.documentImageUrl !== input.documentImageUrl && input.documentImageUrl !== undefined
         ? previous.documentImageUrl
+        : null,
+      previous.parentDocumentUrl !== input.parentDocumentUrl && input.parentDocumentUrl !== undefined
+        ? previous.parentDocumentUrl
         : null,
       previous.photoUrl !== input.photoUrl && input.photoUrl !== undefined ? previous.photoUrl : null,
     ];

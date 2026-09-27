@@ -17,6 +17,7 @@ import {
   PageHeading,
   Screen,
 } from '../../src/components/ui';
+import { StoredDocument } from '../../src/components/PdfDocumentField';
 import { ApiRequestError } from '../../src/lib/apiClient';
 import { layout } from '../../src/theme';
 
@@ -113,7 +114,9 @@ function RegistrationCard() {
       <Card>
         <ErrorState
           message={
-            registration.error instanceof ApiRequestError ? registration.error.message : 'Please try again.'
+            registration.error instanceof ApiRequestError
+              ? registration.error.message
+              : 'Please try again.'
           }
           onRetry={() => void registration.refetch()}
         />
@@ -148,7 +151,10 @@ function RegistrationCard() {
         <Image source={{ uri: data.photoUrl }} style={styles.profilePhoto} resizeMode="cover" />
       )}
       {data.documentImageUrl !== null && (
-        <Image source={{ uri: data.documentImageUrl }} style={styles.documentImage} resizeMode="cover" />
+        <StoredDocument url={data.documentImageUrl} label="Aadhaar card" />
+      )}
+      {data.parentDocumentUrl !== null && (
+        <StoredDocument url={data.parentDocumentUrl} label="parent's Aadhaar card" />
       )}
       <Muted>Submitted — contact the manager to correct any of these details.</Muted>
     </Card>

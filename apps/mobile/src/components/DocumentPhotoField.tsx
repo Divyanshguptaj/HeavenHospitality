@@ -36,31 +36,26 @@ export function DocumentPhotoField({
           {uploading && (
             <View style={[styles.previewOverlay, { backgroundColor: 'rgba(0,0,0,0.45)' }]}>
               <ActivityIndicator color={theme.textInverse} />
-              <Text style={[styles.previewOverlayText, { color: theme.textInverse }]}>Uploading…</Text>
+              <Text style={[styles.previewOverlayText, { color: theme.textInverse }]}>
+                Uploading…
+              </Text>
             </View>
           )}
         </View>
       )}
 
       <View style={styles.actionsRow}>
-        <Button label="Take photo" variant="secondary" onPress={() => void choose(takeDocumentPhoto)} />
+        <Button
+          label="Take photo"
+          variant="secondary"
+          onPress={() => void choose(takeDocumentPhoto)}
+        />
         <Button
           label="Choose from gallery"
           variant="secondary"
           onPress={() => void choose(pickDocumentPhotoFromLibrary)}
         />
       </View>
-
-      {/* Only in a dev build, and only until the picker's native module is in
-          the installed dev client — a way to test the rest of the form and
-          the upload without needing a real camera/gallery pick every time. */}
-      {__DEV__ && (
-        <Button
-          label="Use a test photo"
-          variant="secondary"
-          onPress={() => onPick('https://picsum.photos/seed/heaven-hospitality/800/600')}
-        />
-      )}
     </>
   );
 }

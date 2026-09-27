@@ -2,7 +2,9 @@ import { REGISTRATION_DOCUMENT_TYPE_LABELS, type RegistrationDetailsView } from 
 import { useState } from 'react';
 import { Image, StyleSheet, Text, View } from 'react-native';
 
+import type { PickedPdf } from '../lib/pdfPicker';
 import { DocumentPhotoField } from './DocumentPhotoField';
+import { PdfDocumentField, StoredDocument } from './PdfDocumentField';
 import {
   RegistrationFields,
   optionalField,
@@ -33,10 +35,13 @@ export function RegistrationCard({
 }) {
   const theme = useTheme();
   const [editing, setEditing] = useState(false);
-  const [values, setValues] = useState<RegistrationFormValues>(() => registrationToFormValues(registration));
+  const [values, setValues] = useState<RegistrationFormValues>(() =>
+    registrationToFormValues(registration),
+  );
   // A newly picked local file, staged until Save — cancelling must leave the
   // photo already on file untouched.
-  const [newPhotoUri, setNewPhotoUri] = useState<string | null>(null);
+  const [newAadhaarPdf, setNewAadhaarPdf] = useState<PickedPdf | null>(null);
+  const [newParentPdf, setNewParentPdf] = useState<PickedPdf | null>(null);
   const [newSelfieUri, setNewSelfieUri] = useState<string | null>(null);
   const [uploadingPhoto, setUploadingPhoto] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -49,14 +54,30 @@ export function RegistrationCard({
     setError(null);
 
     let documentImageUrl: string | undefined;
+    let parentDocumentUrl: string | undefined;
     let photoUrl: string | undefined;
-    if (newPhotoUri !== null || newSelfieUri !== null) {
+    if (newAadhaarPdf !== null || newParentPdf !== null || newSelfieUri !== null) {
       try {
         setUploadingPhoto(true);
-        if (newPhotoUri !== null) documentImageUrl = await uploadToCloudinary(newPhotoUri);
+        if (newAadhaarPdf !== null) {
+          documentImageUrl = await uploadToCloudinary(newAadhaarPdf.uri, {
+            mimeType: 'application/pdf',
+            fileName: newAadhaarPdf.name,
+          });
+        }
+        if (newParentPdf !== null) {
+          parentDocumentUrl = await uploadToCloudinary(newParentPdf.uri, {
+            mimeType: 'application/pdf',
+            fileName: newParentPdf.name,
+          });
+        }
         if (newSelfieUri !== null) photoUrl = await uploadToCloudinary(newSelfieUri);
       } catch (caught) {
-        setError(caught instanceof Error ? caught.message : 'Could not upload the photo. Please try again.');
+        setError(
+          caught instanceof Error
+            ? caught.message
+            : 'Could not upload the photo. Please try again.',
+        );
         setUploadingPhoto(false);
         return;
       }
@@ -79,10 +100,12 @@ export function RegistrationCard({
         ...(values.documentType === null ? {} : { documentType: values.documentType }),
         documentOtherDescription: optionalField(values.documentOtherDescription),
         ...(documentImageUrl === undefined ? {} : { documentImageUrl }),
+        ...(parentDocumentUrl === undefined ? {} : { parentDocumentUrl }),
         ...(photoUrl === undefined ? {} : { photoUrl }),
       });
       setEditing(false);
-      setNewPhotoUri(null);
+      setNewAadhaarPdf(null);
+      setNewParentPdf(null);
       setNewSelfieUri(null);
     } catch (caught) {
       setError(caught instanceof ApiRequestError ? caught.message : 'Could not save.');
@@ -116,11 +139,24 @@ export function RegistrationCard({
         <>
           <RegistrationFields values={values} onChange={patch} />
 
-          <Text style={[styles.photoLabel, { color: theme.textSecondary }]}>Aadhaar photo</Text>
-          <DocumentPhotoField
-            photoUri={newPhotoUri ?? registration.documentImageUrl}
+          <Text style={[styles.photoLabel, { color: theme.textSecondary }]}>
+            Aadhaar card (PDF)
+          </Text>
+          <PdfDocumentField
+            picked={newAadhaarPdf}
+            existingUrl={registration.documentImageUrl}
             uploading={uploadingPhoto}
-            onPick={setNewPhotoUri}
+            onPick={setNewAadhaarPdf}
+          />
+
+          <Text style={[styles.photoLabel, { color: theme.textSecondary }]}>
+            Parent&apos;s Aadhaar card (PDF)
+          </Text>
+          <PdfDocumentField
+            picked={newParentPdf}
+            existingUrl={registration.parentDocumentUrl}
+            uploading={uploadingPhoto}
+            onPick={setNewParentPdf}
           />
 
           <Text style={[styles.photoLabel, { color: theme.textSecondary }]}>Profile photo</Text>
@@ -138,7 +174,8 @@ export function RegistrationCard({
               onPress={() => {
                 setEditing(false);
                 setValues(registrationToFormValues(registration));
-                setNewPhotoUri(null);
+                setNewAadhaarPdf(null);
+                setNewParentPdf(null);
                 setNewSelfieUri(null);
                 setError(null);
               }}
@@ -152,7 +189,11 @@ export function RegistrationCard({
       ) : (
         <>
           {registration.photoUrl !== null && (
-            <Image source={{ uri: registration.photoUrl }} style={styles.profilePhoto} resizeMode="cover" />
+            <Image
+              source={{ uri: registration.photoUrl }}
+              style={styles.profilePhoto}
+              resizeMode="cover"
+            />
           )}
           <DetailRow label="Father's name" value={registration.fatherName ?? '—'} />
           <DetailRow label="Mother's name" value={registration.motherName ?? '—'} />
@@ -167,11 +208,10 @@ export function RegistrationCard({
           <DetailRow label="Vehicle number" value={registration.vehicleNumber ?? '—'} />
           <DetailRow label="Document submitted" value={documentLabel} />
           {registration.documentImageUrl !== null && (
-            <Image
-              source={{ uri: registration.documentImageUrl }}
-              style={styles.documentImage}
-              resizeMode="cover"
-            />
+            <StoredDocument url={registration.documentImageUrl} label="Aadhaar card" />
+          )}
+          {registration.parentDocumentUrl !== null && (
+            <StoredDocument url={registration.parentDocumentUrl} label="parent's Aadhaar card" />
           )}
         </>
       )}

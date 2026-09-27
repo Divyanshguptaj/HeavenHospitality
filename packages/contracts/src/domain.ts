@@ -363,6 +363,15 @@ export const updateResidentSchema = z.object({
  * residents have no vehicle at all. Everything else on the paper form was
  * always filled in, so the digital one asks for it too.
  */
+/// Aadhaar documents are uploaded as PDFs (Cloudinary serves an uploaded PDF
+/// from a URL ending in `.pdf`), so a photo cannot stand in for one.
+const pdfUrlSchema = z
+  .string()
+  .trim()
+  .url()
+  .max(500)
+  .refine((url) => /\.pdf(\?.*)?$/i.test(url), 'The Aadhaar document must be a PDF.');
+
 const registrationFieldsSchema = z.object({
   fatherName: z.string().trim().min(1).max(120),
   motherName: z.string().trim().min(1).max(120),
@@ -380,7 +389,9 @@ const registrationFieldsSchema = z.object({
   documentType: z.enum(REGISTRATION_DOCUMENT_TYPES),
   documentOtherDescription: z.string().trim().max(120).optional(),
   /// Uploaded to Cloudinary by the client; this is just the URL it handed back.
-  documentImageUrl: z.string().trim().url().max(500),
+  documentImageUrl: pdfUrlSchema,
+  /// The parent's Aadhaar, also a PDF.
+  parentDocumentUrl: pdfUrlSchema,
   /// The person's own photo, uploaded the same way.
   photoUrl: z.string().trim().url().max(500),
 });
@@ -420,6 +431,24 @@ export const createReadingSchema = z.object({
   currentReading: z.number().int().min(0).max(9_999_999),
   readingDate: dateOnlySchema,
   notes: z.string().trim().max(300).optional(),
+});
+
+/**
+ * The electricity/AC bill, entered directly per resident — no meter reading,
+ * no automatic split. The admin decides what each person in the room owes.
+ */
+export const recordElectricityBillSchema = z.object({
+  roomId: idSchema,
+  periodKey: periodKeySchema,
+  entries: z
+    .array(z.object({ tenancyId: idSchema, amountPaise: z.number().int().positive() }))
+    .min(1)
+    .max(20),
+  notes: z.string().trim().max(300).optional(),
+});
+
+export const updateElectricityInvoiceSchema = z.object({
+  amountPaise: z.number().int().positive(),
 });
 
 /// A manual correction to one resident's share of a room's electricity bill —

@@ -143,6 +143,8 @@ model User {
   documentOtherDescription String?
   /// A Cloudinary URL — the file itself lives there, never in this database.
   documentImageUrl         String?
+  /// The parent's Aadhaar, uploaded as a PDF the same way. Required on every new submission; null only for accounts that registered before it was asked for.
+  parentDocumentUrl        String?
   /// The person's own photo, also a Cloudinary URL. Required on every new submission; null only for accounts that registered before it was asked for.
   photoUrl                 String?
   registrationCompletedAt  DateTime? @db.Timestamptz(3)

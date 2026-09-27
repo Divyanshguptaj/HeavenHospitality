@@ -16,29 +16,20 @@ interface CloudinarySignature {
  * matches what was signed. The phone never holds anything more than a
  * signature good for this one upload.
  */
-export async function uploadToCloudinary(localUri: string): Promise<string> {
-  const signed = await apiRequest<CloudinarySignature>('/me/uploads/cloudinary-signature');
+export async function uploadToCloudinary(
+  localUri: string,
+  file: { readonly mimeType?: string; readonly fileName?: string } = {},
+  /** Where to ask for a signature — different roles sign into different Cloudinary folders. */
+  signatureEndpoint = '/me/uploads/cloudinary-signature',
+): Promise<string> {
+  const signed = await apiRequest<CloudinarySignature>(signatureEndpoint);
 
   const body = new FormData();
-  if (localUri.startsWith('http://') || localUri.startsWith('https://')) {
-    // A remote stand-in (the "test photo" button) rather than something the
-    // device picked — fetched into a blob so it uploads the same way either way.
-    let source: Response;
-    try {
-      source = await fetch(localUri);
-    } catch (cause) {
-      console.error('[cloudinary] could not fetch the test photo', localUri, cause);
-      throw new Error('Could not reach the test photo — check the phone has an internet connection.');
-    }
-    body.append('file', await source.blob(), 'document.jpg');
-  } else {
-    const fileName = localUri.split('/').pop() ?? 'document.jpg';
-    body.append('file', {
-      uri: localUri,
-      type: 'image/jpeg',
-      name: fileName,
-    } as unknown as Blob);
-  }
+  body.append('file', {
+    uri: localUri,
+    type: file.mimeType ?? 'image/jpeg',
+    name: file.fileName ?? localUri.split('/').pop() ?? 'upload.jpg',
+  } as unknown as Blob);
   body.append('api_key', signed.apiKey);
   body.append('timestamp', String(signed.timestamp));
   body.append('signature', signed.signature);
@@ -55,7 +46,9 @@ export async function uploadToCloudinary(localUri: string): Promise<string> {
     // this fails whenever the phone itself has no working WiFi or mobile data,
     // independent of whether the API is reachable.
     console.error('[cloudinary] upload request failed', cause);
-    throw new Error('Could not reach Cloudinary — check the phone has an internet connection (WiFi or mobile data).');
+    throw new Error(
+      'Could not reach Cloudinary — check the phone has an internet connection (WiFi or mobile data).',
+    );
   }
 
   if (!response.ok) {

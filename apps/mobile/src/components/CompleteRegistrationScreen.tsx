@@ -5,7 +5,9 @@ import { useSubmitRegistration } from '../api/resident';
 import { useAuthStore } from '../auth/authStore';
 import { ApiRequestError } from '../lib/apiClient';
 import { uploadToCloudinary } from '../lib/cloudinary';
+import type { PickedPdf } from '../lib/pdfPicker';
 import { DocumentPhotoField } from './DocumentPhotoField';
+import { PdfDocumentField } from './PdfDocumentField';
 import {
   EMPTY_REGISTRATION_FORM,
   RegistrationFields,
@@ -41,7 +43,8 @@ export function CompleteRegistrationScreen() {
   const signOut = useAuthStore((state) => state.signOut);
   const [values, setValues] = useState<RegistrationFormValues>(EMPTY_REGISTRATION_FORM);
   const [termsAccepted, setTermsAccepted] = useState(false);
-  const [photoUri, setPhotoUri] = useState<string | null>(null);
+  const [aadhaarPdf, setAadhaarPdf] = useState<PickedPdf | null>(null);
+  const [parentPdf, setParentPdf] = useState<PickedPdf | null>(null);
   const [selfieUri, setSelfieUri] = useState<string | null>(null);
   const [uploading, setUploading] = useState(false);
   const [signingOut, setSigningOut] = useState(false);
@@ -49,17 +52,21 @@ export function CompleteRegistrationScreen() {
   const submit = useSubmitRegistration();
 
   function confirmSignOut(): void {
-    Alert.alert('Sign out?', 'You can finish this later — sign back in and pick up where you left off.', [
-      { text: 'Cancel', style: 'cancel' },
-      {
-        text: 'Sign out',
-        style: 'destructive',
-        onPress: () => {
-          setSigningOut(true);
-          void signOut().finally(() => setSigningOut(false));
+    Alert.alert(
+      'Sign out?',
+      'You can finish this later — sign back in and pick up where you left off.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Sign out',
+          style: 'destructive',
+          onPress: () => {
+            setSigningOut(true);
+            void signOut().finally(() => setSigningOut(false));
+          },
         },
-      },
-    ]);
+      ],
+    );
   }
 
   function patch(next: Partial<RegistrationFormValues>): void {
@@ -74,8 +81,12 @@ export function CompleteRegistrationScreen() {
       setError(fieldError);
       return;
     }
-    if (photoUri === null) {
-      setError('Attach a photo of your Aadhaar card.');
+    if (aadhaarPdf === null) {
+      setError('Upload your Aadhaar card as a PDF.');
+      return;
+    }
+    if (parentPdf === null) {
+      setError("Upload your parent's Aadhaar card as a PDF.");
       return;
     }
     if (selfieUri === null) {
@@ -87,13 +98,23 @@ export function CompleteRegistrationScreen() {
       return;
     }
     let documentImageUrl: string;
+    let parentDocumentUrl: string;
     let selfieUrl: string;
     try {
       setUploading(true);
-      documentImageUrl = await uploadToCloudinary(photoUri);
+      documentImageUrl = await uploadToCloudinary(aadhaarPdf.uri, {
+        mimeType: 'application/pdf',
+        fileName: aadhaarPdf.name,
+      });
+      parentDocumentUrl = await uploadToCloudinary(parentPdf.uri, {
+        mimeType: 'application/pdf',
+        fileName: parentPdf.name,
+      });
       selfieUrl = await uploadToCloudinary(selfieUri);
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : 'Could not upload the photo. Please try again.');
+      setError(
+        caught instanceof Error ? caught.message : 'Could not upload the photo. Please try again.',
+      );
       return;
     } finally {
       setUploading(false);
@@ -114,6 +135,7 @@ export function CompleteRegistrationScreen() {
         vehicleNumber: optionalField(values.vehicleNumber),
         documentType: 'AADHAAR_CARD',
         documentImageUrl,
+        parentDocumentUrl,
         photoUrl: selfieUrl,
         termsAccepted: true,
       });
@@ -124,7 +146,9 @@ export function CompleteRegistrationScreen() {
       // neither this screen nor the destination.
       markRegistrationComplete(result.completedAt ?? new Date().toISOString());
     } catch (caught) {
-      setError(caught instanceof ApiRequestError ? caught.message : 'Could not submit. Please try again.');
+      setError(
+        caught instanceof ApiRequestError ? caught.message : 'Could not submit. Please try again.',
+      );
     }
   }
 
@@ -147,9 +171,15 @@ export function CompleteRegistrationScreen() {
       </Card>
 
       <Card>
-        <CardTitle>Aadhaar photo</CardTitle>
-        <Body>A clear photo of your Aadhaar card, so the manager can verify it.</Body>
-        <DocumentPhotoField photoUri={photoUri} uploading={uploading} onPick={setPhotoUri} />
+        <CardTitle>Aadhaar card</CardTitle>
+        <Body>Upload your Aadhaar card as a PDF, so the manager can verify it.</Body>
+        <PdfDocumentField picked={aadhaarPdf} uploading={uploading} onPick={setAadhaarPdf} />
+      </Card>
+
+      <Card>
+        <CardTitle>Parent&apos;s Aadhaar card</CardTitle>
+        <Body>Upload your parent&apos;s Aadhaar card as a PDF.</Body>
+        <PdfDocumentField picked={parentPdf} uploading={uploading} onPick={setParentPdf} />
       </Card>
 
       <Card>
