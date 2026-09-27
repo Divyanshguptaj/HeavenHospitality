@@ -1,6 +1,10 @@
-import { COMPLAINT_CATEGORY_LABELS, COMPLAINT_STATUSES, COMPLAINT_STATUS_LABELS } from '@heaven/contracts';
+import {
+  COMPLAINT_CATEGORY_LABELS,
+  COMPLAINT_STATUSES,
+  COMPLAINT_STATUS_LABELS,
+} from '@heaven/contracts';
 import { useState } from 'react';
-import { Alert, Pressable, StyleSheet, Text, View } from 'react-native';
+import { Alert, Image, Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { useOwnerComplaints, useUpdateComplaintStatus } from '../../src/api/owner';
 import {
@@ -116,6 +120,14 @@ export default function OwnerIssuesScreen() {
             </View>
 
             <Body>{complaint.description}</Body>
+            {complaint.imageUrl !== null && (
+              <Image
+                source={{ uri: complaint.imageUrl }}
+                style={[styles.photo, { backgroundColor: theme.surfaceSubtle }]}
+                resizeMode="contain"
+                accessibilityLabel={`Photo attached to ${complaint.title}`}
+              />
+            )}
             <Muted>
               {COMPLAINT_CATEGORY_LABELS[complaint.category]} · {complaint.residentName}
               {complaint.roomNumber !== null && ` · room ${complaint.roomNumber}`} · raised{' '}
@@ -141,6 +153,7 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     gap: layout.spacing[3],
   },
+  photo: { width: '100%', height: 260, borderRadius: layout.radius.lg },
   filters: { flexDirection: 'row', flexWrap: 'wrap', gap: layout.spacing[2] },
   filter: {
     borderRadius: layout.radius.full,

@@ -318,6 +318,7 @@ export async function getResident(actor: Actor, tenancyId: string): Promise<Resi
       createdAt: complaint.createdAt.toISOString(),
       residentName: tenancy.user.fullName,
       roomNumber: room?.number ?? null,
+      imageUrl: complaint.imageUrl,
     })),
     registration: toRegistrationView(tenancy.user),
   };

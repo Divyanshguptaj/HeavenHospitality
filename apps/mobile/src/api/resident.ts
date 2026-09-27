@@ -165,8 +165,12 @@ export const useMarkAbsence = () =>
 
 export const useCreateComplaint = () =>
   useResidentMutation(
-    (input: { title: string; description: string; category: ComplaintCategoryName }) =>
-      apiRequest<ComplaintDetailView>(`${ME}/complaints`, { method: 'POST', body: input }),
+    (input: {
+      title: string;
+      description: string;
+      category: ComplaintCategoryName;
+      imageUrl?: string;
+    }) => apiRequest<ComplaintDetailView>(`${ME}/complaints`, { method: 'POST', body: input }),
     [residentKeys.complaints, residentKeys.home],
   );
 

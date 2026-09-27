@@ -319,10 +319,11 @@ export interface ComplaintSummaryView {
   readonly createdAt: string;
   readonly residentName: string;
   readonly roomNumber: string | null;
+  /** A photo the resident attached when raising it — Cloudinary URL, optional. */
+  readonly imageUrl: string | null;
 }
 
 export interface ComplaintDetailView extends ComplaintSummaryView {
-  readonly imageUrl: string | null;
   readonly reopenCount: number;
   readonly events: ReadonlyArray<{
     readonly id: string;

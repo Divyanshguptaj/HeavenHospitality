@@ -60,6 +60,7 @@ function toSummary(complaint: ComplaintRecord): ComplaintSummaryView {
     createdAt: complaint.createdAt.toISOString(),
     residentName: complaint.raisedBy.fullName,
     roomNumber: roomNumberOf(complaint),
+    imageUrl: complaint.imageUrl,
   };
 }
 

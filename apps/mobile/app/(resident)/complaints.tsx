@@ -5,13 +5,23 @@ import {
   type ComplaintCategoryName,
 } from '@heaven/contracts';
 import { useState } from 'react';
-import { Modal, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import {
+  Image,
+  Modal,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TextInput,
+  View,
+} from 'react-native';
 
 import {
   useCreateComplaint,
   useResidentComplaint,
   useResidentComplaints,
 } from '../../src/api/resident';
+import { DocumentPhotoField } from '../../src/components/DocumentPhotoField';
 import {
   Badge,
   Body,
@@ -26,6 +36,7 @@ import {
   Screen,
 } from '../../src/components/ui';
 import { ApiRequestError } from '../../src/lib/apiClient';
+import { uploadToCloudinary } from '../../src/lib/cloudinary';
 import { layout, useTheme } from '../../src/theme';
 
 function statusTone(status: string): 'danger' | 'warning' | 'success' | 'neutral' {
@@ -97,18 +108,44 @@ function ComposeComplaint({ onClose }: { readonly onClose: () => void }) {
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
   const [category, setCategory] = useState<ComplaintCategoryName>('PLUMBING');
+  const [photoUri, setPhotoUri] = useState<string | null>(null);
+  const [uploading, setUploading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const canSubmit =
-    title.trim().length >= 3 && description.trim().length >= 5 && !createComplaint.isPending;
+    title.trim().length >= 3 &&
+    description.trim().length >= 5 &&
+    !createComplaint.isPending &&
+    !uploading;
 
   async function submit(): Promise<void> {
     setError(null);
+
+    // The photo is optional; when there is one it goes straight from the phone
+    // to Cloudinary and only the resulting URL is sent with the complaint.
+    let imageUrl: string | undefined;
+    if (photoUri !== null) {
+      try {
+        setUploading(true);
+        imageUrl = await uploadToCloudinary(photoUri);
+      } catch (caught) {
+        setError(
+          caught instanceof Error
+            ? caught.message
+            : 'Could not upload the photo. Please try again.',
+        );
+        return;
+      } finally {
+        setUploading(false);
+      }
+    }
+
     try {
       await createComplaint.mutateAsync({
         title: title.trim(),
         description: description.trim(),
         category,
+        ...(imageUrl === undefined ? {} : { imageUrl }),
       });
       onClose();
     } catch (caught) {
@@ -191,6 +228,14 @@ function ComposeComplaint({ onClose }: { readonly onClose: () => void }) {
           />
         </View>
 
+        <View style={styles.field}>
+          <Text style={[styles.label, { color: theme.textSecondary }]}>Photo (optional)</Text>
+          <DocumentPhotoField photoUri={photoUri} uploading={uploading} onPick={setPhotoUri} />
+          {photoUri !== null && !uploading && (
+            <Button label="Remove photo" variant="secondary" onPress={() => setPhotoUri(null)} />
+          )}
+        </View>
+
         {error !== null && (
           <View
             accessibilityRole="alert"
@@ -201,7 +246,13 @@ function ComposeComplaint({ onClose }: { readonly onClose: () => void }) {
         )}
 
         <Button
-          label={createComplaint.isPending ? 'Sending…' : 'Send to the manager'}
+          label={
+            uploading
+              ? 'Uploading photo…'
+              : createComplaint.isPending
+                ? 'Sending…'
+                : 'Send to the manager'
+          }
           onPress={() => void submit()}
         />
         <Button label="Cancel" variant="secondary" onPress={onClose} />
@@ -248,6 +299,17 @@ function ComplaintDetail({ id, onClose }: { readonly id: string; readonly onClos
               </View>
               <Body>{data.description}</Body>
             </Card>
+
+            {data.imageUrl !== null && (
+              <Card>
+                <CardTitle>Photo</CardTitle>
+                <Image
+                  source={{ uri: data.imageUrl }}
+                  style={[styles.photo, { backgroundColor: theme.surfaceSubtle }]}
+                  resizeMode="contain"
+                />
+              </Card>
+            )}
 
             <Card>
               <CardTitle>What has happened</CardTitle>
@@ -302,6 +364,7 @@ const styles = StyleSheet.create({
   },
   categoryLabel: { fontSize: layout.fontSize.sm, fontWeight: '600' },
   errorBox: { padding: layout.spacing[4], borderRadius: layout.radius.lg },
+  photo: { width: '100%', height: 260, borderRadius: layout.radius.lg },
   event: { gap: layout.spacing[1], paddingVertical: layout.spacing[2] },
   eventTitle: { fontSize: layout.fontSize.md, fontWeight: '600' },
 });
