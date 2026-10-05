@@ -49,7 +49,7 @@
       "typedRoutes": true
     },
     "extra": {
-      "apiBaseUrl": "http://localhost:4000/api/v1",
+      "apiBaseUrl": "https://3-104-19-26.sslip.io/api/v1",
       "propertySlug": "heaven-hospitality-kothrud",
       "router": {},
       "eas": {
