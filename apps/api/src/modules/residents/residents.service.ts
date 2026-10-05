@@ -1,7 +1,9 @@
 import type {
   ApplicantView,
   ResidentDetailView,
+  ResidentCreatedView,
   ResidentSummaryView,
+  TemporaryCredentialView,
   updateRegistrationSchema,
 } from '@heaven/contracts';
 import { Prisma } from '@prisma/client';
@@ -24,6 +26,7 @@ import { prisma } from '../../lib/prisma.js';
 import type { Actor } from '../../middleware/authenticate.js';
 import { toRegistrationView } from '../account/account.service.js';
 import { generateDepositInvoice, recomputeInvoice } from '../billing/invoice.service.js';
+import { issueTemporaryPassword } from '../auth/tempPassword.js';
 import { notify } from '../notifications/notification.service.js';
 import { getPropertyContext } from '../property/property.context.js';
 import { deleteCloudinaryAsset } from '../uploads/cloudinary.service.js';
@@ -599,8 +602,11 @@ export interface CreateResidentInput {
 export async function createResident(
   actor: Actor,
   input: CreateResidentInput,
-): Promise<ResidentSummaryView> {
+): Promise<ResidentCreatedView> {
   const { propertyId, timezone, settings } = await getPropertyContext(actor, 'resident:write');
+
+  const issued = await issueTemporaryPassword();
+  let credential: TemporaryCredentialView | null = null;
 
   const tenancyId = await prisma.$transaction(async (tx) => {
     const email = input.email?.toLowerCase() ?? null;
@@ -638,13 +644,15 @@ export async function createResident(
           fullName: input.fullName,
           email,
           phone: input.phone,
-          // No password yet: the owner shares an invite, and the resident sets
-          // one on first sign-in. An account with no password cannot log in.
-          passwordHash: null,
+          // The owner hands over this temporary password; the resident must
+          // replace it on first sign-in, and it stops working at the expiry.
+          passwordHash: issued.hash,
           mustChangePassword: true,
+          tempPasswordExpiresAt: issued.expiresAt,
           status: 'ACTIVE',
         },
       }));
+    if (existing === null) credential = issued.credential;
 
     await tx.propertyMembership.upsert({
       where: { userId_propertyId: { userId: user.id, propertyId } },
@@ -781,7 +789,59 @@ export async function createResident(
   const created = residents.find((resident) => resident.tenancyId === tenancyId);
   if (created === undefined)
     throw new AppError('INTERNAL_ERROR', 'Resident could not be read back.');
-  return created;
+  return { ...created, credential };
+}
+
+/**
+ * Issues the resident a new temporary password, replacing whatever they had.
+ *
+ * Signs them out everywhere and clears any lockout, so this is also how a
+ * forgotten password is recovered. The plaintext is returned once and not stored.
+ */
+export async function resetResidentPassword(
+  actor: Actor,
+  tenancyId: string,
+): Promise<TemporaryCredentialView> {
+  const { propertyId } = await getPropertyContext(actor, 'resident:write');
+
+  const tenancy = await prisma.tenancy.findFirst({
+    where: { id: tenancyId, propertyId },
+    select: { userId: true, user: { select: { fullName: true, role: true } } },
+  });
+  if (tenancy === null) throw new AppError('NOT_FOUND', 'Resident not found.');
+  if (tenancy.user.role === 'ADMIN') {
+    throw new AppError('FORBIDDEN', 'An owner account cannot be reset from here.');
+  }
+
+  const issued = await issueTemporaryPassword();
+
+  await prisma.$transaction(async (tx) => {
+    await tx.user.update({
+      where: { id: tenancy.userId },
+      data: {
+        passwordHash: issued.hash,
+        mustChangePassword: true,
+        tempPasswordExpiresAt: issued.expiresAt,
+        failedLoginAttempts: 0,
+        lockedUntil: null,
+      },
+    });
+    await tx.refreshSession.updateMany({
+      where: { userId: tenancy.userId, revokedAt: null },
+      data: { revokedAt: new Date() },
+    });
+    await writeAudit(tx, {
+      action: 'RESIDENT_PASSWORD_RESET',
+      entityType: 'Tenancy',
+      entityId: tenancyId,
+      propertyId,
+      summary: `Password reset for ${tenancy.user.fullName}`,
+      actorUserId: actor.userId,
+      actorRole: 'ADMIN',
+    });
+  });
+
+  return issued.credential;
 }
 
 export async function updateResident(

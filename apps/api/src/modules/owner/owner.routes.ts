@@ -17,8 +17,10 @@ import {
   markStaffAttendanceSchema,
   moveResidentSchema,
   phoneSchema,
+  recordElectricityBillSchema,
   recordPaymentSchema,
   updateBedStatusSchema,
+  updateElectricityInvoiceSchema,
   updateElectricityShareSchema,
   updateFacilitySchema,
   updateFloorSchema,
@@ -56,9 +58,10 @@ import {
 } from '../complaints/complaints.service.js';
 import { getDashboard, getOccupancy } from '../dashboard/dashboard.service.js';
 import {
-  getLastReadingForRoom,
   listReadings,
+  recordElectricityBill,
   recordReading,
+  updateElectricityInvoiceItem,
   updateElectricityShare,
 } from '../electricity/electricity.service.js';
 import {
@@ -114,6 +117,7 @@ import {
 import { getPropertyContext } from '../property/property.context.js';
 import {
   createResident,
+  resetResidentPassword,
   exitResident,
   findUserByEmail,
   findUserByPhone,
@@ -130,6 +134,8 @@ import {
   updatePropertyProfile,
   updateSettings,
 } from '../settings/settings.service.js';
+import { createUploadSignature } from '../uploads/cloudinary.service.js';
+import { env } from '../../config/env.js';
 
 /**
  * Owner API.
@@ -311,6 +317,12 @@ ownerRouter.get(
   '/gallery',
   requirePermission('property:read'),
   handle((req) => listPhotos(getActor(req))),
+);
+
+ownerRouter.get(
+  '/gallery/uploads/cloudinary-signature',
+  requirePermission('property:write'),
+  handle(() => Promise.resolve(createUploadSignature(env.CLOUDINARY_GALLERY_FOLDER))),
 );
 
 ownerRouter.post(
@@ -546,6 +558,16 @@ ownerRouter.post(
   }),
 );
 
+ownerRouter.post(
+  '/residents/:id/reset-password',
+  requirePermission('resident:write'),
+  validate(idParam),
+  handle((req) => {
+    const { params } = getValidated<typeof idParam>(req);
+    return resetResidentPassword(getActor(req), params.id);
+  }),
+);
+
 ownerRouter.patch(
   '/residents/:id',
   requirePermission('resident:write'),
@@ -724,16 +746,32 @@ ownerRouter.get(
   }),
 );
 
-ownerRouter.get(
-  '/electricity/last/:id',
-  requirePermission('electricity:read'),
-  validate(idParam),
+ownerRouter.post(
+  '/electricity/bill',
+  requirePermission('electricity:write'),
+  validate({ body: recordElectricityBillSchema }),
   handle((req) => {
-    const { params } = getValidated<typeof idParam>(req);
-    return getLastReadingForRoom(getActor(req), params.id);
+    const { body } = getValidated<{ body: typeof recordElectricityBillSchema }>(req);
+    return recordElectricityBill(getActor(req), body);
   }),
 );
 
+ownerRouter.patch(
+  '/electricity/invoices/:id',
+  requirePermission('electricity:write'),
+  validate({ ...idParam, body: updateElectricityInvoiceSchema }),
+  handle((req) => {
+    const { body, params } = getValidated<{
+      body: typeof updateElectricityInvoiceSchema;
+      params: (typeof idParam)['params'];
+    }>(req);
+    return updateElectricityInvoiceItem(getActor(req), params.id, body);
+  }),
+);
+
+// Superseded by the room-level, admin-entered bill above (no meter reading,
+// no automatic split) — kept only so already-recorded readings stay visible
+// and editable, never reachable from a NEW bill.
 ownerRouter.post(
   '/electricity',
   requirePermission('electricity:write'),

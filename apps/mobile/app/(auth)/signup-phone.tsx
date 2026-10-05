@@ -1,32 +1,55 @@
-import { normalizeIndianPhone } from '@heaven/contracts';
+import { normalizeIndianPhone, passwordSchema } from '@heaven/contracts';
 import { router } from 'expo-router';
 import { useState } from 'react';
-import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 
-import { useOtpFlowStore } from '../../src/auth/otpFlowStore';
-import { FieldError, FieldLabel, PhoneField } from '../../src/components/authFields';
+import { useAuthStore } from '../../src/auth/authStore';
+import {
+  FieldError,
+  FieldLabel,
+  PasswordField,
+  PhoneField,
+} from '../../src/components/authFields';
 import { Body, Button, Card, PageHeading, Screen } from '../../src/components/ui';
 import { ApiRequestError } from '../../src/lib/apiClient';
 import { layout, useTheme } from '../../src/theme';
 
 /**
- * Signup, step 1 of 3: which number is yours.
- *
- * No account is created here. All this does is send a code — the account comes
- * into existence two screens later, once the number has been proven.
+ * Signup: name, mobile number and password. The account is created and signed in
+ * immediately; the root layout then sends a new account to the admission form.
  */
-export default function SignupPhoneScreen() {
+export default function SignupScreen() {
   const theme = useTheme();
-  const requestCode = useOtpFlowStore((state) => state.requestCode);
+  const signUp = useAuthStore((state) => state.signUp);
 
+  const [fullName, setFullName] = useState('');
   const [phone, setPhone] = useState('');
+  const [password, setPassword] = useState('');
+  const [confirm, setConfirm] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  const passwordProblem =
+    password.length === 0
+      ? null
+      : (passwordSchema.safeParse(password).error?.issues[0]?.message ?? null);
+
   async function handleSubmit(): Promise<void> {
     const normalized = normalizeIndianPhone(phone);
+    if (fullName.trim().length === 0) {
+      setError('Enter your name.');
+      return;
+    }
     if (normalized === null) {
       setError('Enter a valid 10-digit mobile number.');
+      return;
+    }
+    if (passwordProblem !== null || password.length === 0) {
+      setError(passwordProblem ?? 'Choose a password.');
+      return;
+    }
+    if (password !== confirm) {
+      setError('Both passwords must match.');
       return;
     }
 
@@ -34,13 +57,14 @@ export default function SignupPhoneScreen() {
     setError(null);
 
     try {
-      await requestCode('SIGNUP', normalized);
-      router.push('/(auth)/verify-otp');
+      await signUp({ phone: normalized, fullName: fullName.trim(), password });
+      // No navigation here: the root layout reacts to the session landing and
+      // routes a new account to the admission form.
     } catch (caught) {
       setError(
         caught instanceof ApiRequestError
           ? caught.message
-          : 'Could not send the code. Please check your connection.',
+          : 'Something went wrong. Please try again.',
       );
     } finally {
       setSubmitting(false);
@@ -49,33 +73,64 @@ export default function SignupPhoneScreen() {
 
   return (
     <Screen>
-      <PageHeading
-        title="Create an account"
-        subtitle="We'll text you a code to confirm the number is yours."
-      />
+      <PageHeading title="Create an account" subtitle="Your mobile number is what you sign in with." />
 
       <Card>
         <View style={styles.field}>
-          <FieldLabel>Mobile number</FieldLabel>
-          <PhoneField
-            value={phone}
-            onChangeText={setPhone}
+          <FieldLabel>Your name</FieldLabel>
+          <TextInput
+            value={fullName}
+            onChangeText={setFullName}
+            style={[
+              styles.input,
+              {
+                backgroundColor: theme.surface,
+                borderColor: theme.border,
+                color: theme.textPrimary,
+              },
+            ]}
+            placeholder="Vikram Iyer"
+            placeholderTextColor={theme.textMuted}
+            autoCapitalize="words"
+            textContentType="name"
+            accessibilityLabel="Your name"
             editable={!submitting}
             autoFocus
-            onSubmitEditing={() => void handleSubmit()}
           />
         </View>
 
-        <FieldError message={error} />
+        <View style={styles.field}>
+          <FieldLabel>Mobile number</FieldLabel>
+          <PhoneField value={phone} onChangeText={setPhone} editable={!submitting} />
+        </View>
 
-        <Button
-          label={submitting ? 'Sending code…' : 'Send code'}
-          onPress={() => void handleSubmit()}
+        <PasswordField
+          label="Password"
+          placeholder="At least 8 characters"
+          value={password}
+          onChangeText={setPassword}
+          editable={!submitting}
+          isNew
         />
 
-        <Body>
-          This becomes the number you sign in with, so use one you can receive messages on.
-        </Body>
+        <PasswordField
+          label="Confirm password"
+          placeholder="Type it again"
+          value={confirm}
+          onChangeText={setConfirm}
+          editable={!submitting}
+          isNew
+          onSubmitEditing={() => void handleSubmit()}
+        />
+
+        <Body>At least 8 characters, including a letter and a number.</Body>
+
+        <FieldError message={error ?? passwordProblem} />
+
+        <Button
+          label={submitting ? 'Creating account…' : 'Create account'}
+          onPress={() => void handleSubmit()}
+        />
       </Card>
 
       <Pressable
@@ -93,6 +148,13 @@ export default function SignupPhoneScreen() {
 
 const styles = StyleSheet.create({
   field: { gap: layout.spacing[2] },
+  input: {
+    minHeight: layout.minTouchTarget,
+    borderWidth: 1,
+    borderRadius: layout.radius.lg,
+    paddingHorizontal: layout.spacing[4],
+    fontSize: layout.fontSize.md,
+  },
   link: { minHeight: layout.minTouchTarget, justifyContent: 'center', alignItems: 'center' },
   linkText: { fontSize: layout.fontSize.md, fontWeight: '600' },
 });

@@ -1,7 +1,7 @@
 import type { RoomView } from '@heaven/contracts';
 import { formatINR } from '@heaven/money';
 import { useLocalSearchParams, useRouter } from 'expo-router';
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import { Alert, StyleSheet, Text, TextInput, View } from 'react-native';
 
 import {
@@ -9,14 +9,11 @@ import {
   useCreateResident,
   useDeleteRoom,
   useExitResident,
-  useLastReading,
   useMoveResident,
   useOwnerRoom,
-  useOwnerSettings,
-  useRecordReading,
+  useRecordElectricityBill,
   useUpdateRoom,
 } from '../../../src/api/owner';
-import { DateField } from '../../../src/components/DateField';
 import {
   Badge,
   Button,
@@ -252,17 +249,19 @@ export default function OwnerRoomDetailScreen() {
           </View>
 
           {data.occupiedBeds === 0 ? (
-            <Muted>No one is in this room yet — there is nobody to split a bill between.</Muted>
+            <Muted>No one is in this room yet — there is nobody to bill.</Muted>
           ) : addingBill ? (
             <ElectricityBillForm
               roomId={data.id}
-              occupiedBeds={data.occupiedBeds}
+              occupants={data.beds
+                .map((bed) => bed.occupant)
+                .filter((occupant): occupant is NonNullable<typeof occupant> => occupant !== null)}
               onDone={() => setAddingBill(false)}
             />
           ) : (
             <Muted>
-              Enter the meter reading; the amount is split between the {data.occupiedBeds} current
-              resident{data.occupiedBeds === 1 ? '' : 's'} by how long each of them was here.
+              Enter what each current resident owes. This adds a new charge on top of anything
+              already billed for the month — it does not replace it.
             </Muted>
           )}
         </Card>
@@ -542,108 +541,85 @@ function AssignForm({
   );
 }
 
+type RoomOccupant = NonNullable<RoomView['beds'][number]['occupant']>;
+
 /**
- * Records a meter reading for the room; the server turns it into an amount
- * (units × the property's electricity rate) and splits it across whoever
- * occupied the room during the period, weighted by how many days each of
- * them was actually here.
+ * The electricity/AC bill for a room, entered directly per resident — the
+ * admin decides and types what each person owes, not a meter reading split
+ * automatically. Each submission adds a new charge on top of what was
+ * already billed this period, rather than replacing it.
  */
 function ElectricityBillForm({
   roomId,
-  occupiedBeds,
+  occupants,
   onDone,
 }: {
   readonly roomId: string;
-  readonly occupiedBeds: number;
+  readonly occupants: readonly RoomOccupant[];
   readonly onDone: () => void;
 }) {
-  const lastReading = useLastReading(roomId);
-  const settings = useOwnerSettings();
-  const recordReading = useRecordReading();
+  const recordBill = useRecordElectricityBill();
 
-  const [previousReading, setPreviousReading] = useState('');
-  const [currentReading, setCurrentReading] = useState('');
   const [periodKey, setPeriodKey] = useState(currentPeriodKey());
-  const [readingDate, setReadingDate] = useState(today());
+  const [amounts, setAmounts] = useState<Record<string, string>>({});
   const [error, setError] = useState<string | null>(null);
 
-  useEffect(() => {
-    if (lastReading.data !== undefined && lastReading.data !== null) {
-      setPreviousReading(String(lastReading.data.currentReading));
-    }
-  }, [lastReading.data]);
+  function setAmount(tenancyId: string, value: string): void {
+    setAmounts((current) => ({ ...current, [tenancyId]: value }));
+  }
 
-  const previous = Number(previousReading);
-  const current = Number(currentReading);
-  const rate = settings.data?.financial.electricityRatePaisePerUnit;
-  const canEstimate =
-    previousReading.trim() !== '' &&
-    currentReading.trim() !== '' &&
-    !Number.isNaN(previous) &&
-    !Number.isNaN(current) &&
-    current >= previous &&
-    rate !== undefined;
-  const estimatedUnits = canEstimate ? current - previous : 0;
-  const estimatedTotalPaise = canEstimate ? estimatedUnits * rate : 0;
+  const entries = occupants
+    .map((occupant) => ({
+      tenancyId: occupant.tenancyId,
+      amountPaise: Math.round(Number(amounts[occupant.tenancyId] ?? '') * 100),
+    }))
+    .filter((entry) => (amounts[entry.tenancyId] ?? '').trim() !== '');
+  const totalPaise = entries.reduce((sum, entry) => sum + (entry.amountPaise || 0), 0);
 
   async function submit(): Promise<void> {
     setError(null);
 
-    if (previousReading.trim() === '' || currentReading.trim() === '') {
-      setError('Enter both the previous and current meter readings.');
+    if (entries.length === 0) {
+      setError('Enter an amount for at least one resident.');
       return;
     }
-    if (Number.isNaN(previous) || Number.isNaN(current) || current < previous) {
-      setError('The current reading must be a number at least as large as the previous one.');
+    const invalid = entries.some((entry) => !Number.isFinite(entry.amountPaise) || entry.amountPaise <= 0);
+    if (invalid) {
+      setError('Amounts must be numbers greater than 0.');
       return;
     }
 
     try {
-      await recordReading.mutateAsync({
-        roomId,
-        periodKey,
-        previousReading: previous,
-        currentReading: current,
-        readingDate,
-      });
+      await recordBill.mutateAsync({ roomId, periodKey, entries });
       onDone();
     } catch (caught) {
-      setError(caught instanceof ApiRequestError ? caught.message : 'Could not record the reading.');
+      setError(caught instanceof ApiRequestError ? caught.message : 'Could not save the bill.');
     }
   }
 
   return (
     <View style={styles.form}>
       <FormField label="Billing period" value={periodKey} onChangeText={setPeriodKey} placeholder="YYYY-MM" />
-      <FormField
-        label="Previous reading (units)"
-        value={previousReading}
-        onChangeText={setPreviousReading}
-        keyboardType="number-pad"
-      />
-      <FormField
-        label="Current reading (units)"
-        value={currentReading}
-        onChangeText={setCurrentReading}
-        keyboardType="number-pad"
-        autoFocus
-      />
-      <DateField label="Reading date" value={readingDate} onChange={setReadingDate} />
 
-      {canEstimate && (
-        <Muted>
-          {estimatedUnits} units · {formatINR(estimatedTotalPaise, { withPaise: false })} total · ≈
-          {formatINR(Math.round(estimatedTotalPaise / occupiedBeds), { withPaise: false })} each across{' '}
-          {occupiedBeds} resident{occupiedBeds === 1 ? '' : 's'} (the actual split accounts for who
-          joined or left mid-period)
-        </Muted>
-      )}
+      {occupants.map((occupant, index) => (
+        <FormField
+          key={occupant.tenancyId}
+          label={`${occupant.residentName} (₹)`}
+          value={amounts[occupant.tenancyId] ?? ''}
+          onChangeText={(value) => setAmount(occupant.tenancyId, value)}
+          placeholder="0"
+          keyboardType="decimal-pad"
+          autoFocus={index === 0}
+        />
+      ))}
+
+      {totalPaise > 0 && <Muted>Total: {formatINR(totalPaise, { withPaise: false })}</Muted>}
 
       {error !== null && <Muted>{error}</Muted>}
 
       <View style={styles.searchRow}>
         <Button label="Cancel" variant="secondary" onPress={onDone} />
-        <Button label={recordReading.isPending ? 'Saving…' : 'Save bill'} onPress={() => void submit()} />
+        <Button label={recordBill.isPending ? 'Saving…' : 'Save bill'} onPress={() => void submit()} />
       </View>
     </View>
   );

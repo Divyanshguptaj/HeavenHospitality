@@ -157,6 +157,18 @@ export interface ResidentSummaryView {
   readonly outstandingPaise: number;
 }
 
+/** A one-time password the owner hands to a resident; shown once and never stored in plaintext. */
+export interface TemporaryCredentialView {
+  readonly temporaryPassword: string;
+  /** ISO timestamp after which the password no longer works. */
+  readonly expiresAt: string;
+}
+
+/** The response to adding a resident; `credential` is null when the person already had a password. */
+export interface ResidentCreatedView extends ResidentSummaryView {
+  readonly credential: TemporaryCredentialView | null;
+}
+
 export interface ResidentDetailView extends ResidentSummaryView {
   readonly securityDepositPaise: number;
   readonly monthlyRentOverridePaise: number | null;

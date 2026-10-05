@@ -10,7 +10,6 @@ import {
   type NotificationEvent,
 } from './events.js';
 import { getPushProvider } from './providers/push.provider.js';
-import { getWhatsappProvider } from './providers/whatsapp.provider.js';
 
 /**
  * The one entry point application code uses to tell someone something.
@@ -29,7 +28,7 @@ export interface NotifyInput<E extends NotificationEvent> {
   /** Logical identity of this message, e.g. an invoice id + date. The event and user are added for you. */
   readonly dedupeKey: string;
   readonly params: EventParams[E];
-  /** Narrows the event's default channels (e.g. WhatsApp only on one overdue day). */
+  /** Narrows the event's default channels. */
   readonly channels?: readonly NotificationChannelName[];
 }
 
@@ -167,34 +166,6 @@ async function deliver<E extends NotificationEvent>(input: NotifyInput<E>): Prom
         await settle(id, { status: 'FAILED', error: error instanceof Error ? error.message : 'push failed' });
       }
       continue;
-    }
-
-    const whatsapp = definition.whatsapp as
-      | ((p: never) => { template: 'RENT_DUE' | 'RENT_OVERDUE'; variables: readonly string[] })
-      | undefined;
-    if (whatsapp === undefined) continue;
-
-    const provider = getWhatsappProvider();
-    const id = await reserve({
-      userId: input.userId,
-      event: input.event,
-      channel,
-      provider: provider.name,
-      dedupeKey: logicalKey,
-    });
-    if (id === null) continue;
-
-    try {
-      const spec = whatsapp(params);
-      const messageId = await provider.send({
-        phone: user.phone,
-        template: spec.template,
-        variables: spec.variables,
-        event: input.event,
-      });
-      await settle(id, { status: 'SENT', messageId });
-    } catch (error) {
-      await settle(id, { status: 'FAILED', error: error instanceof Error ? error.message : 'whatsapp failed' });
     }
   }
 }

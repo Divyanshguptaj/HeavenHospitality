@@ -4,12 +4,10 @@ import { formatINR } from '@heaven/money';
  * Every message the system can send, in one place: who it is for, which
  * channels carry it, whether the recipient may mute it, and its wording.
  *
- * Push is the default. WhatsApp (paid) is used only for the rent reminders that
- * must reach a resident who has not opened the app. SMS is used only for OTPs,
- * which have their own path (`OtpProvider`). See docs/messaging/README.md.
+ * Every message is delivered as an Expo push notification.
  */
 
-export type NotificationChannelName = 'PUSH' | 'WHATSAPP';
+export type NotificationChannelName = 'PUSH';
 
 /** Muting is per category. Financial, stay and security messages cannot be muted. */
 export type NotificationCategory = 'FINANCIAL' | 'STAY' | 'SECURITY' | 'COMPLAINTS' | 'NOTICES';
@@ -33,8 +31,6 @@ export interface EventParams {
 
 export type NotificationEvent = keyof EventParams;
 
-export type WhatsappTemplate = 'RENT_DUE' | 'RENT_OVERDUE';
-
 export interface RenderedMessage {
   readonly title: string;
   readonly body: string;
@@ -46,11 +42,6 @@ export interface EventDefinition<E extends NotificationEvent> {
   readonly category: NotificationCategory;
   readonly channels: readonly NotificationChannelName[];
   readonly render: (params: EventParams[E]) => RenderedMessage;
-  /** Template name and ordered variables, present only when WHATSAPP is a channel. */
-  readonly whatsapp?: (params: EventParams[E]) => {
-    readonly template: WhatsappTemplate;
-    readonly variables: readonly string[];
-  };
 }
 
 const rupees = (paise: number): string => formatINR(paise, { withPaise: false });
@@ -69,29 +60,20 @@ export const EVENTS: { [E in NotificationEvent]: EventDefinition<E> } = {
   },
   RENT_DUE_TODAY: {
     category: 'FINANCIAL',
-    channels: ['PUSH', 'WHATSAPP'],
+    channels: ['PUSH'],
     render: (p) => ({
       title: 'Rent due today',
       body: `${rupees(p.amountPaise)} for ${p.month} is due today.`,
       route: RENT,
     }),
-    whatsapp: (p) => ({
-      template: 'RENT_DUE',
-      variables: [p.name, p.month, rupees(p.amountPaise), p.dueDate],
-    }),
   },
   RENT_OVERDUE: {
     category: 'FINANCIAL',
-    // WhatsApp is added by the caller only on the one overdue day that warrants it.
-    channels: ['PUSH', 'WHATSAPP'],
+    channels: ['PUSH'],
     render: (p) => ({
       title: 'Rent overdue',
       body: `${rupees(p.amountPaise)} for ${p.month} is ${p.daysOverdue} day(s) overdue.`,
       route: RENT,
-    }),
-    whatsapp: (p) => ({
-      template: 'RENT_OVERDUE',
-      variables: [p.name, p.month, rupees(p.amountPaise), String(p.daysOverdue)],
     }),
   },
   INVOICE_GENERATED: {

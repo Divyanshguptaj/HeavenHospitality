@@ -12,7 +12,9 @@ import type {
   PropertyPhotoView,
   RegistrationDetailsView,
   ResidentDetailView,
+  ResidentCreatedView,
   ResidentSummaryView,
+  TemporaryCredentialView,
   RoomView,
   RuleView,
   SettingsView,
@@ -179,15 +181,18 @@ export const useGenerateInvoices = () =>
     [['owner', 'invoices'], ownerKeys.dashboard, ['owner', 'residents']],
   );
 
-export const useRecordReading = () =>
+/**
+ * Records the electricity/AC bill for a room — one amount per resident, typed
+ * by the admin directly. No meter reading, no automatic split.
+ */
+export const useRecordElectricityBill = () =>
   useOwnerMutation(
     (input: {
       roomId: string;
       periodKey: string;
-      previousReading: number;
-      currentReading: number;
-      readingDate: string;
-    }) => apiRequest<unknown>(`${OWNER}/electricity`, { method: 'POST', body: input }),
+      entries: Array<{ tenancyId: string; amountPaise: number }>;
+      notes?: string;
+    }) => apiRequest<{ updated: number }>(`${OWNER}/electricity/bill`, { method: 'POST', body: input }),
     [
       ['owner', 'invoices'],
       ownerKeys.dashboard,
@@ -197,27 +202,13 @@ export const useRecordReading = () =>
     ],
   );
 
-/** The room's last reading, to prefill "previous reading" without retyping it. */
-export const useLastReading = (
-  roomId: string,
-): UseQueryResult<{ currentReading: number; periodKey: string; readingDate: string } | null, Error> =>
-  useQuery({
-    queryKey: ['owner', 'electricity', 'last', roomId],
-    queryFn: ({ signal }) =>
-      apiRequest<{ currentReading: number; periodKey: string; readingDate: string } | null>(
-        `${OWNER}/electricity/last/${roomId}`,
-        { signal },
-      ),
-    enabled: roomId !== '',
-  });
-
-/** A manual correction to one resident's share of a room's electricity bill. */
-export const useUpdateElectricityShare = () =>
+/** Edits one resident's already-recorded electricity/AC bill amount. */
+export const useUpdateElectricityInvoice = () =>
   useOwnerMutation(
-    ({ id, sharePaise }: { id: string; sharePaise: number }) =>
-      apiRequest<{ updated: boolean }>(`${OWNER}/electricity/shares/${id}`, {
+    ({ invoiceId, amountPaise }: { invoiceId: string; amountPaise: number }) =>
+      apiRequest<{ updated: boolean }>(`${OWNER}/electricity/invoices/${invoiceId}`, {
         method: 'PATCH',
-        body: { sharePaise },
+        body: { amountPaise },
       }),
     [['owner', 'invoices'], ownerKeys.dashboard, ['owner', 'residents'], ['owner', 'resident']],
   );
@@ -285,8 +276,18 @@ export const useUpdateBedStatus = () =>
 /** Fills an empty bed — reuses an existing account when one is found. */
 export const useCreateResident = () =>
   useOwnerMutation(
-    (body: unknown) => apiRequest<ResidentSummaryView>(`${OWNER}/residents`, { method: 'POST', body }),
+    (body: unknown) => apiRequest<ResidentCreatedView>(`${OWNER}/residents`, { method: 'POST', body }),
     [...OCCUPANCY_KEYS, ['owner', 'residents'], ownerKeys.applicants],
+  );
+
+/** Issues a resident a new temporary password and signs them out everywhere. */
+export const useResetResidentPassword = () =>
+  useOwnerMutation(
+    (id: string) =>
+      apiRequest<TemporaryCredentialView>(`${OWNER}/residents/${id}/reset-password`, {
+        method: 'POST',
+      }),
+    [],
   );
 
 /** Edits a resident's own details — contact, rent override, deposit, emergency contact. */

@@ -6,6 +6,7 @@ import { lookupUserByPhone, useCreateResident } from '../../../src/api/owner';
 import { DateField } from '../../../src/components/DateField';
 import { Button, Card, FormField, Muted, PageHeading, Screen } from '../../../src/components/ui';
 import { ApiRequestError } from '../../../src/lib/apiClient';
+import { showTemporaryPassword } from '../../../src/lib/temporaryPassword';
 import { layout, useTheme } from '../../../src/theme';
 
 function today(): string {
@@ -24,10 +25,10 @@ type FoundUser = {
 /**
  * Brings someone in as a resident, found by phone.
  *
- * Searches for an account rather than creating one on the spot: a resident's
- * account comes from their own signup (spec §7), so this only ever assigns an
- * existing account, the same rule the room screen's own "add resident" form
- * follows. A room and bed can be assigned afterward from Rooms.
+ * Searches for an account first. When there is none, the owner can create it
+ * here: the resident gets a one-time temporary password to sign in with and must
+ * choose their own on first sign-in. A room and bed can be assigned afterward
+ * from Rooms.
  */
 export default function AddResidentScreen() {
   const theme = useTheme();
@@ -36,6 +37,7 @@ export default function AddResidentScreen() {
   const [phone, setPhone] = useState('');
   const [found, setFound] = useState<FoundUser | null>(null);
   const [notFound, setNotFound] = useState(false);
+  const [newName, setNewName] = useState('');
   const [checking, setChecking] = useState(false);
   const [joiningDate, setJoiningDate] = useState(today());
   // Left blank on purpose, not defaulted to "0" — the owner must type an
@@ -63,8 +65,13 @@ export default function AddResidentScreen() {
   }
 
   async function submit(): Promise<void> {
-    if (found === null) return;
+    if (found === null && !notFound) return;
     setError(null);
+
+    if (found === null && newName.trim().length < 2) {
+      setError('Enter their full name.');
+      return;
+    }
 
     const depositValue = securityDeposit.trim();
     const depositRupees = Number(depositValue);
@@ -74,14 +81,17 @@ export default function AddResidentScreen() {
     }
 
     try {
-      await createResident.mutateAsync({
-        existingUserId: found.id,
-        fullName: found.fullName,
-        phone: found.phone ?? phone.trim(),
-        ...(found.email === null ? {} : { email: found.email }),
+      const created = await createResident.mutateAsync({
+        ...(found === null ? {} : { existingUserId: found.id }),
+        fullName: found?.fullName ?? newName.trim(),
+        phone: found?.phone ?? phone.trim(),
+        ...(found?.email == null ? {} : { email: found.email }),
         joiningDate,
         securityDepositPaise: Math.round(depositRupees * 100),
       });
+      if (created.credential !== null) {
+        showTemporaryPassword(created.fullName, phone.trim(), created.credential);
+      }
       router.back();
     } catch (caught) {
       setError(caught instanceof ApiRequestError ? caught.message : 'Could not add the resident.');
@@ -90,7 +100,7 @@ export default function AddResidentScreen() {
 
   return (
     <Screen>
-      <PageHeading title="Add a resident" subtitle="Search by the phone number they signed up with." />
+      <PageHeading title="Add a resident" subtitle="Search by phone number. If they have no account yet, you can create one." />
 
       <Card>
         <View style={styles.searchRow}>
@@ -114,7 +124,18 @@ export default function AddResidentScreen() {
         </View>
 
         {notFound && (
-          <Muted>No account with that number. They need to sign up in the app first.</Muted>
+          <>
+            <Muted>
+              No account with that number. Create one and give them the temporary password.
+            </Muted>
+            <FormField
+              label="Full name"
+              value={newName}
+              onChangeText={setNewName}
+              placeholder="Rahul Sharma"
+              autoCapitalize="words"
+            />
+          </>
         )}
 
         {found !== null && (
@@ -134,7 +155,7 @@ export default function AddResidentScreen() {
         )}
       </Card>
 
-      {found !== null && found.activeTenancyId === null && (
+      {((found !== null && found.activeTenancyId === null) || notFound) && (
         <Card>
           <DateField label="Joining date" value={joiningDate} onChange={setJoiningDate} />
           <FormField
@@ -149,7 +170,13 @@ export default function AddResidentScreen() {
           {error !== null && <Muted>{error}</Muted>}
 
           <Button
-            label={createResident.isPending ? 'Adding…' : 'Add resident'}
+            label={
+              createResident.isPending
+                ? 'Adding…'
+                : notFound
+                  ? 'Create account and add resident'
+                  : 'Add resident'
+            }
             onPress={() => void submit()}
           />
         </Card>

@@ -11,11 +11,6 @@ import { normalizeIndianPhone } from './phone.js';
  * that decides. They cannot drift, because there is only one.
  */
 
-export const OTP_PURPOSES = ['SIGNUP', 'PASSWORD_RESET'] as const;
-export type OtpPurposeName = (typeof OTP_PURPOSES)[number];
-
-export const OTP_CODE_LENGTH = 6;
-
 /**
  * Accepts anything a person might type and emits E.164.
  *
@@ -40,11 +35,6 @@ export const phoneNumberSchema = z
     return normalized;
   });
 
-export const otpCodeSchema = z
-  .string()
-  .trim()
-  .regex(new RegExp(`^\\d{${OTP_CODE_LENGTH}}$`), `Enter the ${OTP_CODE_LENGTH}-digit code`);
-
 /**
  * Password rules, kept deliberately modest: length is what actually resists
  * guessing, and baroque character classes mostly push people toward
@@ -57,30 +47,9 @@ export const passwordSchema = z
   .regex(/[A-Za-z]/, 'Include at least one letter')
   .regex(/\d/, 'Include at least one number');
 
-export const requestOtpSchema = z.object({
+export const signupSchema = z.object({
   phone: phoneNumberSchema,
-});
-
-export const verifyOtpSchema = z.object({
-  phone: phoneNumberSchema,
-  code: otpCodeSchema,
-});
-
-/**
- * The final signup step. `verificationToken` is what proves the phone was
- * verified moments ago — without it, knowing a phone number would be enough to
- * create an account on it.
- */
-export const setPasswordSchema = z.object({
-  phone: phoneNumberSchema,
-  verificationToken: z.string().min(1),
   fullName: z.string().trim().min(1, 'Enter your name').max(120),
-  password: passwordSchema,
-});
-
-export const resetPasswordSchema = z.object({
-  phone: phoneNumberSchema,
-  verificationToken: z.string().min(1),
   password: passwordSchema,
 });
 

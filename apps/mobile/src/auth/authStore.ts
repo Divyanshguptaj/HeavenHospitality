@@ -1,7 +1,7 @@
 import type { Role } from '@heaven/contracts';
 import { create } from 'zustand';
 
-import { apiRequest, setAccessToken, ApiRequestError } from '../lib/apiClient';
+import { apiRequest, setAccessToken, setSessionExpiredHandler, ApiRequestError } from '../lib/apiClient';
 import { unregisterPush } from '../lib/pushNotifications';
 import { clearRefreshToken, readRefreshToken, saveRefreshToken } from '../lib/secureTokenStore';
 
@@ -12,7 +12,6 @@ export interface AuthenticatedUser {
   readonly phone: string;
   readonly email: string | null;
   readonly role: Role;
-  readonly phoneVerified: boolean;
   readonly mustChangePassword: boolean;
   /** Null until the admission form is submitted — checked before any tenancy exists. */
   readonly registrationCompletedAt: string | null;
@@ -39,13 +38,8 @@ interface AuthState {
   readonly user: AuthenticatedUser | null;
   readonly restore: () => Promise<void>;
   readonly signIn: (phone: string, password: string) => Promise<void>;
-  /** Finishes signup once the phone number has been verified by OTP. */
-  readonly completeSignup: (input: {
-    phone: string;
-    verificationToken: string;
-    fullName: string;
-    password: string;
-  }) => Promise<void>;
+  /** Creates the account and signs it in. */
+  readonly signUp: (input: { phone: string; fullName: string; password: string }) => Promise<void>;
   readonly signOut: () => Promise<void>;
   /** Called right after the admission form is submitted, so the redirect gate clears without a re-login. */
   readonly markRegistrationComplete: (completedAt: string) => void;
@@ -156,8 +150,8 @@ export const useAuthStore = create<AuthState>((set, get) => ({
    * else. Becoming a RESIDENT is something the owner does, not something a
    * client can request.
    */
-  completeSignup: async (input) => {
-    const session = await apiRequest<SessionResponse>('/auth/signup/set-password', {
+  signUp: async (input) => {
+    const session = await apiRequest<SessionResponse>('/auth/signup', {
       method: 'POST',
       body: { ...input, client: 'mobile' },
     });
@@ -188,6 +182,17 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     set({ user: { ...current, registrationCompletedAt: completedAt } });
   },
 }));
+
+// A dead session can be discovered from ANY screen mid-use, not just at boot —
+// the access token can expire (recovered silently, see apiClient) or the
+// refresh token itself can be revoked (cannot be recovered). Only the second
+// case reaches here. Flipping to `signedOut` is enough: the root layout's own
+// redirect effect then sends the app back to the public screen, exactly like
+// an ordinary sign-out, instead of leaving whatever screen was open stuck on
+// an error the user has no way to act on.
+setSessionExpiredHandler(() => {
+  useAuthStore.setState({ status: 'signedOut', user: null });
+});
 
 /**
  * Which section of the app an account opens.

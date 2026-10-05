@@ -1,5 +1,7 @@
 # 0003 — Authentication and sessions
 
+> **Superseded:** phone verification by SMS code, OTP delivery and self-service password reset have been removed. Signup is name, phone and password with no verification. The OTP sections below describe the removed design.
+
 **Status:** Accepted · **Date:** 2026-08-31 (supersedes the 2026-08-23 decision)
 
 ## Decision: password login, OTP only to prove a phone number

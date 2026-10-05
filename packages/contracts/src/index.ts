@@ -21,17 +21,10 @@ export {
   normalizeIndianPhone,
 } from './phone.js';
 export {
-  OTP_CODE_LENGTH,
-  OTP_PURPOSES,
   loginSchema,
-  otpCodeSchema,
   passwordSchema,
   phoneNumberSchema,
-  requestOtpSchema,
-  resetPasswordSchema,
-  setPasswordSchema,
-  verifyOtpSchema,
-  type OtpPurposeName,
+  signupSchema,
 } from './auth.js';
 export {
   DEFAULT_SIGNUP_ROLE,
@@ -104,10 +97,12 @@ export {
   messSettingsSchema,
   moveResidentSchema,
   paymentSettingsSchema,
+  recordElectricityBillSchema,
   recordPaymentSchema,
   submitRegistrationSchema,
   updateBedStatusSchema,
   updateComplaintSchema,
+  updateElectricityInvoiceSchema,
   updateFacilitySchema,
   updateElectricityShareSchema,
   updateFloorSchema,

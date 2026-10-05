@@ -228,7 +228,6 @@ async function createRentReminders(today: DateOnly): Promise<string> {
           event: 'RENT_OVERDUE',
           userId,
           dedupeKey: `${logicalKey}:d${daysOverdue}`,
-          channels: daysOverdue === 3 ? ['PUSH', 'WHATSAPP'] : ['PUSH'],
           params: { name, month, amountPaise: outstanding, daysOverdue },
         });
       }

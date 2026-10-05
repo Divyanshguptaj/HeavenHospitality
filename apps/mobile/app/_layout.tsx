@@ -85,7 +85,9 @@ function RootNavigator() {
   // instead, ahead of their normal destination.
   useEffect(() => {
     if (status === 'signedIn') {
-      if (!isAdmin(user) && user?.registrationCompletedAt === null) {
+      if (user?.mustChangePassword === true) {
+        router.replace('/(auth)/change-password');
+      } else if (!isAdmin(user) && user?.registrationCompletedAt === null) {
         router.replace('/(auth)/registration');
       } else {
         router.replace(isAdmin(user) ? '/(owner)' : isResident(user) ? '/(resident)' : '/(public)');
@@ -124,9 +126,7 @@ function RootNavigator() {
       <Stack.Screen name="(auth)/registration" />
       <Stack.Screen name="(auth)/login" />
       <Stack.Screen name="(auth)/signup-phone" />
-      <Stack.Screen name="(auth)/verify-otp" />
-      <Stack.Screen name="(auth)/set-password" />
-      <Stack.Screen name="(auth)/forgot-phone" />
+      <Stack.Screen name="(auth)/change-password" />
     </Stack>
   );
 }

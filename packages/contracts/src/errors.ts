@@ -17,20 +17,13 @@ export const ERROR_CODES = [
   'INVALID_CREDENTIALS',
   'ACCOUNT_LOCKED',
   'ACCOUNT_INACTIVE',
+  /** The owner-issued temporary password is past its expiry; the owner must issue a new one. */
+  'TEMP_PASSWORD_EXPIRED',
+  /** The account is on a temporary password and may only change it until it does. */
+  'PASSWORD_CHANGE_REQUIRED',
   'TOKEN_EXPIRED',
   'TOKEN_INVALID',
   'SESSION_REVOKED',
-
-  // Phone verification (signup and password reset)
-  /** The code was wrong. Deliberately distinct from EXPIRED so the UI can say which. */
-  'OTP_INVALID',
-  'OTP_EXPIRED',
-  /** Too many wrong guesses against one code; it is now dead and must be re-sent. */
-  'OTP_MAX_ATTEMPTS',
-  /** A code was requested again inside the resend cooldown. */
-  'OTP_RESEND_TOO_SOON',
-  /** The step was attempted without a verified code for that phone and purpose. */
-  'PHONE_NOT_VERIFIED',
 
   // Authorization
   'FORBIDDEN',
@@ -88,15 +81,12 @@ export const ERROR_STATUS: Readonly<Record<ErrorCode, number>> = Object.freeze({
   INVALID_CREDENTIALS: 401,
   ACCOUNT_LOCKED: 423,
   ACCOUNT_INACTIVE: 403,
+  TEMP_PASSWORD_EXPIRED: 401,
+  PASSWORD_CHANGE_REQUIRED: 403,
   TOKEN_EXPIRED: 401,
   TOKEN_INVALID: 401,
   SESSION_REVOKED: 401,
 
-  OTP_INVALID: 400,
-  OTP_EXPIRED: 410,
-  OTP_MAX_ATTEMPTS: 429,
-  OTP_RESEND_TOO_SOON: 429,
-  PHONE_NOT_VERIFIED: 403,
 
   FORBIDDEN: 403,
   INSUFFICIENT_PERMISSION: 403,

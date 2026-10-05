@@ -1,10 +1,7 @@
 import {
   loginSchema as sharedLoginSchema,
   passwordSchema,
-  requestOtpSchema,
-  resetPasswordSchema,
-  setPasswordSchema,
-  verifyOtpSchema,
+  signupSchema,
   type ApiSuccess,
 } from '@heaven/contracts';
 import { Router, type NextFunction, type Request, type Response } from 'express';
@@ -13,20 +10,15 @@ import { z } from 'zod';
 import { isProduction } from '../../config/env.js';
 import { AppError } from '../../errors/AppError.js';
 import { getActor, requireAuth } from '../../middleware/authenticate.js';
-import { authLimiter, otpSendLimiter } from '../../middleware/rateLimit.js';
+import { authLimiter } from '../../middleware/rateLimit.js';
 import { getValidated, validate } from '../../middleware/validate.js';
 import {
   changePassword,
-  completeSignup,
   getUserView,
   login,
   logout,
   refresh,
-  resetPassword,
-  startPasswordReset,
-  startSignup,
-  verifyPasswordResetOtp,
-  verifySignupOtp,
+  signup,
   type AuthResult,
   type AuthenticatedUserView,
 } from './auth.service.js';
@@ -119,61 +111,19 @@ authRouter.post(
   },
 );
 
-// ---------------------------------------------------------------------------
-// Signup: request a code, verify it, then choose a password.
-//
-// Split into three routes rather than one because each step has a different
-// precondition, and collapsing them would mean an account could exist before
-// its phone number was proven.
-// ---------------------------------------------------------------------------
-
-const requestOtpBodySchema = { body: requestOtpSchema } as const;
-const verifyOtpBodySchema = { body: verifyOtpSchema } as const;
-
-authRouter.post(
-  '/signup/request-otp',
-  otpSendLimiter,
-  validate(requestOtpBodySchema),
-  (req: Request, res: Response, next: NextFunction) => {
-    const { body } = getValidated<typeof requestOtpBodySchema>(req);
-
-    startSignup(body.phone)
-      .then((result) => {
-        res.status(200).json({ success: true, data: result });
-      })
-      .catch(next);
-  },
-);
-
-authRouter.post(
-  '/signup/verify-otp',
-  authLimiter,
-  validate(verifyOtpBodySchema),
-  (req: Request, res: Response, next: NextFunction) => {
-    const { body } = getValidated<typeof verifyOtpBodySchema>(req);
-
-    verifySignupOtp(body.phone, body.code)
-      .then((result) => {
-        res.status(200).json({ success: true, data: result });
-      })
-      .catch(next);
-  },
-);
-
-const setPasswordBodySchema = {
-  body: setPasswordSchema.extend({ client: clientSchema }),
+const signupBodySchema = {
+  body: signupSchema.extend({ client: clientSchema }),
 } as const;
 
 authRouter.post(
-  '/signup/set-password',
+  '/signup',
   authLimiter,
-  validate(setPasswordBodySchema),
+  validate(signupBodySchema),
   (req: Request, res: Response, next: NextFunction) => {
-    const { body } = getValidated<typeof setPasswordBodySchema>(req);
+    const { body } = getValidated<typeof signupBodySchema>(req);
 
-    completeSignup({
+    signup({
       phone: body.phone,
-      verificationToken: body.verificationToken,
       fullName: body.fullName,
       password: body.password,
       deviceLabel: body.client === 'mobile' ? 'Mobile app' : 'Web',
@@ -181,64 +131,6 @@ authRouter.post(
     })
       .then((result) => {
         respondWithSession(res, result, body.client);
-      })
-      .catch(next);
-  },
-);
-
-// ---------------------------------------------------------------------------
-// Forgot password: the same three steps, against an existing account.
-// ---------------------------------------------------------------------------
-
-authRouter.post(
-  '/forgot-password/request-otp',
-  otpSendLimiter,
-  validate(requestOtpBodySchema),
-  (req: Request, res: Response, next: NextFunction) => {
-    const { body } = getValidated<typeof requestOtpBodySchema>(req);
-
-    startPasswordReset(body.phone)
-      .then((result) => {
-        res.status(200).json({ success: true, data: result });
-      })
-      .catch(next);
-  },
-);
-
-authRouter.post(
-  '/forgot-password/verify-otp',
-  authLimiter,
-  validate(verifyOtpBodySchema),
-  (req: Request, res: Response, next: NextFunction) => {
-    const { body } = getValidated<typeof verifyOtpBodySchema>(req);
-
-    verifyPasswordResetOtp(body.phone, body.code)
-      .then((result) => {
-        res.status(200).json({ success: true, data: result });
-      })
-      .catch(next);
-  },
-);
-
-const resetPasswordBodySchema = { body: resetPasswordSchema } as const;
-
-authRouter.post(
-  '/forgot-password/reset',
-  authLimiter,
-  validate(resetPasswordBodySchema),
-  (req: Request, res: Response, next: NextFunction) => {
-    const { body } = getValidated<typeof resetPasswordBodySchema>(req);
-
-    resetPassword({
-      phone: body.phone,
-      verificationToken: body.verificationToken,
-      password: body.password,
-    })
-      .then(() => {
-        // Every session died with the reset, this one included. The client must
-        // sign in with the new password, which is the point.
-        clearRefreshCookie(res);
-        res.status(200).json({ success: true, data: { ok: true } });
       })
       .catch(next);
   },
@@ -305,14 +197,18 @@ authRouter.post(
   },
 );
 
-authRouter.get('/me', requireAuth(), (req: Request, res: Response, next: NextFunction) => {
-  getUserView(getActor(req).userId)
-    .then((user) => {
-      const body: ApiSuccess<AuthenticatedUserView> = { success: true, data: user };
-      res.status(200).json(body);
-    })
-    .catch(next);
-});
+authRouter.get(
+  '/me',
+  requireAuth({ allowPasswordChangeRequired: true }),
+  (req: Request, res: Response, next: NextFunction) => {
+    getUserView(getActor(req).userId)
+      .then((user) => {
+        const body: ApiSuccess<AuthenticatedUserView> = { success: true, data: user };
+        res.status(200).json(body);
+      })
+      .catch(next);
+  },
+);
 
 const changePasswordSchema = {
   body: z.object({
@@ -325,7 +221,7 @@ const changePasswordSchema = {
 
 authRouter.post(
   '/change-password',
-  requireAuth(),
+  requireAuth({ allowPasswordChangeRequired: true }),
   validate(changePasswordSchema),
   (req: Request, res: Response, next: NextFunction) => {
     const { body } = getValidated<typeof changePasswordSchema>(req);

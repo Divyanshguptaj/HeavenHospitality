@@ -1,12 +1,12 @@
-import type { ResidentDetailView } from '@heaven/contracts';
+import { INVOICE_CATEGORY_LABELS } from '@heaven/contracts';
 import { formatINR } from '@heaven/money';
 import { useLocalSearchParams } from 'expo-router';
 import { useEffect, useState } from 'react';
-import { StyleSheet, View } from 'react-native';
+import { Alert, StyleSheet, View } from 'react-native';
 
 import {
   useOwnerResident,
-  useUpdateElectricityShare,
+  useResetResidentPassword,
   useUpdateRegistration,
   useUpdateResident,
 } from '../../../src/api/owner';
@@ -27,6 +27,7 @@ import {
   Screen,
 } from '../../../src/components/ui';
 import { ApiRequestError } from '../../../src/lib/apiClient';
+import { showTemporaryPassword } from '../../../src/lib/temporaryPassword';
 import { layout } from '../../../src/theme';
 
 /** Rupees, for a text field. Blank means "not set", not zero. */
@@ -52,6 +53,7 @@ export default function OwnerResidentDetailScreen() {
   const resident = useOwnerResident(id);
   const updateResident = useUpdateResident();
   const updateRegistration = useUpdateRegistration();
+  const resetPassword = useResetResidentPassword();
 
   const [editing, setEditing] = useState(false);
   const [fullName, setFullName] = useState('');
@@ -224,6 +226,40 @@ export default function OwnerResidentDetailScreen() {
         )}
       </Card>
 
+      <Card>
+        <CardTitle>Sign-in access</CardTitle>
+        <Muted>
+          Forgot their password? Issue a temporary one. They are signed out everywhere and must
+          choose a new password when they sign in.
+        </Muted>
+        <Button
+          label={resetPassword.isPending ? 'Resetting…' : 'Reset password'}
+          variant="secondary"
+          onPress={() =>
+            Alert.alert(
+              `Reset password for ${data.fullName}?`,
+              'This signs them out everywhere and gives you a new temporary password to hand over.',
+              [
+                { text: 'Cancel', style: 'cancel' },
+                {
+                  text: 'Reset',
+                  style: 'destructive',
+                  onPress: () =>
+                    void resetPassword.mutateAsync(id).then(
+                      (credential) => showTemporaryPassword(data.fullName, data.phone ?? '', credential),
+                      (caught: unknown) =>
+                        Alert.alert(
+                          'Could not reset',
+                          caught instanceof ApiRequestError ? caught.message : 'Please try again.',
+                        ),
+                    ),
+                },
+              ],
+            )
+          }
+        />
+      </Card>
+
       <RegistrationCard
         registration={data.registration}
         saving={updateRegistration.isPending}
@@ -239,7 +275,9 @@ export default function OwnerResidentDetailScreen() {
             <View key={invoice.id}>
               {index > 0 && <Divider />}
               <View style={styles.rowBetween}>
-                <Muted>{`${invoice.periodKey} · ${invoice.status}`}</Muted>
+                <Muted>
+                  {`${INVOICE_CATEGORY_LABELS[invoice.category]} · ${invoice.periodKey} · ${invoice.status}`}
+                </Muted>
                 <Muted>{formatINR(invoice.totalPaise, { withPaise: false })}</Muted>
               </View>
             </View>
@@ -264,18 +302,6 @@ export default function OwnerResidentDetailScreen() {
         )}
       </Card>
 
-      {data.electricity.length > 0 && (
-        <Card>
-          <CardTitle>Electricity / AC bills</CardTitle>
-          {data.electricity.slice(0, 6).map((share, index) => (
-            <View key={share.id}>
-              {index > 0 && <Divider />}
-              <ElectricityShareRow share={share} />
-            </View>
-          ))}
-        </Card>
-      )}
-
       {data.complaints.length > 0 && (
         <Card>
           <CardTitle>Complaints</CardTitle>
@@ -294,70 +320,6 @@ export default function OwnerResidentDetailScreen() {
   );
 }
 
-/**
- * One period's electricity/AC share, with the even/prorated split the server
- * computed shown alongside a way to override it — the split is a starting
- * point, not the final word, for the case where one resident's usage was
- * clearly not typical of their roommates'.
- */
-function ElectricityShareRow({
-  share,
-}: {
-  readonly share: ResidentDetailView['electricity'][number];
-}) {
-  const updateShare = useUpdateElectricityShare();
-  const [editing, setEditing] = useState(false);
-  const [amount, setAmount] = useState(String(share.sharePaise / 100));
-  const [error, setError] = useState<string | null>(null);
-
-  async function save(): Promise<void> {
-    setError(null);
-    const rupees = Number(amount);
-    if (amount.trim() === '' || Number.isNaN(rupees) || rupees < 0) {
-      setError('Enter a valid amount.');
-      return;
-    }
-    try {
-      await updateShare.mutateAsync({ id: share.id, sharePaise: Math.round(rupees * 100) });
-      setEditing(false);
-    } catch (caught) {
-      setError(caught instanceof ApiRequestError ? caught.message : 'Could not save.');
-    }
-  }
-
-  if (editing) {
-    return (
-      <View style={styles.electricityEdit}>
-        <Muted>{`${share.periodKey} · room ${share.roomNumber} · ${share.units} units`}</Muted>
-        <FormField label="This resident's share (₹)" value={amount} onChangeText={setAmount} keyboardType="decimal-pad" />
-        {error !== null && <Muted>{error}</Muted>}
-        <View style={styles.actionsRow}>
-          <Button
-            label="Cancel"
-            variant="secondary"
-            onPress={() => {
-              setEditing(false);
-              setAmount(String(share.sharePaise / 100));
-              setError(null);
-            }}
-          />
-          <Button label={updateShare.isPending ? 'Saving…' : 'Save'} onPress={() => void save()} />
-        </View>
-      </View>
-    );
-  }
-
-  return (
-    <View style={styles.rowBetween}>
-      <Muted>{`${share.periodKey} · room ${share.roomNumber} · ${share.units} units, ${share.occupiedDays}d`}</Muted>
-      <View style={styles.electricityAmount}>
-        <Muted>{formatINR(share.sharePaise, { withPaise: false })}</Muted>
-        <Button label="Edit" variant="secondary" onPress={() => setEditing(true)} />
-      </View>
-    </View>
-  );
-}
-
 const styles = StyleSheet.create({
   headingRow: { flexDirection: 'row', alignItems: 'flex-start', gap: layout.spacing[4] },
   grow: { flex: 1 },
@@ -369,6 +331,4 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     paddingVertical: layout.spacing[2],
   },
-  electricityAmount: { flexDirection: 'row', alignItems: 'center', gap: layout.spacing[3] },
-  electricityEdit: { gap: layout.spacing[2], paddingVertical: layout.spacing[2] },
 });

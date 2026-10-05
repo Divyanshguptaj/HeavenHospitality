@@ -210,7 +210,10 @@ const userDelegate = {
     if (found === null) throw new Error('fakePrisma: findUniqueOrThrow matched no row');
     return found;
   },
-  create: (args: { data: Row }) => userTable.create(args),
+  create: async (args: { data: Row; include?: Row }) =>
+    args.include === undefined
+      ? userTable.create(args)
+      : withMemberships(await userTable.create(args)),
   update: (args: { where: Row; data: Row }) => userTable.update(args),
   updateMany: (args: { where?: Row; data: Row }) => userTable.updateMany(args),
   deleteMany: (args: { where?: Row }) => userTable.deleteMany(args),

@@ -51,6 +51,7 @@ export default function CollectScreen() {
   const payments = useOwnerPayments();
   const recordPayment = useRecordPayment();
 
+  const [search, setSearch] = useState('');
   const [selected, setSelected] = useState<string | null>(null);
   // Which bills this payment covers, and the rupee amount typed for each. A bill
   // is "covered" when it has an entry; the amount starts at what it still owes.
@@ -63,7 +64,10 @@ export default function CollectScreen() {
   // rotated once a payment actually succeeds, never on failure.
   const [idempotencyKey, setIdempotencyKey] = useState(generateIdempotencyKey);
 
-  const owing = (residents.data ?? []).filter((r) => r.outstandingPaise > 0);
+  const query = search.trim().toLowerCase();
+  const owing = (residents.data ?? [])
+    .filter((r) => r.outstandingPaise > 0)
+    .filter((r) => query === '' || r.fullName.toLowerCase().includes(query));
   const chosen = (residents.data ?? []).find((r) => r.tenancyId === selected);
 
   const detail = useOwnerResident(selected ?? '');
@@ -85,6 +89,7 @@ export default function CollectScreen() {
   function choose(tenancyId: string): void {
     setSelected(tenancyId);
     setAmounts({});
+    setSearch('');
     setIdempotencyKey(generateIdempotencyKey());
   }
 
@@ -164,8 +169,26 @@ export default function CollectScreen() {
       ) : selected === null ? (
         <Card>
           <CardTitle>Who is paying?</CardTitle>
+          <TextInput
+            value={search}
+            onChangeText={setSearch}
+            placeholder="Search by name"
+            placeholderTextColor={theme.textMuted}
+            accessibilityLabel="Search residents who owe money"
+            autoCapitalize="none"
+            style={[
+              styles.search,
+              { backgroundColor: theme.surface, borderColor: theme.border, color: theme.textPrimary },
+            ]}
+          />
           {owing.length === 0 ? (
-            <EmptyState message="Nobody has an outstanding balance right now." />
+            <EmptyState
+              message={
+                query === ''
+                  ? 'Nobody has an outstanding balance right now.'
+                  : 'No one owing money matches that search.'
+              }
+            />
           ) : (
             owing.map((resident) => (
               <Pressable
@@ -373,6 +396,13 @@ const styles = StyleSheet.create({
   field: { gap: layout.spacing[2] },
   billRow: { borderBottomWidth: StyleSheet.hairlineWidth, gap: layout.spacing[2] },
   label: { fontSize: layout.fontSize.sm, fontWeight: '600' },
+  search: {
+    minHeight: layout.minTouchTarget,
+    borderWidth: 1,
+    borderRadius: layout.radius.lg,
+    paddingHorizontal: layout.spacing[4],
+    fontSize: layout.fontSize.md,
+  },
   input: {
     minHeight: layout.minTouchTarget,
     borderWidth: 1,

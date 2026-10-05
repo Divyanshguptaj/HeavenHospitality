@@ -26,6 +26,8 @@ export interface AccessTokenClaims extends JWTPayload {
   readonly role: Role;
   /** Where the account holds authority, for property-scoped checks. */
   readonly roles: ReadonlyArray<{ readonly propertyId: string; readonly role: Role }>;
+  /** True while the account still has an owner-issued temporary password. */
+  readonly mcp?: boolean;
 }
 
 function durationToSeconds(duration: string): number {
@@ -48,9 +50,14 @@ export async function signAccessToken(
   userId: string,
   sessionId: string,
   role: Role,
-  scope: { memberships: AccessTokenClaims['roles'] },
+  scope: { memberships: AccessTokenClaims['roles']; passwordChangeRequired?: boolean },
 ): Promise<string> {
-  return new SignJWT({ sid: sessionId, role, roles: scope.memberships })
+  return new SignJWT({
+    sid: sessionId,
+    role,
+    roles: scope.memberships,
+    ...(scope.passwordChangeRequired === true ? { mcp: true } : {}),
+  })
     .setProtectedHeader({ alg: 'HS256' })
     .setSubject(userId)
     .setIssuer(ISSUER)

@@ -6,9 +6,11 @@ import { AppError } from '../../errors/AppError.js';
 import type { Loose } from '../../lib/types.js';
 import { writeAudit, type TransactionClient } from '../../lib/audit.js';
 import {
+  addDays,
   dueDateFor,
   firstDayOfPeriod,
   fromPrismaDate,
+  maxDate,
   todayInZone,
   toPrismaDate,
   type DateOnly,
@@ -320,6 +322,14 @@ async function raiseCategoryInvoice(
   const prefix = category === 'RENT' ? 'INV' : 'INV-ELEC';
   const number = `${prefix}-${periodKey.replace('-', '')}-${String(sequence + 1).padStart(4, '0')}`;
 
+  // Rent is raised at the start of the period, right on the calendar due date
+  // schedule. Electricity is not — a meter reading can land days or weeks into
+  // the month, and giving it the SAME due date would make it born already
+  // overdue with a late fee attached the instant it's created. So the due date
+  // is never earlier than today plus the normal grace period, same principle
+  // as a resident's first rent invoice in createResident.
+  const dueDate = maxDate(dueDateFor(periodKey, settings.rentDueDay), addDays(today, settings.graceDays));
+
   const invoice = await tx.invoice.create({
     data: {
       propertyId,
@@ -331,7 +341,7 @@ async function raiseCategoryInvoice(
       // Issued at the start of the period; rent and electricity are both
       // charged in advance on the same schedule.
       issueDate: toPrismaDate(firstDayOfPeriod(periodKey)),
-      dueDate: toPrismaDate(dueDateFor(periodKey, settings.rentDueDay)),
+      dueDate: toPrismaDate(dueDate),
       items: { create: [...items] },
     },
   });

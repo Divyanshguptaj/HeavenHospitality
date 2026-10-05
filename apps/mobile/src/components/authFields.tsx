@@ -1,5 +1,4 @@
-import { OTP_CODE_LENGTH } from '@heaven/contracts';
-import { useEffect, useRef, useState } from 'react';
+import { useState } from 'react';
 import { Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 
 import { layout, useTheme } from '../theme';
@@ -138,101 +137,6 @@ export function PasswordField({
   );
 }
 
-/**
- * A six-digit code field.
- *
- * One input rather than six boxes: six boxes look neater in a screenshot and
- * are consistently worse to use — they fight paste, SMS autofill and backspace.
- * This is one field, spaced out, with autofill left intact.
- */
-/**
- * One box per digit, not a single wide text field.
- *
- * A single centered field has no good answer for where the cursor sits while
- * empty — centering it floats the caret in the middle of the box, nowhere
- * near the first digit about to be typed; left-aligning it instead means the
- * typed code hugs the left edge with the rest of the box sitting empty. Six
- * boxes sidestep the whole problem: each digit lands in its own evenly-spaced
- * cell (so the row reads as centered), and the "cursor" is just a highlight
- * on the next empty box — which starts, correctly, on the first one.
- */
-export function OtpField({
-  value,
-  onChangeText,
-  editable = true,
-  onComplete,
-}: {
-  readonly value: string;
-  readonly onChangeText: (next: string) => void;
-  readonly editable?: boolean;
-  readonly onComplete?: () => void;
-}) {
-  const theme = useTheme();
-  const completed = useRef(false);
-  const inputRef = useRef<TextInput>(null);
-  const [focused, setFocused] = useState(false);
-
-  // Fires once the code is complete, so the common case needs no button press.
-  useEffect(() => {
-    if (value.length === OTP_CODE_LENGTH && !completed.current) {
-      completed.current = true;
-      onComplete?.();
-    }
-    if (value.length < OTP_CODE_LENGTH) completed.current = false;
-  }, [value, onComplete]);
-
-  return (
-    <Pressable
-      onPress={() => {
-        // The OS can dismiss the keyboard (swipe down, the back gesture)
-        // without ever blurring the input, so it still believes it's
-        // focused — and `.focus()` on an already-"focused" input is a
-        // no-op. Blurring first forces a real focus cycle either way.
-        inputRef.current?.blur();
-        inputRef.current?.focus();
-      }}
-      accessibilityRole="none"
-      style={styles.otpRow}
-    >
-      {Array.from({ length: OTP_CODE_LENGTH }, (_unused, index) => {
-        const digit = value[index] ?? '';
-        const isCursor = focused && editable && index === value.length;
-        return (
-          <View
-            key={index}
-            style={[
-              styles.otpBox,
-              {
-                backgroundColor: theme.surface,
-                borderColor: isCursor ? theme.primary : theme.border,
-                borderWidth: isCursor ? 2 : 1,
-              },
-            ]}
-          >
-            <Text style={[styles.otpDigit, { color: theme.textPrimary }]}>{digit}</Text>
-          </View>
-        );
-      })}
-      <TextInput
-        ref={inputRef}
-        value={value}
-        onChangeText={(next) => onChangeText(next.replace(/\D/g, '').slice(0, OTP_CODE_LENGTH))}
-        onFocus={() => setFocused(true)}
-        onBlur={() => setFocused(false)}
-        keyboardType="number-pad"
-        textContentType="oneTimeCode"
-        autoComplete="sms-otp"
-        accessibilityLabel={`${OTP_CODE_LENGTH} digit verification code`}
-        editable={editable}
-        autoFocus
-        maxLength={OTP_CODE_LENGTH}
-        caretHidden
-        style={styles.otpHiddenInput}
-      />
-    </Pressable>
-  );
-}
-
 const styles = StyleSheet.create({
   field: { gap: layout.spacing[2] },
   label: { fontSize: layout.fontSize.sm, fontWeight: '600' },
@@ -259,27 +163,4 @@ const styles = StyleSheet.create({
   },
   toggle: { paddingHorizontal: layout.spacing[4], justifyContent: 'center' },
   toggleText: { fontSize: layout.fontSize.sm, fontWeight: '600' },
-  otpRow: {
-    flexDirection: 'row',
-    justifyContent: 'center',
-    gap: layout.spacing[2],
-  },
-  otpBox: {
-    width: 44,
-    height: 56,
-    borderRadius: layout.radius.lg,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  otpDigit: {
-    fontSize: layout.fontSize['2xl'],
-    fontWeight: '600',
-  },
-  // Captures real keystrokes off-screen — the boxes above are what's shown.
-  otpHiddenInput: {
-    position: 'absolute',
-    width: 1,
-    height: 1,
-    opacity: 0,
-  },
 });

@@ -3,6 +3,7 @@ import { useState } from 'react';
 import { Alert, Image, StyleSheet, View } from 'react-native';
 
 import { useCreatePhoto, useDeletePhoto, useOwnerGallery, useUpdatePhoto } from '../../../src/api/owner';
+import { DocumentPhotoField } from '../../../src/components/DocumentPhotoField';
 import {
   Button,
   Card,
@@ -16,15 +17,12 @@ import {
   Screen,
 } from '../../../src/components/ui';
 import { ApiRequestError } from '../../../src/lib/apiClient';
+import { uploadToCloudinary } from '../../../src/lib/cloudinary';
 import { layout } from '../../../src/theme';
 
 /**
- * Photos guests see before they decide — added by URL, not upload.
- *
- * There is no object-storage integration in this project yet (the API's own
- * feature flags report it disabled), so a photo here is a link to an image
- * hosted elsewhere. That already covers the real dev workflow: PropertyPhoto
- * itself is built to take a plain external URL, not only a stored file.
+ * Photos guests see before they decide — taken or picked on the phone, same as
+ * the admission form's document photo, and uploaded straight to Cloudinary.
  */
 export default function GalleryScreen() {
   const gallery = useOwnerGallery();
@@ -113,19 +111,38 @@ function PhotoRow({ photo }: { readonly photo: PropertyPhotoView }) {
 
 function AddPhotoForm() {
   const createPhoto = useCreatePhoto();
-  const [url, setUrl] = useState('');
+  const [localUri, setLocalUri] = useState<string | null>(null);
+  const [uploadedUrl, setUploadedUrl] = useState<string | null>(null);
   const [caption, setCaption] = useState('');
+  const [uploading, setUploading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  async function pick(uri: string): Promise<void> {
+    setError(null);
+    setLocalUri(uri);
+    setUploadedUrl(null);
+    setUploading(true);
+    try {
+      const url = await uploadToCloudinary(uri, {}, '/owner/gallery/uploads/cloudinary-signature');
+      setUploadedUrl(url);
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : 'Could not upload the photo.');
+      setLocalUri(null);
+    } finally {
+      setUploading(false);
+    }
+  }
+
   async function submit(): Promise<void> {
-    if (url.trim() === '') return;
+    if (uploadedUrl === null || uploading || createPhoto.isPending) return;
     setError(null);
     try {
       await createPhoto.mutateAsync({
-        url: url.trim(),
+        url: uploadedUrl,
         ...(caption.trim() === '' ? {} : { caption: caption.trim() }),
       });
-      setUrl('');
+      setLocalUri(null);
+      setUploadedUrl(null);
       setCaption('');
     } catch (caught) {
       setError(caught instanceof ApiRequestError ? caught.message : 'Could not add the photo.');
@@ -135,10 +152,15 @@ function AddPhotoForm() {
   return (
     <Card>
       <CardTitle>Add a photo</CardTitle>
-      <FormField label="Image URL" value={url} onChangeText={setUrl} placeholder="https://…" autoCapitalize="none" />
+      <DocumentPhotoField photoUri={localUri} uploading={uploading} onPick={(uri) => void pick(uri)} />
       <FormField label="Caption" value={caption} onChangeText={setCaption} placeholder="Optional" />
       {error !== null && <Muted>{error}</Muted>}
-      <Button label={createPhoto.isPending ? 'Adding…' : 'Add photo'} onPress={() => void submit()} />
+      <Button
+        label={
+          uploading ? 'Uploading…' : createPhoto.isPending ? 'Adding…' : 'Add photo'
+        }
+        onPress={() => void submit()}
+      />
     </Card>
   );
 }

@@ -1,0 +1,9 @@
+**/node_modules
+**/dist
+.git
+.env
+.env.*
+apps/mobile
+apps/assets
+docs
+**/*.md

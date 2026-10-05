@@ -14,7 +14,6 @@ import {
 
 import {
   usePaymentDetails,
-  useResidentElectricity,
   useResidentHome,
   useResidentInvoices,
   useResidentPayments,
@@ -57,8 +56,8 @@ export default function RentScreen() {
   const home = useResidentHome();
   const invoices = useResidentInvoices();
   const payments = useResidentPayments();
-  const electricity = useResidentElectricity();
   const paymentDetails = usePaymentDetails();
+  const electricityInvoices = (invoices.data ?? []).filter((entry) => entry.category === 'ELECTRICITY');
 
   if (home.isPending) {
     return (
@@ -329,28 +328,24 @@ export default function RentScreen() {
       {tab === 'electricity' && (
         <Card>
           <CardTitle>Your electricity</CardTitle>
-          {electricity.isPending ? (
+          {invoices.isPending ? (
             <LoadingState />
-          ) : (electricity.data ?? []).length === 0 ? (
-            <EmptyState message="No meter readings recorded yet." />
+          ) : electricityInvoices.length === 0 ? (
+            <EmptyState message="No electricity bills recorded yet." />
           ) : (
-            (electricity.data ?? []).map((entry) => (
-              <View key={`${entry.periodKey}-${entry.roomNumber}`} style={styles.electricity}>
+            electricityInvoices.map((entry) => (
+              <View key={entry.id} style={styles.electricity}>
                 <View style={styles.row}>
                   <Text style={[styles.historyTitle, { color: theme.textPrimary }]}>
                     {entry.periodKey}
                   </Text>
                   <Text style={[styles.lineAmount, { color: theme.textPrimary }]}>
-                    {formatINR(entry.sharePaise, { withPaise: false })}
+                    {formatINR(entry.totalPaise, { withPaise: false })}
                   </Text>
                 </View>
                 <Muted>
-                  Room {entry.roomNumber} · {entry.previousReading} → {entry.currentReading} ={' '}
-                  {entry.units} units @ {formatINR(entry.ratePaisePerUnit)}/unit
-                </Muted>
-                <Muted>
-                  Your share is based on {entry.occupiedDays} day
-                  {entry.occupiedDays === 1 ? '' : 's'} in the room that month.
+                  {entry.roomNumber === null ? '' : `Room ${entry.roomNumber} · `}
+                  {INVOICE_STATUS_LABELS[entry.status]}
                 </Muted>
               </View>
             ))

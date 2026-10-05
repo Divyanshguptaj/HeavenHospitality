@@ -4,9 +4,11 @@ import { AppError } from '../../errors/AppError.js';
 import type { Loose } from '../../lib/types.js';
 import { writeAudit } from '../../lib/audit.js';
 import {
+  addDays,
   dueDateFor,
   firstDayOfPeriod,
   fromPrismaDate,
+  maxDate,
   todayInZone,
   toPrismaDate,
   type DateOnly,
@@ -270,31 +272,56 @@ async function attachSharesToInvoices(
       },
     },
   });
+  if (shares.length === 0) return;
 
   const { recomputeInvoice } = await import('../billing/invoice.service.js');
 
-  for (const share of shares) {
-    const invoice = await prisma.invoice.findUnique({
-      where: {
-        tenancyId_periodKey_category: { tenancyId: share.tenancyId, periodKey, category: 'ELECTRICITY' },
-      },
-      select: { id: true, status: true },
-    });
+  // Everything below used to be one query at a time, per resident in the room —
+  // each a separate transaction. Against Neon's per-round-trip latency that
+  // made a 4-resident room take 30+ seconds, long enough to hit the mobile
+  // client's own timeout. Batching the lookups (one findMany instead of N
+  // findUniques) and doing the whole attach as ONE transaction instead of N
+  // brings a room of any size down to a small, constant number of round trips.
+  const existingInvoices = await prisma.invoice.findMany({
+    where: {
+      tenancyId: { in: shares.map((share) => share.tenancyId) },
+      periodKey,
+      category: 'ELECTRICITY',
+    },
+    select: { id: true, tenancyId: true, status: true },
+  });
+  const invoiceByTenancy = new Map(existingInvoices.map((invoice) => [invoice.tenancyId, invoice]));
 
-    if (invoice !== null && invoice.status === 'CANCELLED') continue;
+  const tenanciesNeedingInvoice = shares.filter(
+    (share) => invoiceByTenancy.get(share.tenancyId) === undefined,
+  );
+  const tenancyNames =
+    tenanciesNeedingInvoice.length === 0
+      ? []
+      : await prisma.tenancy.findMany({
+          where: { id: { in: tenanciesNeedingInvoice.map((share) => share.tenancyId) } },
+          select: { id: true, user: { select: { fullName: true } } },
+        });
+  const nameByTenancy = new Map(tenancyNames.map((tenancy) => [tenancy.id, tenancy.user.fullName]));
 
-    const description = `Electricity — room ${share.reading.room.number}, ${share.reading.units} units @ ₹${(share.reading.ratePaisePerUnit / 100).toFixed(2)}/unit`;
+  const sequenceStart =
+    tenanciesNeedingInvoice.length === 0
+      ? 0
+      : await prisma.invoice.count({ where: { propertyId, periodKey } });
 
-    await prisma.$transaction(async (tx) => {
+  await prisma.$transaction(async (tx) => {
+    let nextSequence = sequenceStart;
+
+    for (const share of shares) {
+      const invoice = invoiceByTenancy.get(share.tenancyId);
+      if (invoice !== undefined && invoice.status === 'CANCELLED') continue;
+
+      const description = `Electricity — room ${share.reading.room.number}, ${share.reading.units} units @ ₹${(share.reading.ratePaisePerUnit / 100).toFixed(2)}/unit`;
       let invoiceId = invoice?.id;
 
       if (invoiceId === undefined) {
-        const tenancy = await tx.tenancy.findUniqueOrThrow({
-          where: { id: share.tenancyId },
-          select: { user: { select: { fullName: true } } },
-        });
-        const sequence = await tx.invoice.count({ where: { propertyId, periodKey } });
-        const number = `INV-ELEC-${periodKey.replace('-', '')}-${String(sequence + 1).padStart(4, '0')}`;
+        nextSequence += 1;
+        const number = `INV-ELEC-${periodKey.replace('-', '')}-${String(nextSequence).padStart(4, '0')}`;
 
         const created = await tx.invoice.create({
           data: {
@@ -305,7 +332,13 @@ async function attachSharesToInvoices(
             number,
             status: 'ISSUED',
             issueDate: toPrismaDate(firstDayOfPeriod(periodKey)),
-            dueDate: toPrismaDate(dueDateFor(periodKey, settings.rentDueDay)),
+            // A reading is usually entered well into the month — giving this
+            // the calendar due date directly would make the invoice born
+            // already overdue, with a late fee attached the instant it's
+            // created. Never earlier than today plus the normal grace period.
+            dueDate: toPrismaDate(
+              maxDate(dueDateFor(periodKey, settings.rentDueDay), addDays(today, settings.graceDays)),
+            ),
             items: {
               create: [
                 {
@@ -326,15 +359,15 @@ async function attachSharesToInvoices(
           entityType: 'Invoice',
           entityId: invoiceId,
           propertyId,
-          summary: `Invoice ${number} issued to ${tenancy.user.fullName} for ${periodKey}`,
+          summary: `Invoice ${number} issued to ${nameByTenancy.get(share.tenancyId) ?? 'resident'} for ${periodKey}`,
           actorRole: 'SYSTEM',
         });
       } else {
-        const existing = await tx.invoiceItem.findFirst({
+        const existingItem = await tx.invoiceItem.findFirst({
           where: { invoiceId, kind: 'ELECTRICITY' },
         });
 
-        if (existing === undefined || existing === null) {
+        if (existingItem === null) {
           await tx.invoiceItem.create({
             data: {
               invoiceId,
@@ -347,15 +380,214 @@ async function attachSharesToInvoices(
           });
         } else {
           await tx.invoiceItem.update({
-            where: { id: existing.id },
+            where: { id: existingItem.id },
             data: { description, amountPaise: share.sharePaise, sourceId: share.id },
           });
         }
       }
 
       await recomputeInvoice(tx, invoiceId, settings, today);
-    });
+    }
+    // Explicit headroom: this transaction covers every resident in the room,
+    // and against this database's per-query latency that can genuinely take
+    // longer than Prisma's 20s default — which doesn't fail gracefully, it
+    // kills the whole transaction and rolls back EVERY resident's share, not
+    // just the slow one. See the mirror comment on prisma.ts for payments.
+  }, { timeout: 60_000, maxWait: 15_000 });
+}
+
+export interface RecordElectricityBillInput {
+  roomId: string;
+  periodKey: PeriodKey;
+  entries: ReadonlyArray<{ tenancyId: string; amountPaise: number }>;
+  notes?: string | undefined;
+}
+
+/**
+ * Records the electricity/AC bill for a room, one amount per resident,
+ * entered directly by the admin — no meter reading, no automatic split. The
+ * admin decides what each person owes; this only writes it to their invoice.
+ *
+ * Unlike rent and most other invoicing here, this is ADDITIVE: every
+ * submission writes a NEW line item rather than overwriting one, so billing
+ * a room twice in a month (say, a mid-month top-up) charges for both — it
+ * never erases what was already billed. Each line is its own row, so the
+ * resident can see every individual charge that made up their total.
+ */
+export async function recordElectricityBill(
+  actor: Actor,
+  input: RecordElectricityBillInput,
+): Promise<{ updated: number }> {
+  const { propertyId, timezone, settings } = await getPropertyContext(actor, 'electricity:write');
+  const today = todayInZone(timezone);
+
+  const room = await prisma.room.findFirst({
+    where: { id: input.roomId, propertyId },
+    select: { number: true },
+  });
+  if (room === null) throw new AppError('NOT_FOUND', 'Room not found.');
+
+  const tenancyIds = input.entries.map((entry) => entry.tenancyId);
+  const tenancies = await prisma.tenancy.findMany({
+    where: { id: { in: tenancyIds }, propertyId },
+    select: { id: true, user: { select: { fullName: true } } },
+  });
+  if (tenancies.length !== new Set(tenancyIds).size) {
+    throw new AppError('NOT_FOUND', 'One of the selected residents was not found.');
   }
+  const nameByTenancy = new Map(tenancies.map((tenancy) => [tenancy.id, tenancy.user.fullName]));
+
+  const existingInvoices = await prisma.invoice.findMany({
+    where: { tenancyId: { in: tenancyIds }, periodKey: input.periodKey, category: 'ELECTRICITY' },
+    select: { id: true, tenancyId: true, status: true },
+  });
+  const invoiceByTenancy = new Map(existingInvoices.map((invoice) => [invoice.tenancyId, invoice]));
+
+  const tenanciesNeedingInvoice = input.entries.filter(
+    (entry) => invoiceByTenancy.get(entry.tenancyId) === undefined,
+  );
+  const sequenceStart =
+    tenanciesNeedingInvoice.length === 0
+      ? 0
+      : await prisma.invoice.count({ where: { propertyId, periodKey: input.periodKey } });
+
+  const { recomputeInvoice } = await import('../billing/invoice.service.js');
+
+  let updated = 0;
+  let totalPaise = 0;
+
+  // One transaction for the whole room, with explicit headroom — see the
+  // mirror comment on attachSharesToInvoices for why the 20s default isn't
+  // enough here and what it does to fail silently if left at that.
+  await prisma.$transaction(
+    async (tx) => {
+      let nextSequence = sequenceStart;
+
+      for (const entry of input.entries) {
+        if (entry.amountPaise <= 0) continue;
+        const existing = invoiceByTenancy.get(entry.tenancyId);
+        if (existing !== undefined && existing.status === 'CANCELLED') continue;
+
+        const description =
+          `Electricity — room ${room.number}, added ${today}` +
+          (input.notes === undefined ? '' : ` (${input.notes})`);
+        let invoiceId = existing?.id;
+
+        if (invoiceId === undefined) {
+          nextSequence += 1;
+          const number = `INV-ELEC-${input.periodKey.replace('-', '')}-${String(nextSequence).padStart(4, '0')}`;
+          const dueDate = maxDate(
+            dueDateFor(input.periodKey, settings.rentDueDay),
+            addDays(today, settings.graceDays),
+          );
+
+          const created = await tx.invoice.create({
+            data: {
+              propertyId,
+              tenancyId: entry.tenancyId,
+              periodKey: input.periodKey,
+              category: 'ELECTRICITY',
+              number,
+              status: 'ISSUED',
+              issueDate: toPrismaDate(firstDayOfPeriod(input.periodKey)),
+              dueDate: toPrismaDate(dueDate),
+              items: {
+                create: [{ kind: 'ELECTRICITY', description, amountPaise: entry.amountPaise }],
+              },
+            },
+          });
+          invoiceId = created.id;
+
+          await writeAudit(tx, {
+            action: 'INVOICE_ISSUED',
+            entityType: 'Invoice',
+            entityId: invoiceId,
+            propertyId,
+            summary: `Invoice ${number} issued to ${nameByTenancy.get(entry.tenancyId) ?? 'resident'} for ${input.periodKey}`,
+            actorUserId: actor.userId,
+            actorRole: 'ADMIN',
+          });
+        } else {
+          // Additive: a new line, never overwriting whatever was billed before.
+          await tx.invoiceItem.create({
+            data: { invoiceId, kind: 'ELECTRICITY', description, amountPaise: entry.amountPaise },
+          });
+        }
+
+        await recomputeInvoice(tx, invoiceId, settings, today);
+        updated += 1;
+        totalPaise += entry.amountPaise;
+      }
+
+      if (updated > 0) {
+        await writeAudit(tx, {
+          action: 'ELECTRICITY_READING_ADDED',
+          entityType: 'Room',
+          entityId: input.roomId,
+          propertyId,
+          summary:
+            `Room ${room.number} electricity bill for ${input.periodKey}: ${updated} resident(s), ` +
+            `₹${(totalPaise / 100).toFixed(2)} total` +
+            (input.notes === undefined ? '' : ` — ${input.notes}`),
+          actorUserId: actor.userId,
+          actorRole: 'ADMIN',
+        });
+      }
+    },
+    { timeout: 60_000, maxWait: 15_000 },
+  );
+
+  if (updated === 0) {
+    throw new AppError('VALIDATION_FAILED', 'Enter an amount for at least one resident.');
+  }
+
+  return { updated };
+}
+
+/**
+ * Edits one resident's electricity/AC bill amount directly, after it was
+ * first entered by `recordElectricityBill`.
+ */
+export async function updateElectricityInvoiceItem(
+  actor: Actor,
+  invoiceId: string,
+  input: { amountPaise: number },
+): Promise<{ updated: true }> {
+  const { propertyId, timezone, settings } = await getPropertyContext(actor, 'electricity:write');
+  const today = todayInZone(timezone);
+
+  const invoice = await prisma.invoice.findFirst({
+    where: { id: invoiceId, propertyId, category: 'ELECTRICITY' },
+    include: {
+      items: { where: { kind: 'ELECTRICITY' } },
+      tenancy: { select: { user: { select: { fullName: true } } } },
+    },
+  });
+  if (invoice === null) throw new AppError('NOT_FOUND', 'Electricity bill not found.');
+
+  const item = invoice.items[0];
+  if (item === undefined) throw new AppError('NOT_FOUND', 'Electricity bill not found.');
+
+  const { recomputeInvoice } = await import('../billing/invoice.service.js');
+
+  await prisma.$transaction(async (tx) => {
+    await tx.invoiceItem.update({ where: { id: item.id }, data: { amountPaise: input.amountPaise } });
+    await recomputeInvoice(tx, invoiceId, settings, today);
+
+    await writeAudit(tx, {
+      action: 'ELECTRICITY_READING_CORRECTED',
+      entityType: 'Invoice',
+      entityId: invoiceId,
+      propertyId,
+      summary: `${invoice.tenancy.user.fullName}'s electricity bill for ${invoice.periodKey} changed to ₹${(input.amountPaise / 100).toFixed(2)}`,
+      actorUserId: actor.userId,
+      actorRole: 'ADMIN',
+      before: { amountPaise: item.amountPaise },
+      after: { amountPaise: input.amountPaise },
+    });
+  });
+
+  return { updated: true };
 }
 
 /**

@@ -93,17 +93,48 @@ export async function getDashboard(actor: Actor): Promise<DashboardView> {
   const expectedPaise = invoices.reduce((sum, invoice) => sum + invoice.totalPaise, 0);
   const collectedPaise = invoices.reduce((sum, invoice) => sum + invoice.amountPaidPaise, 0);
 
-  const unpaid = invoices
-    .filter((invoice) => invoice.amountPaidPaise < invoice.totalPaise)
-    .map((invoice) => ({
-      tenancyId: invoice.tenancyId,
-      residentName: invoice.tenancy.user.fullName,
-      roomNumber: invoice.tenancy.allocations[0]?.bed.room.number ?? null,
-      outstandingPaise: invoice.totalPaise - invoice.amountPaidPaise,
-      status: invoice.status,
-      dueDate: fromPrismaDate(invoice.dueDate),
-    }))
-    .sort((a, b) => b.outstandingPaise - a.outstandingPaise);
+  // Rent, the AC bill and (outside this period) the deposit are separate
+  // invoices for the same resident — grouped into ONE row per tenancy here, or
+  // a resident unpaid on two of them would appear twice in the list with the
+  // same tenancyId key.
+  const unpaidByTenancy = new Map<
+    string,
+    {
+      residentName: string;
+      roomNumber: string | null;
+      outstandingPaise: number;
+      status: (typeof invoices)[number]['status'];
+      dueDate: string;
+    }
+  >();
+
+  for (const invoice of invoices) {
+    if (invoice.amountPaidPaise >= invoice.totalPaise) continue;
+
+    const outstandingPaise = invoice.totalPaise - invoice.amountPaidPaise;
+    const dueDate = fromPrismaDate(invoice.dueDate);
+    const existing = unpaidByTenancy.get(invoice.tenancyId);
+
+    if (existing === undefined) {
+      unpaidByTenancy.set(invoice.tenancyId, {
+        residentName: invoice.tenancy.user.fullName,
+        roomNumber: invoice.tenancy.allocations[0]?.bed.room.number ?? null,
+        outstandingPaise,
+        status: invoice.status,
+        dueDate,
+      });
+    } else {
+      existing.outstandingPaise += outstandingPaise;
+      // OVERDUE is the most actionable status to surface, and the soonest due
+      // date is the one the owner needs to act on first.
+      if (invoice.status === 'OVERDUE') existing.status = 'OVERDUE';
+      if (dueDate < existing.dueDate) existing.dueDate = dueDate;
+    }
+  }
+
+  const unpaid = Array.from(unpaidByTenancy, ([tenancyId, entry]) => ({ tenancyId, ...entry })).sort(
+    (a, b) => b.outstandingPaise - a.outstandingPaise,
+  );
 
   return {
     occupancy: {

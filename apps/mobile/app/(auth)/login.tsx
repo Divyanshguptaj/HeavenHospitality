@@ -43,7 +43,7 @@ export default function LoginScreen() {
     try {
       await signIn(normalized, password);
       // No navigation here: the root layout's own effect reacts to the
-      // session landing and replaces this screen itself — see set-password.tsx
+      // session landing and replaces this screen itself — see signup-phone.tsx
       // for why racing it with an explicit `replace('/')` is unsafe.
     } catch (caught) {
       // The server reports "no such number" and "wrong password" identically;
@@ -83,14 +83,6 @@ export default function LoginScreen() {
           onPress={() => void handleSubmit()}
           accessibilityLabel={canSubmit ? 'Sign in' : 'Sign in — complete the form first'}
         />
-
-        <Pressable
-          onPress={() => router.push('/(auth)/forgot-phone')}
-          accessibilityRole="button"
-          style={styles.link}
-        >
-          <Text style={[styles.linkText, { color: theme.primary }]}>Forgot your password?</Text>
-        </Pressable>
       </Card>
 
       <Pressable

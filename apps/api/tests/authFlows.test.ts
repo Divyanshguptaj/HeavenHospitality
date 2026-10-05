@@ -2,7 +2,6 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import {
   fakePrisma,
-  otpTable,
   resetFakePrisma,
   seedProperty,
   sessionTable,
@@ -15,8 +14,6 @@ vi.mock('../src/lib/prisma.js', () => ({ prisma: fakePrisma }));
 
 const { AppError } = await import('../src/errors/AppError.js');
 const authService = await import('../src/modules/auth/auth.service.js');
-const otpService = await import('../src/modules/auth/otp.service.js');
-const { setOtpProviderForTesting } = await import('../src/modules/auth/otp.provider.js');
 const { hashPassword } = await import('../src/modules/auth/password.js');
 
 /**
@@ -30,38 +27,14 @@ const PHONE = '+919876543210';
 const OTHER_PHONE = '+919876543211';
 const PASSWORD = 'ValidPass123';
 
-/** Captures what would have been sent, so tests can read the code. */
-const sent: Array<{ phone: string; code: string }> = [];
-
 beforeEach(async () => {
   resetFakePrisma();
-  sent.length = 0;
-  setOtpProviderForTesting({
-    name: 'capture',
-    sendOtp: (phone, code) => {
-      sent.push({ phone, code });
-      return Promise.resolve();
-    },
-  });
   await seedProperty();
 });
 
-/** Runs signup end to end and returns the session. */
+/** Signs up and returns the session. */
 async function signUp(phone = PHONE, password = PASSWORD) {
-  await authService.startSignup(phone);
-  const code = sent.at(-1)?.code ?? '';
-  const { verificationToken } = await authService.verifySignupOtp(phone, code);
-  return authService.completeSignup({
-    phone,
-    verificationToken,
-    fullName: 'Test Person',
-    password,
-  });
-}
-
-function codeFor(phone: string): string {
-  const entry = [...sent].reverse().find((s) => s.phone === phone);
-  return entry?.code ?? '';
+  return authService.signup({ phone, fullName: 'Test Person', password });
 }
 
 async function expectCode(promise: Promise<unknown>, code: string): Promise<void> {
@@ -76,31 +49,17 @@ async function expectCode(promise: Promise<unknown>, code: string): Promise<void
 // ---------------------------------------------------------------------------
 
 describe('signup', () => {
-  it('sends a code to the number being claimed', async () => {
-    const result = await authService.startSignup(PHONE);
-
-    expect(sent).toHaveLength(1);
-    expect(sent[0]?.phone).toBe(PHONE);
-    expect(sent[0]?.code).toMatch(/^\d{6}$/);
-    // The masked number is safe to show; the raw code is not returned in prod.
-    expect(result.maskedPhone).toContain('•');
+  it('creates the account straight from a phone number, name and password', async () => {
+    const session = await signUp();
+    expect(userTable.rows).toHaveLength(1);
+    expect(session.user.fullName).toBe('Test Person');
   });
 
-  it('creates no account until the password step', async () => {
-    await authService.startSignup(PHONE);
-    await authService.verifySignupOtp(PHONE, codeFor(PHONE));
-
-    // A verified phone is not an account. Anything else would mean an attacker
-    // could occupy numbers simply by requesting codes for them.
-    expect(userTable.rows).toHaveLength(0);
-  });
-
-  it('completes and signs the new account in as a RESIDENT', async () => {
+  it('creates the account and signs it in as a NON_RESIDENT', async () => {
     const session = await signUp();
 
     expect(session.user.phone).toBe(PHONE);
     expect(session.user.role).toBe('NON_RESIDENT');
-    expect(session.user.phoneVerified).toBe(true);
     expect(session.accessToken).not.toBe('');
     expect(session.refreshToken).not.toBe('');
   });
@@ -122,120 +81,90 @@ describe('signup', () => {
     expect(session.user.memberships).toEqual([]);
   });
 
-  it('does not demote an account the admin already provisioned', async () => {
-    // A tenant the owner added by phone claims their account by signing up. If
-    // that reset them to NON_RESIDENT they would lose their room and invoices.
-    userTable.rows.push({
-      id: 'provisioned-1',
-      phone: OTHER_PHONE,
-      fullName: 'Provisioned Tenant',
-      email: null,
-      passwordHash: null,
-      role: 'RESIDENT',
-      status: 'ACTIVE',
-      phoneVerifiedAt: null,
-      mustChangePassword: true,
-      failedLoginAttempts: 0,
-      lockedUntil: null,
-      lastFailedLoginAt: null,
-      lastLoginAt: null,
-      createdAt: new Date(),
-      updatedAt: new Date(),
-    });
+  it('refuses to let a stranger claim an account the owner added', async () => {
+    // The owner added this resident with a temporary password. Someone who only
+    // knows the phone number must not be able to sign up on it.
+    await addProvisionedResident(OTHER_PHONE);
 
-    const session = await signUp(OTHER_PHONE);
-    expect(session.user.role).toBe('RESIDENT');
-  });
-
-  it('rejects a wrong code', async () => {
-    await authService.startSignup(PHONE);
-    await expectCode(authService.verifySignupOtp(PHONE, '000000'), 'OTP_INVALID');
-  });
-
-  it('rejects an expired code', async () => {
-    await authService.startSignup(PHONE);
-    const row = otpTable.rows[0];
-    if (row === undefined) throw new Error('expected an OTP row');
-    row['expiresAt'] = new Date(Date.now() - 1_000);
-
-    await expectCode(authService.verifySignupOtp(PHONE, codeFor(PHONE)), 'OTP_EXPIRED');
-  });
-
-  it('refuses to reuse a code that already worked', async () => {
-    await authService.startSignup(PHONE);
-    const code = codeFor(PHONE);
-    await authService.verifySignupOtp(PHONE, code);
-
-    // Replaying the same code must not mint a second verification token.
-    await expectCode(authService.verifySignupOtp(PHONE, code), 'OTP_INVALID');
-  });
-
-  it('burns the code after too many wrong guesses', async () => {
-    await authService.startSignup(PHONE);
-
-    // Default limit is 5; the fifth wrong guess exhausts it.
-    for (let attempt = 1; attempt <= 4; attempt += 1) {
-      await expectCode(authService.verifySignupOtp(PHONE, '000000'), 'OTP_INVALID');
-    }
-    await expectCode(authService.verifySignupOtp(PHONE, '000000'), 'OTP_MAX_ATTEMPTS');
-
-    // Even the CORRECT code is now dead — the budget is per code, not per guess.
-    await expectCode(authService.verifySignupOtp(PHONE, codeFor(PHONE)), 'OTP_INVALID');
+    await expectCode(signUp(OTHER_PHONE, 'AttackerPass1'), 'ALREADY_EXISTS');
+    expect(userTable.rows[0]?.['role']).toBe('RESIDENT');
   });
 
   it('refuses a second account on a number that already has one', async () => {
     await signUp();
-    await expectCode(authService.startSignup(PHONE), 'ALREADY_EXISTS');
+    await expectCode(signUp(), 'ALREADY_EXISTS');
+  });
+});
+
+const TEMP_PASSWORD = 'K7M2QX9P';
+
+/** The shape createResident leaves behind: a hashed temporary password with an expiry. */
+async function addProvisionedResident(phone: string, expiresAt = new Date(Date.now() + 86_400_000)) {
+  await userTable.create({
+    data: {
+      phone,
+      fullName: 'Provisioned Tenant',
+      passwordHash: await hashPassword(TEMP_PASSWORD),
+      role: 'RESIDENT',
+      status: 'ACTIVE',
+      mustChangePassword: true,
+      tempPasswordExpiresAt: expiresAt,
+    },
+  });
+}
+
+describe('temporary passwords', () => {
+  it('signs the resident in and flags that the password must be changed', async () => {
+    await addProvisionedResident(OTHER_PHONE);
+
+    const session = await authService.login({ phone: OTHER_PHONE, password: TEMP_PASSWORD });
+    expect(session.user.mustChangePassword).toBe(true);
+    expect(session.user.role).toBe('RESIDENT');
   });
 
-  it('refuses a verification token issued for a different number', async () => {
-    await authService.startSignup(PHONE);
-    const { verificationToken } = await authService.verifySignupOtp(PHONE, codeFor(PHONE));
+  it('refuses an expired temporary password', async () => {
+    await addProvisionedResident(OTHER_PHONE, new Date(Date.now() - 1_000));
 
-    // Verifying one number must not authorise creating an account on another.
     await expectCode(
-      authService.completeSignup({
-        phone: OTHER_PHONE,
-        verificationToken,
-        fullName: 'Impostor',
-        password: PASSWORD,
-      }),
-      'PHONE_NOT_VERIFIED',
+      authService.login({ phone: OTHER_PHONE, password: TEMP_PASSWORD }),
+      'TEMP_PASSWORD_EXPIRED',
     );
   });
 
-  it('refuses to set a password without any verification token', async () => {
+  it('does not reveal the expiry to someone who has the wrong password', async () => {
+    await addProvisionedResident(OTHER_PHONE, new Date(Date.now() - 1_000));
+
     await expectCode(
-      authService.completeSignup({
-        phone: PHONE,
-        verificationToken: 'made-up',
-        fullName: 'Impostor',
-        password: PASSWORD,
-      }),
-      'PHONE_NOT_VERIFIED',
+      authService.login({ phone: OTHER_PHONE, password: 'WrongGuess1' }),
+      'INVALID_CREDENTIALS',
     );
   });
 
-  it('spends a verification token exactly once', async () => {
-    await authService.startSignup(PHONE);
-    const { verificationToken } = await authService.verifySignupOtp(PHONE, codeFor(PHONE));
+  it('clears the flag and the expiry once a real password is chosen', async () => {
+    await addProvisionedResident(OTHER_PHONE);
+    const session = await authService.login({ phone: OTHER_PHONE, password: TEMP_PASSWORD });
 
-    await authService.completeSignup({
-      phone: PHONE,
-      verificationToken,
-      fullName: 'Test Person',
-      password: PASSWORD,
+    await authService.changePassword({
+      userId: session.user.id,
+      currentPassword: TEMP_PASSWORD,
+      newPassword: 'MyOwnPass123',
     });
 
-    await expectCode(
-      authService.completeSignup({
-        phone: PHONE,
-        verificationToken,
-        fullName: 'Again',
-        password: PASSWORD,
-      }),
-      'PHONE_NOT_VERIFIED',
-    );
+    expect(userTable.rows[0]?.['mustChangePassword']).toBe(false);
+    expect(userTable.rows[0]?.['tempPasswordExpiresAt']).toBeNull();
+    const again = await authService.login({ phone: OTHER_PHONE, password: 'MyOwnPass123' });
+    expect(again.user.mustChangePassword).toBe(false);
+  });
+
+  it('generates unambiguous 8-character passwords that differ each time', async () => {
+    const { issueTemporaryPassword } = await import('../src/modules/auth/tempPassword.js');
+    const first = await issueTemporaryPassword();
+    const second = await issueTemporaryPassword();
+
+    expect(first.credential.temporaryPassword).toMatch(/^[A-HJ-NP-Z2-9]{8}$/);
+    expect(first.credential.temporaryPassword).not.toBe(second.credential.temporaryPassword);
+    expect(first.hash).not.toContain(first.credential.temporaryPassword);
+    expect(new Date(first.credential.expiresAt).getTime()).toBeGreaterThan(Date.now());
   });
 });
 
@@ -297,22 +226,6 @@ describe('login', () => {
     // A successful login clears the counter, so the next mistake starts fresh.
     expect(userTable.rows[0]?.['failedLoginAttempts']).toBe(0);
     expect(userTable.rows[0]?.['lockedUntil']).toBeNull();
-  });
-
-  it('refuses an account whose phone was never verified', async () => {
-    // The shape an owner-provisioned account has before its resident signs up.
-    await userTable.create({
-      data: {
-        phone: PHONE,
-        fullName: 'Provisioned',
-        passwordHash: await hashPassword(PASSWORD),
-        phoneVerifiedAt: null,
-        role: 'RESIDENT',
-        status: 'ACTIVE',
-      },
-    });
-
-    await expectCode(authService.login({ phone: PHONE, password: PASSWORD }), 'PHONE_NOT_VERIFIED');
   });
 
   it('refuses a suspended account', async () => {
@@ -383,139 +296,5 @@ describe('sessions', () => {
     await authService.logout(session.refreshToken);
     // Must not throw: the client's job is to forget the token, not to report.
     await expect(authService.logout(session.refreshToken)).resolves.toBeUndefined();
-  });
-});
-
-describe('forgot password', () => {
-  it('resets the password and lets the new one work', async () => {
-    await signUp();
-
-    await authService.startPasswordReset(PHONE);
-    const { verificationToken } = await authService.verifyPasswordResetOtp(PHONE, codeFor(PHONE));
-    await authService.resetPassword({
-      phone: PHONE,
-      verificationToken,
-      password: 'BrandNew456',
-    });
-
-    const session = await authService.login({ phone: PHONE, password: 'BrandNew456' });
-    expect(session.user.phone).toBe(PHONE);
-
-    await expectCode(
-      authService.login({ phone: PHONE, password: PASSWORD }),
-      'INVALID_CREDENTIALS',
-    );
-  });
-
-  it('signs every existing device out', async () => {
-    const before = await signUp();
-
-    await authService.startPasswordReset(PHONE);
-    const { verificationToken } = await authService.verifyPasswordResetOtp(PHONE, codeFor(PHONE));
-    await authService.resetPassword({
-      phone: PHONE,
-      verificationToken,
-      password: 'BrandNew456',
-    });
-
-    // Resetting is how someone responds to a compromise, so the attacker's
-    // session must not survive it.
-    await expectCode(authService.refresh({ refreshToken: before.refreshToken }), 'SESSION_REVOKED');
-  });
-
-  it('does not reveal whether the number is registered', async () => {
-    const unknown = await authService.startPasswordReset(OTHER_PHONE);
-
-    // Same shape as a real request, and no SMS actually sent.
-    expect(unknown.maskedPhone).toContain('•');
-    expect(sent).toHaveLength(0);
-  });
-
-  it('will not reset a password with only a phone number', async () => {
-    await signUp();
-
-    await expectCode(
-      authService.resetPassword({
-        phone: PHONE,
-        verificationToken: 'made-up',
-        password: 'BrandNew456',
-      }),
-      'PHONE_NOT_VERIFIED',
-    );
-  });
-
-  it('refuses a signup token used to reset an existing password', async () => {
-    await signUp(OTHER_PHONE);
-
-    // A SIGNUP verification must not be redeemable as a PASSWORD_RESET one, or
-    // verifying your own number would let you reset someone else's account.
-    await authService.startSignup(PHONE);
-    const { verificationToken } = await authService.verifySignupOtp(PHONE, codeFor(PHONE));
-
-    await expectCode(
-      authService.resetPassword({ phone: PHONE, verificationToken, password: 'BrandNew456' }),
-      'PHONE_NOT_VERIFIED',
-    );
-  });
-
-  it('clears a lockout, so a locked-out user can recover', async () => {
-    await signUp();
-    for (let attempt = 1; attempt <= 5; attempt += 1) {
-      await expectCode(
-        authService.login({ phone: PHONE, password: 'WrongPass123' }),
-        'INVALID_CREDENTIALS',
-      );
-    }
-    await expectCode(authService.login({ phone: PHONE, password: PASSWORD }), 'ACCOUNT_LOCKED');
-
-    await authService.startPasswordReset(PHONE);
-    const { verificationToken } = await authService.verifyPasswordResetOtp(PHONE, codeFor(PHONE));
-    await authService.resetPassword({
-      phone: PHONE,
-      verificationToken,
-      password: 'BrandNew456',
-    });
-
-    const session = await authService.login({ phone: PHONE, password: 'BrandNew456' });
-    expect(session.user.phone).toBe(PHONE);
-  });
-});
-
-describe('one-time codes', () => {
-  it('refuses a resend inside the cooldown', async () => {
-    await authService.startSignup(PHONE);
-    await expectCode(authService.startSignup(PHONE), 'OTP_RESEND_TOO_SOON');
-  });
-
-  it('invalidates the previous code when a new one is issued', async () => {
-    await authService.startSignup(PHONE);
-    const firstCode = codeFor(PHONE);
-
-    // Step past the cooldown rather than waiting for it.
-    const row = otpTable.rows[0];
-    if (row === undefined) throw new Error('expected an OTP row');
-    row['createdAt'] = new Date(Date.now() - 10 * 60_000);
-
-    await authService.startSignup(PHONE);
-    expect(codeFor(PHONE)).not.toBe(firstCode);
-
-    // Two live codes would double an attacker's guessing budget.
-    await expectCode(
-      otpService.verifyOtp({
-        phone: PHONE,
-        code: firstCode,
-        purpose: 'SIGNUP',
-      }),
-      'OTP_INVALID',
-    );
-  });
-
-  it('stores the code hashed, never in plaintext', async () => {
-    await authService.startSignup(PHONE);
-    const code = codeFor(PHONE);
-    const row = otpTable.rows[0];
-
-    expect(row?.['codeHash']).not.toBe(code);
-    expect(row?.['codeHash']).toMatch(/^[0-9a-f]{64}$/);
   });
 });

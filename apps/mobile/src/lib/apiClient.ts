@@ -1,6 +1,8 @@
 import { apiErrorSchema, type ErrorCode } from '@heaven/contracts';
 import Constants from 'expo-constants';
 
+import { clearRefreshToken, readRefreshToken, saveRefreshToken } from './secureTokenStore';
+
 /**
  * The mobile API client.
  *
@@ -46,6 +48,56 @@ export function setAccessToken(token: string | null): void {
   accessToken = token;
 }
 
+/**
+ * Called once, from the auth store, the moment a session turns out to be
+ * genuinely dead (the refresh token itself was rejected) — never for a routine
+ * access-token expiry, which `apiRequest` recovers from on its own below.
+ * The auth store flips to `signedOut`; the root layout's existing redirect then
+ * sends the app back to the public screen, same as any other sign-out.
+ */
+let onSessionExpired: (() => void) | null = null;
+
+export function setSessionExpiredHandler(handler: (() => void) | null): void {
+  onSessionExpired = handler;
+}
+
+/**
+ * Exchanges the stored refresh token for a new access token, without going
+ * through `apiRequest` — that would recurse into this same 401 handling.
+ * Deduplicated across concurrent requests: several screens hitting a stale
+ * access token at once must trigger exactly one `/auth/refresh` call, not one
+ * per request.
+ */
+let refreshInFlight: Promise<boolean> | null = null;
+
+async function refreshSession(): Promise<boolean> {
+  const refreshToken = await readRefreshToken().catch(() => null);
+  if (refreshToken === null) return false;
+
+  try {
+    const response = await fetch(`${apiBaseUrls[workingBaseUrlIndex]}/auth/refresh`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+      body: JSON.stringify({ refreshToken, client: 'mobile' }),
+    });
+    if (!response.ok) return false;
+
+    const payload = (await response.json()) as {
+      data?: { accessToken?: string; refreshToken?: string };
+    };
+    const newAccessToken = payload.data?.accessToken;
+    if (newAccessToken === undefined) return false;
+
+    setAccessToken(newAccessToken);
+    if (payload.data?.refreshToken !== undefined) {
+      await saveRefreshToken(payload.data.refreshToken);
+    }
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 export class ApiRequestError extends Error {
   readonly code: ErrorCode;
   readonly status: number;
@@ -67,8 +119,14 @@ export class ApiRequestError extends Error {
  * while against a database waking up from idle, and a client-side timeout
  * that fires before the server has actually finished is worse than a slow
  * spinner — the write still lands, but the screen reports it as failed.
+ *
+ * TEMPORARILY raised from 30s while the dev database's per-query latency is
+ * high enough for some writes to genuinely take longer than that — see the
+ * electricity-invoice round-trip fix. Once that class of slow endpoint is
+ * gone this should come back down; a request that is still running after two
+ * minutes is not "slow", it is stuck.
  */
-const DEFAULT_TIMEOUT_MS = 30_000;
+const DEFAULT_TIMEOUT_MS = 120_000;
 
 export interface RequestOptions {
   readonly method?: 'GET' | 'POST' | 'PATCH' | 'PUT' | 'DELETE';
@@ -78,7 +136,15 @@ export interface RequestOptions {
   readonly timeoutMs?: number;
 }
 
-export async function apiRequest<T>(path: string, options: RequestOptions = {}): Promise<T> {
+export function apiRequest<T>(path: string, options: RequestOptions = {}): Promise<T> {
+  return performRequest<T>(path, options, false);
+}
+
+async function performRequest<T>(
+  path: string,
+  options: RequestOptions,
+  isRetryAfterRefresh: boolean,
+): Promise<T> {
   const { method = 'GET', body, signal, idempotencyKey, timeoutMs = DEFAULT_TIMEOUT_MS } = options;
 
   const headers: Record<string, string> = { Accept: 'application/json' };
@@ -161,6 +227,28 @@ export async function apiRequest<T>(path: string, options: RequestOptions = {}):
 
   if (!response.ok) {
     const parsed = apiErrorSchema.safeParse(payload);
+    const code = parsed.success ? parsed.data.error.code : 'INTERNAL_ERROR';
+
+    // An expired (not revoked) access token is routine — the token's own TTL is
+    // much shorter than a session — so it is recovered from silently: refresh
+    // once, retry the ONE request that hit it, and the caller never sees a
+    // failure. Only a second 401, right after a fresh token, or a refresh that
+    // itself fails, means the session is actually dead.
+    if (code === 'UNAUTHENTICATED' && !isRetryAfterRefresh && path !== '/auth/refresh') {
+      refreshInFlight ??= refreshSession().finally(() => {
+        refreshInFlight = null;
+      });
+      if (await refreshInFlight) {
+        return performRequest<T>(path, options, true);
+      }
+    }
+
+    if (code === 'UNAUTHENTICATED' || code === 'SESSION_REVOKED') {
+      await clearRefreshToken().catch(() => undefined);
+      setAccessToken(null);
+      onSessionExpired?.();
+    }
+
     throw parsed.success
       ? new ApiRequestError(
           parsed.data.error.code,

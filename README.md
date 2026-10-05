@@ -86,10 +86,7 @@ Signing up in the app is self-service and always produces a `NON_RESIDENT` — a
 account with no permissions at all. Only the seed or an admin can grant
 `RESIDENT` or `ADMIN`.
 
-Signup and password reset both verify the number by SMS code. No SMS is actually
-sent in development: `OTP_PROVIDER=mock` logs the code, and `OTP_DEV_FIXED_CODE`
-(default `123456`) makes every code the same so there is no log to read. Both
-are startup errors in production.
+Signup takes a name, a mobile number and a password, and signs the new account straight in. There is no SMS, OTP or self-service password reset; the number is not verified.
 
 Object storage for file uploads is only needed once that work starts:
 

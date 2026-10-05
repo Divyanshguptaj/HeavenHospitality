@@ -116,6 +116,9 @@ model User {
   /// Set on an owner-provisioned account until the first password is chosen.
   mustChangePassword Boolean @default(false)
 
+  /// When the owner-issued temporary password stops working. Null once a real password is set.
+  tempPasswordExpiresAt DateTime? @db.Timestamptz(3)
+
   // Brute-force protection, persisted in PostgreSQL because per-IP limits reset
   // on deploy and are evaded by rotating IPs. See docs/0003-auth-and-sessions.md.
   failedLoginAttempts Int       @default(0)
@@ -249,6 +252,7 @@ enum AuditAction {
   RESIDENT_ADDED
   RESIDENT_MOVED
   RESIDENT_EXITED
+  RESIDENT_PASSWORD_RESET
   BED_ASSIGNED
   BED_RELEASED
   PAYMENT_RECORDED

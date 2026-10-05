@@ -19,13 +19,12 @@ export interface CloudinarySignature {
  * request matches what was signed. The client gets a signature good for one
  * upload, never the secret itself.
  */
-export function createUploadSignature(): CloudinarySignature {
+export function createUploadSignature(folder: string = env.CLOUDINARY_FOLDER): CloudinarySignature {
   if (!features.cloudinary) {
     throw new AppError('PROVIDER_UNAVAILABLE', 'Photo uploads are not configured yet.');
   }
 
   const timestamp = Math.floor(Date.now() / 1000);
-  const folder = env.CLOUDINARY_FOLDER;
 
   // Cloudinary's signing rule: every parameter that will be sent to the upload
   // API (other than file, cloud_name, resource_type and the key itself), sorted

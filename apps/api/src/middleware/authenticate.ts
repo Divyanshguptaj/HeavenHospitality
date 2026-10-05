@@ -29,8 +29,13 @@ function readBearerToken(req: Request): string | null {
  *
  * This establishes *identity only*. It never decides what the actor may do — that
  * is `requirePermission` and, for anything property-scoped, the service layer.
+ *
+ * An account still on a temporary password is refused everywhere except routes
+ * that opt in with `allowPasswordChangeRequired` (changing the password itself).
  */
-export function requireAuth(): RequestHandler {
+export function requireAuth(
+  options: { readonly allowPasswordChangeRequired?: boolean } = {},
+): RequestHandler {
   return (req: Request, _res: Response, next: NextFunction): void => {
     const token = readBearerToken(req);
     if (token === null) {
@@ -40,6 +45,12 @@ export function requireAuth(): RequestHandler {
 
     verifyAccessToken(token)
       .then((claims) => {
+        if (claims.mcp === true && options.allowPasswordChangeRequired !== true) {
+          throw new AppError(
+            'PASSWORD_CHANGE_REQUIRED',
+            'Please choose a new password before continuing.',
+          );
+        }
         req.actor = {
           userId: claims.sub,
           sessionId: claims.sid,
