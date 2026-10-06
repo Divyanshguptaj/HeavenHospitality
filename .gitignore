@@ -50,3 +50,7 @@ GoogleService-Info.plist
 *firebase-adminsdk*.json
 *service-account*.json
 *serviceAccount*.json
+
+# Generated native projects (EAS builds regenerate them from app.json)
+apps/mobile/android/
+apps/mobile/ios/

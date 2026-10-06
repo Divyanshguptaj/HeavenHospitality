@@ -2,6 +2,7 @@ import { formatINR } from '@heaven/money';
 import { router, useLocalSearchParams } from 'expo-router';
 import { useEffect, useState } from 'react';
 import { FlatList, Pressable, RefreshControl, StyleSheet, Text, TextInput, View } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import type { ResidentSummaryView } from '@heaven/contracts';
 
 import { useOwnerResidents } from '../../../src/api/owner';
@@ -31,6 +32,7 @@ const PAGE_SIZE = 10;
  */
 export default function OwnerResidentsScreen() {
   const theme = useTheme();
+  const insets = useSafeAreaInsets();
   const { filter: initialFilter } = useLocalSearchParams<{ filter?: string }>();
   const [search, setSearch] = useState('');
   const [owingOnly, setOwingOnly] = useState(initialFilter === 'owing');
@@ -80,7 +82,7 @@ export default function OwnerResidentsScreen() {
     <FlatList
       data={visibleRows}
       keyExtractor={(resident) => resident.tenancyId}
-      contentContainerStyle={styles.screenContent}
+      contentContainerStyle={[styles.screenContent, { paddingTop: insets.top + layout.spacing[5] }]}
       style={{ backgroundColor: theme.canvas }}
       keyboardShouldPersistTaps="handled"
       refreshControl={

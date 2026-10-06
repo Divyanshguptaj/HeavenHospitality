@@ -5,6 +5,7 @@ import {
   type ComplaintCategoryName,
 } from '@heaven/contracts';
 import { useState } from 'react';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import {
   Image,
   Modal,
@@ -101,7 +102,18 @@ export default function ComplaintsScreen() {
   );
 }
 
+function useModalPadding() {
+  const insets = useSafeAreaInsets();
+  return {
+    padding: layout.spacing[5],
+    paddingTop: insets.top + layout.spacing[5],
+    paddingBottom: insets.bottom + layout.spacing[5],
+    gap: layout.spacing[5],
+  };
+}
+
 function ComposeComplaint({ onClose }: { readonly onClose: () => void }) {
+  const modalPadding = useModalPadding();
   const theme = useTheme();
   const createComplaint = useCreateComplaint();
 
@@ -164,7 +176,7 @@ function ComposeComplaint({ onClose }: { readonly onClose: () => void }) {
     <Modal visible animationType="slide" onRequestClose={onClose}>
       <ScrollView
         style={{ backgroundColor: theme.canvas }}
-        contentContainerStyle={styles.modalContent}
+        contentContainerStyle={modalPadding}
       >
         <PageHeading title="Raise a complaint" />
 
@@ -267,13 +279,14 @@ function ComposeComplaint({ onClose }: { readonly onClose: () => void }) {
 
 function ComplaintDetail({ id, onClose }: { readonly id: string; readonly onClose: () => void }) {
   const theme = useTheme();
+  const modalPadding = useModalPadding();
   const { data, error, isPending } = useResidentComplaint(id);
 
   return (
     <Modal visible animationType="slide" onRequestClose={onClose}>
       <ScrollView
         style={{ backgroundColor: theme.canvas }}
-        contentContainerStyle={styles.modalContent}
+        contentContainerStyle={modalPadding}
       >
         {isPending ? (
           <LoadingState />
@@ -343,7 +356,6 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     gap: layout.spacing[4],
   },
-  modalContent: { padding: layout.spacing[5], gap: layout.spacing[5] },
   field: { gap: layout.spacing[2] },
   label: { fontSize: layout.fontSize.sm, fontWeight: '600' },
   input: {
