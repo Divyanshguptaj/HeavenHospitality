@@ -13,11 +13,8 @@ import { AppError } from '../../errors/AppError.js';
 import type { Loose } from '../../lib/types.js';
 import { writeAudit, type TransactionClient } from '../../lib/audit.js';
 import {
-  addDays,
-  dueDateFor,
   fromPrismaDate,
-  maxDate,
-  periodKeyOf,
+  periodLabel,
   todayInZone,
   toPrismaDate,
   type DateOnly,
@@ -25,7 +22,11 @@ import {
 import { prisma } from '../../lib/prisma.js';
 import type { Actor } from '../../middleware/authenticate.js';
 import { toRegistrationView } from '../account/account.service.js';
-import { generateDepositInvoice, recomputeInvoice } from '../billing/invoice.service.js';
+import {
+  generateDepositInvoice,
+  generateMoveInRentInvoice,
+  type MoveInRentInvoice,
+} from '../billing/invoice.service.js';
 import { issueTemporaryPassword } from '../auth/tempPassword.js';
 import { notify } from '../notifications/notification.service.js';
 import { getPropertyContext } from '../property/property.context.js';
@@ -708,49 +709,17 @@ export async function createResident(
         reason: 'Move-in',
       });
 
-      // Moving into a bed is what starts owing rent for it — the deposit,
-      // above, does not wait for this.
-      const bed = await tx.bed.findUniqueOrThrow({
-        where: { id: input.bedId },
-        select: { room: { select: { monthlyRentPaise: true } } },
+      await generateMoveInRentInvoice(tx, {
+        propertyId,
+        tenancyId: tenancy.id,
+        residentName: user.fullName,
+        bedId: input.bedId,
+        startDate: input.joiningDate,
+        monthlyRentOverridePaise: input.monthlyRentOverridePaise,
+        settings,
+        today,
+        actor: { userId: actor.userId, role: 'ADMIN' },
       });
-      const periodKey = periodKeyOf(input.joiningDate);
-      const monthlyRent = input.monthlyRentOverridePaise ?? bed.room.monthlyRentPaise;
-
-      // The move-in month is billed in full, not by the days left in it — a
-      // room costs the same whether they moved in on the 1st or the 28th.
-      // Only the SUBSEQUENT months are ever prorated by `calculateRent`, and
-      // only for someone who leaves mid-month (see generateInvoiceForTenancy).
-      if (monthlyRent > 0) {
-        const sequence = await tx.invoice.count({ where: { propertyId, periodKey } });
-        const number = `INV-${periodKey.replace('-', '')}-${String(sequence + 1).padStart(4, '0')}`;
-
-        // The calendar due date may already be behind us for someone joining
-        // late in the month — this invoice didn't exist yet for them to miss it.
-        // A first invoice is never born overdue: it gets at least the normal
-        // grace period counted from the day they actually moved in.
-        const dueDate = maxDate(
-          dueDateFor(periodKey, settings.rentDueDay),
-          addDays(input.joiningDate, settings.graceDays),
-        );
-
-        const invoice = await tx.invoice.create({
-          data: {
-            propertyId,
-            tenancyId: tenancy.id,
-            periodKey,
-            number,
-            status: 'ISSUED',
-            issueDate: toPrismaDate(input.joiningDate),
-            dueDate: toPrismaDate(dueDate),
-            items: {
-              create: [{ kind: 'RENT' as const, description: 'Room rent', amountPaise: monthlyRent }],
-            },
-          },
-        });
-
-        await recomputeInvoice(tx, invoice.id, settings, today);
-      }
     }
 
     await writeAudit(tx, {
@@ -934,8 +903,12 @@ export async function moveResident(
   tenancyId: string,
   input: { toBedId: string; effectiveFrom?: DateOnly | undefined; reason?: string | undefined },
 ): Promise<ResidentSummaryView> {
-  const { propertyId, timezone } = await getPropertyContext(actor, 'bed:manage');
-  const effectiveFrom = input.effectiveFrom ?? todayInZone(timezone);
+  const { propertyId, timezone, settings } = await getPropertyContext(actor, 'bed:manage');
+  const today = todayInZone(timezone);
+  const effectiveFrom = input.effectiveFrom ?? today;
+
+  let firstAssignment: { userId: string; roomNumber: string; bedLabel: string } | null = null;
+  let moveInInvoice: MoveInRentInvoice | null = null;
 
   await prisma.$transaction(async (tx) => {
     const tenancy = await tx.tenancy.findFirst({
@@ -982,6 +955,26 @@ export async function moveResident(
       select: { label: true, room: { select: { number: true } } },
     });
 
+    // The first bed is what starts owing rent. Later moves leave billing alone.
+    if (current === undefined) {
+      firstAssignment = {
+        userId: tenancy.userId,
+        roomNumber: destination.room.number,
+        bedLabel: destination.label,
+      };
+      moveInInvoice = await generateMoveInRentInvoice(tx, {
+        propertyId,
+        tenancyId,
+        residentName: tenancy.user.fullName,
+        bedId: input.toBedId,
+        startDate: effectiveFrom,
+        monthlyRentOverridePaise: tenancy.monthlyRentOverridePaise,
+        settings,
+        today,
+        actor: { userId: actor.userId, role: 'ADMIN' },
+      });
+    }
+
     await writeAudit(tx, {
       action: 'RESIDENT_MOVED',
       entityType: 'Tenancy',
@@ -995,6 +988,29 @@ export async function moveResident(
       actorRole: 'ADMIN',
     });
   });
+
+  if (firstAssignment !== null) {
+    const placed: { userId: string; roomNumber: string; bedLabel: string } = firstAssignment;
+    await notify({
+      event: 'ROOM_ASSIGNED',
+      userId: placed.userId,
+      dedupeKey: tenancyId,
+      params: { roomNumber: placed.roomNumber, bedLabel: placed.bedLabel },
+    });
+    const invoice = moveInInvoice as MoveInRentInvoice | null;
+    if (invoice !== null) {
+      await notify({
+        event: 'INVOICE_GENERATED',
+        userId: placed.userId,
+        dedupeKey: `${tenancyId}:${invoice.periodKey}`,
+        params: {
+          month: periodLabel(invoice.periodKey),
+          amountPaise: invoice.totalPaise,
+          dueDate: invoice.dueDate,
+        },
+      });
+    }
+  }
 
   const residents = await listResidents(actor);
   const moved = residents.find((resident) => resident.tenancyId === tenancyId);

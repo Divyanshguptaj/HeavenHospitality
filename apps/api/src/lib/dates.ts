@@ -76,6 +76,16 @@ export function fromPrismaDate(value: Date): DateOnly {
 /** "2026-09" — the unit of work for monthly billing and meter readings. */
 export type PeriodKey = string;
 
+/** "October 2026" for a "2026-10" period key. */
+export function periodLabel(periodKey: PeriodKey): string {
+  const [year, month] = periodKey.split('-').map(Number);
+  return new Date(Date.UTC(year ?? 1970, (month ?? 1) - 1, 1)).toLocaleString('en-IN', {
+    month: 'long',
+    year: 'numeric',
+    timeZone: 'UTC',
+  });
+}
+
 export function periodKeyOf(date: DateOnly): PeriodKey {
   const { year, month } = splitDateOnly(date);
   return `${String(year).padStart(4, '0')}-${String(month).padStart(2, '0')}`;

@@ -11,6 +11,7 @@ import {
   firstDayOfPeriod,
   fromPrismaDate,
   maxDate,
+  periodKeyOf,
   todayInZone,
   toPrismaDate,
   type DateOnly,
@@ -368,6 +369,93 @@ async function raiseCategoryInvoice(
  * (which only ever asks for real calendar periods) never touches it.
  */
 export const DEPOSIT_PERIOD_KEY: PeriodKey = 'DEPOSIT';
+
+export interface MoveInRentInvoice {
+  readonly number: string;
+  readonly periodKey: PeriodKey;
+  readonly totalPaise: number;
+  readonly dueDate: DateOnly;
+}
+
+/**
+ * Raises the first rent invoice when a resident moves into a bed.
+ *
+ * Moving into a bed is what starts owing rent for it; the deposit does not wait
+ * for this. The move-in month is billed in full, not by the days left in it — a
+ * room costs the same whether they moved in on the 1st or the 28th. Only later
+ * months are ever prorated by `calculateRent`, and only for someone who leaves
+ * mid-month.
+ *
+ * The calendar due date may already be behind us for someone moving in late in
+ * the month, so the due date is never earlier than the normal grace period
+ * counted from the day they moved in. A first invoice is never born overdue.
+ *
+ * Returns null when there is nothing to bill or the period already has a rent
+ * invoice, so calling it again is harmless.
+ */
+export async function generateMoveInRentInvoice(
+  tx: TransactionClient,
+  params: {
+    propertyId: string;
+    tenancyId: string;
+    residentName: string;
+    bedId: string;
+    startDate: DateOnly;
+    monthlyRentOverridePaise: number | null | undefined;
+    settings: PropertySettings;
+    today: DateOnly;
+    actor?: { readonly userId: string; readonly role: string } | undefined;
+  },
+): Promise<MoveInRentInvoice | null> {
+  const { propertyId, tenancyId, residentName, bedId, startDate, settings, today, actor } = params;
+
+  const bed = await tx.bed.findUniqueOrThrow({
+    where: { id: bedId },
+    select: { room: { select: { monthlyRentPaise: true } } },
+  });
+  const monthlyRent = params.monthlyRentOverridePaise ?? bed.room.monthlyRentPaise;
+  if (monthlyRent <= 0) return null;
+
+  const periodKey = periodKeyOf(startDate);
+
+  const existing = await tx.invoice.findUnique({
+    where: { tenancyId_periodKey_category: { tenancyId, periodKey, category: 'RENT' } },
+    select: { id: true },
+  });
+  if (existing !== null) return null;
+
+  const sequence = await tx.invoice.count({ where: { propertyId, periodKey } });
+  const number = `INV-${periodKey.replace('-', '')}-${String(sequence + 1).padStart(4, '0')}`;
+  const dueDate = maxDate(dueDateFor(periodKey, settings.rentDueDay), addDays(startDate, settings.graceDays));
+
+  const invoice = await tx.invoice.create({
+    data: {
+      propertyId,
+      tenancyId,
+      periodKey,
+      category: 'RENT',
+      number,
+      status: 'ISSUED',
+      issueDate: toPrismaDate(startDate),
+      dueDate: toPrismaDate(dueDate),
+      items: { create: [{ kind: 'RENT' as const, description: 'Room rent', amountPaise: monthlyRent }] },
+    },
+  });
+
+  await recomputeInvoice(tx, invoice.id, settings, today);
+
+  await writeAudit(tx, {
+    action: 'INVOICE_ISSUED',
+    entityType: 'Invoice',
+    entityId: invoice.id,
+    propertyId,
+    summary: `Invoice ${number} issued to ${residentName} for ${periodKey}`,
+    actorUserId: actor?.userId,
+    actorRole: actor?.role ?? 'SYSTEM',
+  });
+
+  return { number, periodKey, totalPaise: monthlyRent, dueDate };
+}
 
 /**
  * Raises the one-time security-deposit invoice for a tenancy.

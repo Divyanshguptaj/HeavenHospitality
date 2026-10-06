@@ -4,6 +4,7 @@ import cron from 'node-cron';
 import {
   currentPeriodKey,
   firstDayOfPeriod,
+  periodLabel,
   todayInZone,
   toPrismaDate,
   type DateOnly,
@@ -106,14 +107,7 @@ async function recomputeLateFees(today: DateOnly): Promise<string> {
 
 const DAY_MS = 86_400_000;
 
-function monthLabel(periodKey: string): string {
-  const [year, month] = periodKey.split('-').map(Number);
-  return new Date(Date.UTC(year ?? 1970, (month ?? 1) - 1, 1)).toLocaleString('en-IN', {
-    month: 'long',
-    year: 'numeric',
-    timeZone: 'UTC',
-  });
-}
+const monthLabel = periodLabel;
 
 /**
  * Reminds residents about unpaid rent and AC bills.
