@@ -6,9 +6,10 @@
   "scripts": {
     "start": "node scripts/adb-reverse.js && expo start",
     "android": "node scripts/adb-reverse.js && expo start --android",
-    "ios": "expo start --ios",
+    "ios": "expo run:ios",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "doctor": "expo-doctor"
+    "doctor": "expo-doctor",
+    "eas-build-post-install": "pnpm --filter \"@heaven/mobile^...\" run build"
   },
   "dependencies": {
     "@expo/metro-runtime": "~6.1.2",

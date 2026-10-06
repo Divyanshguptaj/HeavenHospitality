@@ -11,11 +11,11 @@
     "splash": {
       "image": "./assets/icon/splash-icon.png",
       "resizeMode": "contain",
-      "backgroundColor": "#000000"
+      "backgroundColor": "#FFFFFF"
     },
     "ios": {
       "supportsTablet": false,
-      "bundleIdentifier": "in.heavenhospitality.app",
+      "bundleIdentifier": "in.theheavenhospitality.app",
       "infoPlist": {
         "LSApplicationQueriesSchemes": [
           "tez",
@@ -31,18 +31,47 @@
       }
     },
     "android": {
-      "package": "in.heavenhospitality.app",
+      "package": "in.theheavenhospitality.app",
       "edgeToEdgeEnabled": true,
       "adaptiveIcon": {
         "foregroundImage": "./assets/icon/adaptive-icon.png",
-        "backgroundColor": "#a5621f"
-      }
+        "backgroundColor": "#FFFFFF"
+      },
+      "blockedPermissions": [
+        "android.permission.RECORD_AUDIO",
+        "android.permission.SYSTEM_ALERT_WINDOW",
+        "android.permission.WRITE_CONTACTS"
+      ],
+      "permissions": [
+        "android.permission.READ_CONTACTS",
+        "android.permission.WRITE_CONTACTS"
+      ]
     },
     "plugins": [
       "expo-router",
       "expo-secure-store",
       "expo-dev-client",
-      "expo-notifications",
+      [
+        "expo-notifications",
+        {
+          "icon": "./assets/icon/notification-icon.png",
+          "color": "#0E2E5D"
+        }
+      ],
+      [
+        "expo-contacts",
+        {
+          "contactsPermission": "Allow The Heaven Hospitality to open the new-contact form so you can save the property number."
+        }
+      ],
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "Allow The Heaven Hospitality to access your photos so you can attach a profile photo or document.",
+          "cameraPermission": "Allow The Heaven Hospitality to use the camera so you can take a photo of a document.",
+          "microphonePermission": false
+        }
+      ],
       "./plugins/withExternalAppQueries.js"
     ],
     "experiments": {
@@ -53,9 +82,9 @@
       "propertySlug": "heaven-hospitality-kothrud",
       "router": {},
       "eas": {
-        "projectId": "c510e93f-2e32-4354-af74-7f9e2cad0b4d"
+        "projectId": "c92871d5-0874-4825-8a7f-2da5d256ccc0"
       }
     },
-    "owner": "divyanshguptaj"
+    "owner": "vijaysinghlabanas-team"
   }
 }
