@@ -43,3 +43,10 @@ pnpm-debug.log*
 
 # Generated from @heaven/tokens by apps/admin/scripts/generate-theme.mjs
 apps/admin/src/styles/theme.generated.css
+
+# Firebase: client config is supplied to EAS as a secret file; a service-account key must never be committed
+google-services.json
+GoogleService-Info.plist
+*firebase-adminsdk*.json
+*service-account*.json
+*serviceAccount*.json
