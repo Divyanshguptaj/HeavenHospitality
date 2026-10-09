@@ -66,6 +66,9 @@ function isServerRejection(error: unknown): boolean {
   return error instanceof ApiRequestError && error.status >= 400 && error.status < 500;
 }
 
+/** How long to wait before each quiet retry after a launch that could not reach the server. */
+const RESTORE_RETRY_DELAYS_MS = [5_000, 15_000, 30_000, 60_000, 120_000] as const;
+
 export const useAuthStore = create<AuthState>((set, get) => ({
   status: 'restoring',
   user: null,
@@ -132,6 +135,34 @@ export const useAuthStore = create<AuthState>((set, get) => ({
         console.warn('[auth] session restore failed twice, signing out for this launch', secondError);
         setAccessToken(null);
         set({ status: 'signedOut', user: null });
+
+        // Keep trying quietly: signal usually returns within seconds, and the
+        // user should find themselves signed in again without doing anything.
+        const retryLater = (attempt: number): void => {
+          const delay = RESTORE_RETRY_DELAYS_MS[attempt];
+          if (delay === undefined) return;
+
+          setTimeout(() => {
+            void (async () => {
+              if (get().status !== 'signedOut') return;
+              // A sign-out or a new sign-in in the meantime replaces this token.
+              if ((await readRefreshToken().catch(() => null)) !== refreshToken) return;
+
+              try {
+                const session = await exchange();
+                if (get().status !== 'signedOut') return;
+                set({ status: 'signedIn', user: await applySession(session) });
+              } catch (retryError) {
+                if (isServerRejection(retryError)) {
+                  await clearRefreshToken().catch(() => undefined);
+                  return;
+                }
+                retryLater(attempt + 1);
+              }
+            })();
+          }, delay);
+        };
+        retryLater(0);
       }
     }
   },

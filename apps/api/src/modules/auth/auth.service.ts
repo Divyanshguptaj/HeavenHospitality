@@ -35,6 +35,8 @@ export interface AuthenticatedUserView {
 }
 
 export interface AuthResult {
+  /** The refresh-session row behind this login; used to record which token replaced which. */
+  readonly sessionId: string;
   readonly user: AuthenticatedUserView;
   readonly accessToken: string;
   readonly accessTokenExpiresInSeconds: number;
@@ -126,6 +128,7 @@ async function issueSession(
   });
 
   return {
+    sessionId: session.id,
     user: view,
     accessToken,
     accessTokenExpiresInSeconds: ACCESS_TOKEN_SECONDS,
@@ -273,6 +276,17 @@ export async function login(params: {
  * that device chain rather than letting an attacker ride along beside the real
  * user.
  */
+/**
+ * How long a token that a normal renewal just replaced may still be presented.
+ *
+ * A mobile connection can drop the response to a renewal after the server has
+ * already rotated the token, leaving the phone holding the old one. Treating
+ * that retry as theft would sign the user out of a perfectly good session, so a
+ * replaced token is accepted again for this short window. Tokens revoked by a
+ * sign-out or a password change are never replaced, so they never get it.
+ */
+const ROTATION_GRACE_MS = 2 * 60 * 1_000;
+
 export async function refresh(params: {
   refreshToken: string;
   ipAddress?: string | undefined;
@@ -288,7 +302,13 @@ export async function refresh(params: {
     throw new AppError('SESSION_REVOKED', 'Your session has expired. Please sign in again.');
   }
 
-  if (session.revokedAt !== null) {
+  const alreadyRevoked = session.revokedAt !== null;
+  const retriedWithinGrace =
+    session.revokedAt !== null &&
+    session.replacedById !== null &&
+    Date.now() - session.revokedAt.getTime() <= ROTATION_GRACE_MS;
+
+  if (alreadyRevoked && !retriedWithinGrace) {
     await prisma.refreshSession.updateMany({
       where: { familyId: session.familyId, revokedAt: null },
       data: { revokedAt: new Date() },
@@ -314,11 +334,14 @@ export async function refresh(params: {
   });
 
   // Revoke the old token only after the replacement exists, so a failure here
-  // cannot strand the user with neither token.
-  await prisma.refreshSession.update({
-    where: { id: session.id },
-    data: { revokedAt: new Date() },
-  });
+  // cannot strand the user with neither token. A grace-window retry leaves the
+  // original revocation time alone, so retries cannot keep extending it.
+  if (!alreadyRevoked) {
+    await prisma.refreshSession.update({
+      where: { id: session.id },
+      data: { revokedAt: new Date(), replacedById: result.sessionId },
+    });
+  }
 
   return result;
 }

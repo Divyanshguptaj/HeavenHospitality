@@ -248,21 +248,67 @@ describe('sessions', () => {
     expect(second.refreshToken).not.toBe(first.refreshToken);
   });
 
-  it('refuses a refresh token that was already rotated', async () => {
+  /** Pretends the rotation happened `seconds` ago. */
+  function ageRotation(seconds: number): void {
+    for (const row of sessionTable.rows) {
+      if (row['revokedAt'] instanceof Date) row['revokedAt'] = new Date(Date.now() - seconds * 1_000);
+    }
+  }
+
+  it('lets the phone retry an old token right after a renewal whose response was lost', async () => {
     const first = await signUp();
     await authService.refresh({ refreshToken: first.refreshToken });
+
+    // The phone never saw the response, so it still holds the first token.
+    const retry = await authService.refresh({ refreshToken: first.refreshToken });
+
+    expect(retry.user.phone).toBe(PHONE);
+    // The recovered login keeps working and keeps renewing.
+    const next = await authService.refresh({ refreshToken: retry.refreshToken });
+    expect(next.user.phone).toBe(PHONE);
+  });
+
+  it('refuses an old token once the grace window has passed', async () => {
+    const first = await signUp();
+    await authService.refresh({ refreshToken: first.refreshToken });
+    ageRotation(3 * 60);
 
     await expectCode(authService.refresh({ refreshToken: first.refreshToken }), 'SESSION_REVOKED');
   });
 
-  it('kills the whole family when a rotated token is replayed', async () => {
+  it('kills the whole family when a long-rotated token is replayed', async () => {
     const first = await signUp();
     const second = await authService.refresh({ refreshToken: first.refreshToken });
+    ageRotation(3 * 60);
 
-    // Replaying the old token is the signature of theft: the legitimate device's
-    // current token must die too, rather than letting an attacker ride along.
+    // Replaying an old token well after the fact is the signature of theft: the
+    // legitimate device's current token must die too.
     await expectCode(authService.refresh({ refreshToken: first.refreshToken }), 'SESSION_REVOKED');
     await expectCode(authService.refresh({ refreshToken: second.refreshToken }), 'SESSION_REVOKED');
+  });
+
+  it('never gives a grace window to a token revoked by signing out', async () => {
+    const session = await signUp();
+    await authService.logout(session.refreshToken);
+
+    await expectCode(
+      authService.refresh({ refreshToken: session.refreshToken }),
+      'SESSION_REVOKED',
+    );
+  });
+
+  it('never gives a grace window to tokens revoked by a password change', async () => {
+    const session = await signUp();
+    await authService.changePassword({
+      userId: session.user.id,
+      currentPassword: PASSWORD,
+      newPassword: 'AnotherPass456',
+    });
+
+    await expectCode(
+      authService.refresh({ refreshToken: session.refreshToken }),
+      'SESSION_REVOKED',
+    );
   });
 
   it('refuses an expired refresh token', async () => {
