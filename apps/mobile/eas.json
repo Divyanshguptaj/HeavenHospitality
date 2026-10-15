@@ -13,7 +13,8 @@
       "environment": "production",
       "android": {
         "buildType": "apk"
-      }
+      },
+      "autoIncrement": true
     },
     "production": {
       "autoIncrement": true,
