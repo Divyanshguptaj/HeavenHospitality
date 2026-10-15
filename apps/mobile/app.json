@@ -72,7 +72,8 @@
           "microphonePermission": false
         }
       ],
-      "./plugins/withExternalAppQueries.js"
+      "./plugins/withExternalAppQueries.js",
+      "./plugins/withReleaseAbis.js"
     ],
     "experiments": {
       "typedRoutes": true
