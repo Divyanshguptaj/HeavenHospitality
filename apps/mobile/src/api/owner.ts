@@ -12,6 +12,7 @@ import type {
   PropertyPhotoView,
   RegistrationDetailsView,
   ResidentDetailView,
+  ResidentCandidateView,
   ResidentCreatedView,
   ResidentSummaryView,
   TemporaryCredentialView,
@@ -340,20 +341,13 @@ export const useMoveResident = () =>
   );
 
 /**
- * Looks a person up by phone — the identity a resident actually signs up
- * with — so filling a bed reuses their account instead of inventing one.
+ * Finds the people an owner can add as a resident, by name or part of a phone
+ * number, so the right one can be picked from a list.
  */
-export async function lookupUserByPhone(phone: string): Promise<{
-  id: string;
-  fullName: string;
-  email: string | null;
-  phone: string | null;
-  /** An active tenancy already exists — null if this account is not a resident at all. */
-  activeTenancyId: string | null;
-  /** Only meaningful when `activeTenancyId` is set: has that stay already got a bed? */
-  hasBed: boolean;
-} | null> {
-  return apiRequest(`${OWNER}/residents/lookup-by-phone?phone=${encodeURIComponent(phone)}`);
+export function searchResidentCandidates(query: string): Promise<ResidentCandidateView[]> {
+  return apiRequest<ResidentCandidateView[]>(
+    `${OWNER}/residents/search?q=${encodeURIComponent(query)}`,
+  );
 }
 
 // --- Public content: mess menu, property profile, facilities, rules, gallery -

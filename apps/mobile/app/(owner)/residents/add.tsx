@@ -1,9 +1,11 @@
+import type { ResidentCandidateView } from '@heaven/contracts';
 import { router } from 'expo-router';
 import { useState } from 'react';
-import { Text, View, StyleSheet } from 'react-native';
+import { Text } from 'react-native';
 
-import { lookupUserByPhone, useCreateResident } from '../../../src/api/owner';
+import { useCreateResident } from '../../../src/api/owner';
 import { DateField } from '../../../src/components/DateField';
+import { ResidentSearch } from '../../../src/components/ResidentSearch';
 import { Button, Card, FormField, Muted, PageHeading, Screen } from '../../../src/components/ui';
 import { ApiRequestError } from '../../../src/lib/apiClient';
 import { showTemporaryPassword } from '../../../src/lib/temporaryPassword';
@@ -13,20 +15,11 @@ function today(): string {
   return new Date().toISOString().slice(0, 10);
 }
 
-type FoundUser = {
-  id: string;
-  fullName: string;
-  email: string | null;
-  phone: string | null;
-  activeTenancyId: string | null;
-  hasBed: boolean;
-};
-
 /**
- * Brings someone in as a resident, found by phone.
+ * Brings someone in as a resident, found by name or phone number.
  *
- * Searches for an account first. When there is none, the owner can create it
- * here: the resident gets a one-time temporary password to sign in with and must
+ * Lists everyone who matches so the right person can be picked. When a full
+ * phone number matches nobody, the owner can create the account here: the resident gets a one-time temporary password to sign in with and must
  * choose their own on first sign-in. A room and bed can be assigned afterward
  * from Rooms.
  */
@@ -34,38 +27,20 @@ export default function AddResidentScreen() {
   const theme = useTheme();
   const createResident = useCreateResident();
 
-  const [phone, setPhone] = useState('');
-  const [found, setFound] = useState<FoundUser | null>(null);
-  const [notFound, setNotFound] = useState(false);
+  const [found, setFound] = useState<ResidentCandidateView | null>(null);
+  // The full phone number typed when nobody matched, so a new account can be made for it.
+  const [newPhone, setNewPhone] = useState<string | null>(null);
   const [newName, setNewName] = useState('');
-  const [checking, setChecking] = useState(false);
   const [joiningDate, setJoiningDate] = useState(today());
   // Left blank on purpose, not defaulted to "0" — the owner must type an
   // actual amount, even if that amount is zero, rather than silently skip it.
   const [securityDeposit, setSecurityDeposit] = useState('');
   const [error, setError] = useState<string | null>(null);
 
-  async function search(): Promise<void> {
-    const value = phone.trim();
-    if (value === '') return;
-
-    setChecking(true);
-    setError(null);
-    setFound(null);
-    setNotFound(false);
-    try {
-      const result = await lookupUserByPhone(value);
-      if (result === null) setNotFound(true);
-      else setFound(result);
-    } catch (caught) {
-      setError(caught instanceof ApiRequestError ? caught.message : 'Could not search.');
-    } finally {
-      setChecking(false);
-    }
-  }
+  const notFound = found === null && newPhone !== null;
 
   async function submit(): Promise<void> {
-    if (found === null && !notFound) return;
+    if (found === null && newPhone === null) return;
     setError(null);
 
     if (found === null && newName.trim().length < 2) {
@@ -84,13 +59,13 @@ export default function AddResidentScreen() {
       const created = await createResident.mutateAsync({
         ...(found === null ? {} : { existingUserId: found.id }),
         fullName: found?.fullName ?? newName.trim(),
-        phone: found?.phone ?? phone.trim(),
+        phone: found?.phone ?? newPhone ?? '',
         ...(found?.email == null ? {} : { email: found.email }),
         joiningDate,
         securityDepositPaise: Math.round(depositRupees * 100),
       });
       if (created.credential !== null) {
-        showTemporaryPassword(created.fullName, phone.trim(), created.credential);
+        showTemporaryPassword(created.fullName, found?.phone ?? newPhone ?? '', created.credential);
       }
       router.back();
     } catch (caught) {
@@ -100,28 +75,15 @@ export default function AddResidentScreen() {
 
   return (
     <Screen>
-      <PageHeading title="Add a resident" subtitle="Search by phone number. If they have no account yet, you can create one." />
+      <PageHeading title="Add a resident" subtitle="Search by name or phone number and pick the right person. If they have no account yet, enter their full number to create one." />
 
       <Card>
-        <View style={styles.searchRow}>
-          <View style={styles.grow}>
-            <FormField
-              label="Phone number"
-              value={phone}
-              onChangeText={(value) => {
-                setPhone(value);
-                setFound(null);
-                setNotFound(false);
-              }}
-              placeholder="+91XXXXXXXXXX"
-              keyboardType="phone-pad"
-              autoFocus
-            />
-          </View>
-          <View style={styles.searchButton}>
-            <Button label={checking ? 'Searching…' : 'Search'} variant="secondary" onPress={() => void search()} />
-          </View>
-        </View>
+        <ResidentSearch
+          autoFocus
+          noMatchHint="No one found. To create a new account, search with their full 10-digit phone number."
+          onSelect={setFound}
+          onNoMatch={setNewPhone}
+        />
 
         {notFound && (
           <>
@@ -184,9 +146,3 @@ export default function AddResidentScreen() {
     </Screen>
   );
 }
-
-const styles = StyleSheet.create({
-  searchRow: { flexDirection: 'row', gap: layout.spacing[3], alignItems: 'flex-end' },
-  grow: { flex: 1 },
-  searchButton: { paddingBottom: 1 },
-});

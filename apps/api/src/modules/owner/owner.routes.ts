@@ -121,6 +121,7 @@ import {
   exitResident,
   findUserByEmail,
   findUserByPhone,
+  searchResidentCandidates,
   getResident,
   listApplicants,
   listResidents,
@@ -535,6 +536,20 @@ ownerRouter.get(
   handle((req) => {
     const { query } = getValidated<typeof lookupPhoneQuery>(req);
     return findUserByPhone(getActor(req), query.phone);
+  }),
+);
+
+const searchCandidatesQuery = {
+  query: z.object({ q: z.string().trim().min(2).max(60) }),
+} as const;
+
+ownerRouter.get(
+  '/residents/search',
+  requirePermission('resident:read'),
+  validate(searchCandidatesQuery),
+  handle((req) => {
+    const { query } = getValidated<typeof searchCandidatesQuery>(req);
+    return searchResidentCandidates(getActor(req), query.q);
   }),
 );
 

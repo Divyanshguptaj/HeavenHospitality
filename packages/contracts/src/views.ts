@@ -169,6 +169,18 @@ export interface ResidentCreatedView extends ResidentSummaryView {
   readonly credential: TemporaryCredentialView | null;
 }
 
+/** Someone an owner can pick when adding a resident. */
+export interface ResidentCandidateView {
+  readonly id: string;
+  readonly fullName: string;
+  readonly email: string | null;
+  readonly phone: string | null;
+  /** An active stay already exists here; null when this account is not a resident at all. */
+  readonly activeTenancyId: string | null;
+  /** Only meaningful when `activeTenancyId` is set: has that stay already got a bed? */
+  readonly hasBed: boolean;
+}
+
 export interface ResidentDetailView extends ResidentSummaryView {
   readonly securityDepositPaise: number;
   readonly monthlyRentOverridePaise: number | null;

@@ -1,6 +1,7 @@
 import type {
   ApplicantView,
   ResidentDetailView,
+  ResidentCandidateView,
   ResidentCreatedView,
   ResidentSummaryView,
   TemporaryCredentialView,
@@ -519,6 +520,66 @@ export async function findUserByPhone(
     activeTenancyId: tenancy?.id ?? null,
     hasBed: (tenancy?.allocations.length ?? 0) > 0,
   };
+}
+
+const CANDIDATE_LIMIT = 20;
+const MAX_SEARCH_WORDS = 4;
+
+/**
+ * Finds the people an owner can add as a resident, by name or by phone number.
+ *
+ * Letters match the name — every word must appear, in any order, ignoring case.
+ * Digits match any part of the phone number. Owner accounts are never offered,
+ * and neither are suspended ones.
+ */
+export async function searchResidentCandidates(
+  actor: Actor,
+  query: string,
+): Promise<ResidentCandidateView[]> {
+  const { propertyId } = await getPropertyContext(actor, 'resident:read');
+
+  const text = query.trim();
+  const digits = text.replace(/\D/g, '');
+  const looksLikePhone = digits.length >= 3 && /^[\d\s+()-]+$/.test(text);
+
+  const match: Prisma.UserWhereInput = looksLikePhone
+    ? { phone: { contains: digits } }
+    : {
+        AND: text
+          .split(/\s+/)
+          .filter((word) => word !== '')
+          .slice(0, MAX_SEARCH_WORDS)
+          .map((word) => ({ fullName: { contains: word, mode: 'insensitive' as const } })),
+      };
+
+  const users = await prisma.user.findMany({
+    where: { ...match, role: { not: 'ADMIN' }, status: 'ACTIVE' },
+    select: {
+      id: true,
+      fullName: true,
+      email: true,
+      phone: true,
+      tenancies: {
+        where: { propertyId, status: { in: ['ACTIVE', 'NOTICE_PERIOD'] } },
+        select: { id: true, allocations: { where: { endedAt: null }, select: { id: true } } },
+        take: 1,
+      },
+    },
+    orderBy: { fullName: 'asc' },
+    take: CANDIDATE_LIMIT,
+  });
+
+  return users.map((user) => {
+    const tenancy = user.tenancies[0];
+    return {
+      id: user.id,
+      fullName: user.fullName,
+      email: user.email,
+      phone: user.phone,
+      activeTenancyId: tenancy?.id ?? null,
+      hasBed: (tenancy?.allocations.length ?? 0) > 0,
+    };
+  });
 }
 
 /**

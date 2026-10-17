@@ -1,11 +1,10 @@
-import type { RoomView } from '@heaven/contracts';
+import type { ResidentCandidateView, RoomView } from '@heaven/contracts';
 import { formatINR } from '@heaven/money';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useState } from 'react';
-import { Alert, StyleSheet, Text, TextInput, View } from 'react-native';
+import { Alert, StyleSheet, Text, View } from 'react-native';
 
 import {
-  lookupUserByPhone,
   useCreateResident,
   useDeleteRoom,
   useExitResident,
@@ -14,6 +13,7 @@ import {
   useRecordElectricityBill,
   useUpdateRoom,
 } from '../../../src/api/owner';
+import { ResidentSearch } from '../../../src/components/ResidentSearch';
 import {
   Badge,
   Button,
@@ -389,38 +389,9 @@ function AssignForm({
   const createResident = useCreateResident();
   const moveResident = useMoveResident();
 
-  const [phone, setPhone] = useState('');
-  const [found, setFound] = useState<{
-    id: string;
-    fullName: string;
-    email: string | null;
-    phone: string | null;
-    activeTenancyId: string | null;
-    hasBed: boolean;
-  } | null>(null);
-  const [notFound, setNotFound] = useState(false);
-  const [checking, setChecking] = useState(false);
+  const [found, setFound] = useState<ResidentCandidateView | null>(null);
   const [deposit, setDeposit] = useState('');
   const [error, setError] = useState<string | null>(null);
-
-  async function search(): Promise<void> {
-    const value = phone.trim();
-    if (value === '') return;
-
-    setChecking(true);
-    setError(null);
-    setFound(null);
-    setNotFound(false);
-    try {
-      const result = await lookupUserByPhone(value);
-      if (result === null) setNotFound(true);
-      else setFound(result);
-    } catch (caught) {
-      setError(caught instanceof ApiRequestError ? caught.message : 'Could not search.');
-    } finally {
-      setChecking(false);
-    }
-  }
 
   // Already a resident somewhere else in the building — a real conflict, the
   // only case this form still refuses.
@@ -455,7 +426,7 @@ function AssignForm({
       await createResident.mutateAsync({
         existingUserId: found.id,
         fullName: found.fullName,
-        phone: found.phone ?? phone.trim(),
+        phone: found.phone ?? '',
         ...(found.email === null ? {} : { email: found.email }),
         joiningDate: today(),
         bedId,
@@ -473,30 +444,13 @@ function AssignForm({
         Add to room {roomNumber}, bed {bedLabel}
       </Text>
 
-      <View style={styles.searchRow}>
-        <TextInput
-          value={phone}
-          onChangeText={(value) => {
-            setPhone(value);
-            setFound(null);
-            setNotFound(false);
-          }}
-          placeholder="Resident's phone number"
-          placeholderTextColor={theme.textMuted}
-          keyboardType="phone-pad"
-          accessibilityLabel="Resident's phone number"
-          autoFocus
-          style={[
-            styles.input,
-            { backgroundColor: theme.surface, borderColor: theme.border, color: theme.textPrimary },
-          ]}
-        />
-        <Button label={checking ? 'Searching…' : 'Search'} variant="secondary" onPress={() => void search()} />
-      </View>
-
-      {notFound && (
-        <Muted>No account with that number. They need to sign up in the app first.</Muted>
-      )}
+      <ResidentSearch
+        label="Resident's name or phone number"
+        placeholder="Type a name or number"
+        autoFocus
+        noMatchHint="No one found. They need to sign up in the app first."
+        onSelect={setFound}
+      />
 
       {found !== null && (
         <Text style={[styles.owed, { color: blocked ? theme.danger : theme.success }]}>
