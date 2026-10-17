@@ -288,11 +288,31 @@ export function deriveInvoiceStatus(params: {
   amountPaidPaise: Paise;
   dueDate: DateOnly;
   asOf: DateOnly;
+  /** False for a bill that is never shown as overdue, whatever its due date. */
+  canBeOverdue?: boolean;
 }): DerivedInvoiceStatus {
   if (params.amountPaidPaise >= params.totalPaise) return 'PAID';
 
-  const isOverdue = compareDates(params.asOf, params.dueDate) > 0;
+  const isOverdue = params.canBeOverdue !== false && compareDates(params.asOf, params.dueDate) > 0;
   if (params.amountPaidPaise > 0) return isOverdue ? 'OVERDUE' : 'PARTIALLY_PAID';
 
   return isOverdue ? 'OVERDUE' : 'ISSUED';
+}
+
+/**
+ * Whether a stay is still going into `periodKey`, and so should be billed for
+ * it ahead of time. Someone whose notice ends before that month starts is left
+ * out; the month-start run moves them out instead.
+ */
+export function staysIntoPeriod(
+  tenancy: {
+    status: string;
+    actualExitDate: DateOnly | null;
+    expectedExitDate: DateOnly | null;
+  },
+  periodStart: DateOnly,
+): boolean {
+  if (tenancy.status !== 'ACTIVE' && tenancy.status !== 'NOTICE_PERIOD') return false;
+  if (tenancy.actualExitDate !== null) return false;
+  return tenancy.expectedExitDate === null || compareDates(tenancy.expectedExitDate, periodStart) >= 0;
 }

@@ -4,11 +4,9 @@ import { AppError } from '../../errors/AppError.js';
 import type { Loose } from '../../lib/types.js';
 import { writeAudit } from '../../lib/audit.js';
 import {
-  addDays,
-  dueDateFor,
+  billDueDate,
   firstDayOfPeriod,
   fromPrismaDate,
-  maxDate,
   todayInZone,
   toPrismaDate,
   type DateOnly,
@@ -336,9 +334,7 @@ async function attachSharesToInvoices(
             // the calendar due date directly would make the invoice born
             // already overdue, with a late fee attached the instant it's
             // created. Never earlier than today plus the normal grace period.
-            dueDate: toPrismaDate(
-              maxDate(dueDateFor(periodKey, settings.rentDueDay), addDays(today, settings.graceDays)),
-            ),
+            dueDate: toPrismaDate(billDueDate(periodKey, today, settings.graceDays)),
             items: {
               create: [
                 {
@@ -476,10 +472,7 @@ export async function recordElectricityBill(
         if (invoiceId === undefined) {
           nextSequence += 1;
           const number = `INV-ELEC-${input.periodKey.replace('-', '')}-${String(nextSequence).padStart(4, '0')}`;
-          const dueDate = maxDate(
-            dueDateFor(input.periodKey, settings.rentDueDay),
-            addDays(today, settings.graceDays),
-          );
+          const dueDate = billDueDate(input.periodKey, today, settings.graceDays);
 
           const created = await tx.invoice.create({
             data: {

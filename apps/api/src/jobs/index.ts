@@ -1,9 +1,13 @@
-import { Prisma } from '@prisma/client';
+import { Prisma, type PropertySettings } from '@prisma/client';
 import cron from 'node-cron';
 
 import {
   currentPeriodKey,
   firstDayOfPeriod,
+  fromPrismaDate,
+  lastDayOfPeriod,
+  nextPeriodKey,
+  periodKeyOf,
   periodLabel,
   todayInZone,
   toPrismaDate,
@@ -13,6 +17,7 @@ import {
 import { logger } from '../lib/logger.js';
 import { prisma } from '../lib/prisma.js';
 import { writeAudit } from '../lib/audit.js';
+import { staysIntoPeriod } from '../modules/billing/billing.calculations.js';
 import { generateInvoiceForTenancy, recomputeInvoice } from '../modules/billing/invoice.service.js';
 import { notify, reconcilePushReceipts } from '../modules/notifications/notification.service.js';
 
@@ -110,11 +115,10 @@ const DAY_MS = 86_400_000;
 const monthLabel = periodLabel;
 
 /**
- * Reminds residents about unpaid rent and AC bills.
+ * Reminds residents about unpaid rent.
  *
- * Rent and the AC bill are separate invoices for the same period, so they are
- * grouped per tenancy and period into ONE reminder for the combined balance.
- * The deposit is not rent and is never reminded about. Each reminder is
+ * Only rent is chased: the deposit and electricity bills carry no late fee, so
+ * they are never reminded about or shown as overdue. Each reminder is
  * recorded once as a `ReminderEvent` (the owner's log) and delivered through
  * the notification service, whose own unique key stops any repeat send.
  *
@@ -136,7 +140,7 @@ async function createRentReminders(today: DateOnly): Promise<string> {
       where: {
         propertyId: property.id,
         status: { in: ['ISSUED', 'PARTIALLY_PAID', 'OVERDUE'] },
-        category: { not: 'DEPOSIT' },
+        category: 'RENT',
       },
       include: { tenancy: { include: { user: { select: { id: true, fullName: true } } } } },
     });
@@ -320,6 +324,88 @@ async function exitMaturedNotices(
   return { exited, heldForDues };
 }
 
+/** One property's bills for `periodKey`, shared by the month-start run and the month-end run. */
+async function billTenancies(
+  property: { id: string; settings: PropertySettings },
+  periodKey: PeriodKey,
+  today: DateOnly,
+  onlyStayingIntoPeriod: boolean,
+): Promise<{ created: number; skipped: number }> {
+  let created = 0;
+  let skipped = 0;
+
+  const everyone = await prisma.tenancy.findMany({
+    where: {
+      propertyId: property.id,
+      OR: [{ status: { in: ['ACTIVE', 'NOTICE_PERIOD'] } }, { actualExitDate: { not: null } }],
+    },
+    include: {
+      user: { select: { fullName: true } },
+      allocations: {
+        include: { bed: { select: { room: { select: { monthlyRentPaise: true, number: true } } } } },
+        orderBy: { startedAt: 'asc' },
+      },
+      electricityShares: {
+        where: { reading: { periodKey, status: 'ACTIVE' } },
+        include: {
+          reading: {
+            select: { units: true, ratePaisePerUnit: true, room: { select: { number: true } } },
+          },
+        },
+      },
+    },
+  });
+
+  const tenancies = onlyStayingIntoPeriod
+    ? everyone.filter((tenancy) =>
+        staysIntoPeriod(
+          {
+            status: tenancy.status,
+            actualExitDate:
+              tenancy.actualExitDate === null ? null : fromPrismaDate(tenancy.actualExitDate),
+            expectedExitDate:
+              tenancy.expectedExitDate === null ? null : fromPrismaDate(tenancy.expectedExitDate),
+          },
+          firstDayOfPeriod(periodKey),
+        ),
+      )
+    : everyone;
+
+  for (const tenancy of tenancies) {
+    const wasCreated = await prisma.$transaction((tx) =>
+      generateInvoiceForTenancy(tx, {
+        propertyId: property.id,
+        periodKey,
+        settings: property.settings,
+        today,
+        tenancy,
+      }),
+    );
+    if (wasCreated) {
+      created += 1;
+      const billed = await prisma.invoice.findMany({
+        where: { tenancyId: tenancy.id, periodKey, category: { not: 'DEPOSIT' } },
+        select: { totalPaise: true, dueDate: true },
+      });
+      const firstBill = billed[0];
+      if (firstBill !== undefined) {
+        await notify({
+          event: 'INVOICE_GENERATED',
+          userId: tenancy.userId,
+          dedupeKey: `${tenancy.id}:${periodKey}`,
+          params: {
+            month: monthLabel(periodKey),
+            amountPaise: billed.reduce((sum, invoice) => sum + invoice.totalPaise, 0),
+            dueDate: firstBill.dueDate.toISOString().slice(0, 10),
+          },
+        });
+      }
+    } else skipped += 1;
+  }
+
+  return { created, skipped };
+}
+
 /**
  * Rolls billing into the new month: anyone whose notice already matured is
  * moved out first (so they are not billed again), then everyone still
@@ -344,65 +430,55 @@ async function rolloverMonth(periodKey: PeriodKey, today: DateOnly): Promise<str
     exited += exitResult.exited;
     heldForDues += exitResult.heldForDues;
 
-    const tenancies = await prisma.tenancy.findMany({
-      where: {
-        propertyId: property.id,
-        OR: [{ status: { in: ['ACTIVE', 'NOTICE_PERIOD'] } }, { actualExitDate: { not: null } }],
-      },
-      include: {
-        user: { select: { fullName: true } },
-        allocations: {
-          include: { bed: { select: { room: { select: { monthlyRentPaise: true, number: true } } } } },
-          orderBy: { startedAt: 'asc' },
-        },
-        electricityShares: {
-          where: { reading: { periodKey, status: 'ACTIVE' } },
-          include: {
-            reading: {
-              select: { units: true, ratePaisePerUnit: true, room: { select: { number: true } } },
-            },
-          },
-        },
-      },
-    });
-
-    for (const tenancy of tenancies) {
-      const wasCreated = await prisma.$transaction((tx) =>
-        generateInvoiceForTenancy(tx, {
-          propertyId: property.id,
-          periodKey,
-          settings: property.settings!,
-          today,
-          tenancy,
-        }),
-      );
-      if (wasCreated) {
-        invoicesCreated += 1;
-        const billed = await prisma.invoice.findMany({
-          where: { tenancyId: tenancy.id, periodKey, category: { not: 'DEPOSIT' } },
-          select: { totalPaise: true, dueDate: true },
-        });
-        const firstBill = billed[0];
-        if (firstBill !== undefined) {
-          await notify({
-            event: 'INVOICE_GENERATED',
-            userId: tenancy.userId,
-            dedupeKey: `${tenancy.id}:${periodKey}`,
-            params: {
-              month: monthLabel(periodKey),
-              amountPaise: billed.reduce((sum, invoice) => sum + invoice.totalPaise, 0),
-              dueDate: firstBill.dueDate.toISOString().slice(0, 10),
-            },
-          });
-        }
-      } else invoicesSkipped += 1;
-    }
+    const result = await billTenancies(
+      { id: property.id, settings: property.settings },
+      periodKey,
+      today,
+      false,
+    );
+    invoicesCreated += result.created;
+    invoicesSkipped += result.skipped;
   }
 
   return (
     `Rolled over to ${periodKey}: ${exited} moved out, ${heldForDues} held (dues owed), ` +
     `${invoicesCreated} invoice(s) created, ${invoicesSkipped} skipped`
   );
+}
+
+/** True on the final day of the calendar month. */
+function isLastDayOfMonth(today: DateOnly): boolean {
+  return today === lastDayOfPeriod(periodKeyOf(today));
+}
+
+/**
+ * Bills next month's rent on the last day of this one, so residents see it with
+ * the day to pay. Rent is due that day, and the late fee starts the day after —
+ * the 1st. Someone whose notice ends before the new month starts is left out.
+ */
+async function billNextMonth(today: DateOnly): Promise<string> {
+  const periodKey = nextPeriodKey(periodKeyOf(today));
+  const properties = await prisma.property.findMany({
+    where: { status: 'ACTIVE' },
+    include: { settings: true },
+  });
+
+  let created = 0;
+  let skipped = 0;
+
+  for (const property of properties) {
+    if (property.settings === null) continue;
+    const result = await billTenancies(
+      { id: property.id, settings: property.settings },
+      periodKey,
+      today,
+      true,
+    );
+    created += result.created;
+    skipped += result.skipped;
+  }
+
+  return `Billed ${periodKey} ahead of time: ${String(created)} invoice(s) created, ${String(skipped)} skipped`;
 }
 
 /**
@@ -454,6 +530,26 @@ export function startScheduledJobs(): void {
     { timezone: timeZone },
   );
 
+  // 00:35 every day — acts only on the last day of the month, when next month's
+  // rent is billed. Keyed by the period being billed, so it runs once per month.
+  cron.schedule(
+    '35 0 * * *',
+    () => {
+      const today = todayInZone(timeZone);
+      if (!isLastDayOfMonth(today)) return;
+      void runOnce('month-end-billing', nextPeriodKey(periodKeyOf(today)), () => billNextMonth(today));
+    },
+    { timezone: timeZone },
+  );
+
+  // Same catch-up for a process that was down at 00:35 on the last day.
+  const startupToday = todayInZone(timeZone);
+  if (isLastDayOfMonth(startupToday)) {
+    void runOnce('month-end-billing', nextPeriodKey(periodKeyOf(startupToday)), () =>
+      billNextMonth(startupToday),
+    ).catch((error: unknown) => logger.error({ err: error }, 'month-end billing catch-up failed'));
+  }
+
   // A process that was down at 00:35 on the 1st would otherwise skip the whole
   // month. `runOnce` is keyed by the period, so this is a no-op whenever the
   // rollover already ran — it only fills the gap.
@@ -463,7 +559,7 @@ export function startScheduledJobs(): void {
 
   logger.info(
     { timeZone },
-    'Scheduled jobs registered: late-fees 00:30, rent-reminders 09:00, monthly-rollover 00:35 on the 1st (also caught up at startup)',
+    'Scheduled jobs registered: late-fees 00:30, rent-reminders 09:00, month-end-billing 00:35 on the last day, monthly-rollover 00:35 on the 1st (both caught up at startup)',
   );
 }
 
@@ -472,6 +568,7 @@ export const jobsForTesting = {
   recomputeLateFees,
   createRentReminders,
   rolloverMonth,
+  billNextMonth,
   exitMaturedNotices,
   runOnce,
 };

@@ -86,10 +86,30 @@ tenancy's **credit balance**, applied automatically to the next invoice issued.
 This is what gives the brief's "duplicate payment" and "advance payment" edge cases
 somewhere to land. Without it there is no correct home for an overpayment.
 
+## When rent is billed and due
+
+**Next month's rent is billed on the last day of the month before**, at 00:35, so
+residents see it with that day to pay. It is due that same day. Someone whose
+notice ends before the new month starts is left out. The month-start run still
+checks that everyone has a bill, which catches anyone the month-end run missed.
+
+A bill created later than that is due the day it is created, never in the past:
+a move-in's first rent is due the day they move in, and a bill that only appeared
+on the 1st is due the 1st. `billDueDate()` in `lib/dates.ts` is the single place
+this is decided.
+
 ## Late fees
 
-Configurable **per property**, versioned via `LateFeeRule(propertyId, graceDays,
-perDayPaise, maxPaise, effectiveFrom)`.
+**Only rent carries a late fee.** The deposit never does, and neither does an
+electricity bill; electricity is also never shown as overdue and is never
+reminded about. Any fee a non-rent bill picked up earlier is removed on the next
+recompute.
+
+The fee starts the day **after** the due date, with no grace period: rent unpaid
+as the date turns to the 1st gets its first ₹100 then.
+
+Configurable **per property**: `graceDays` (now `0`), `lateFeePerDayPaise` and
+`lateFeeCapPaise`. The older `rentDueDay` setting no longer decides a due date.
 
 Defaults — **configuration, never constants in code**:
 

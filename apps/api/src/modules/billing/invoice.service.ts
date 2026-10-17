@@ -6,11 +6,10 @@ import { AppError } from '../../errors/AppError.js';
 import type { Loose } from '../../lib/types.js';
 import { writeAudit, type TransactionClient } from '../../lib/audit.js';
 import {
-  addDays,
-  dueDateFor,
+  billDueDate,
   firstDayOfPeriod,
   fromPrismaDate,
-  maxDate,
+  minDate,
   periodKeyOf,
   todayInZone,
   toPrismaDate,
@@ -91,15 +90,14 @@ export async function recomputeInvoice(
     invoice.items.filter((item) => item.kind !== 'LATE_FEE').map((item) => item.amountPaise),
   );
 
-  // A deposit is never rent: it is billed on its own invoice (never mixed
-  // with a RENT item — see generateDepositInvoice), and it carries no
-  // schedule-driven late fee. Left unpaid, or paid in parts, it just sits at
-  // whatever status that leaves it — never an extra charge on top.
-  const isDepositInvoice = invoice.category === 'DEPOSIT';
+  // Only rent carries a late fee. A deposit is billed on its own invoice and an
+  // electricity bill is a pass-through, so neither is ever charged one, and any
+  // fee a non-rent bill picked up earlier is removed below.
+  const carriesLateFee = invoice.category === 'RENT';
 
   let lateFeeAmountPaise = 0;
 
-  if (!isDepositInvoice) {
+  if (carriesLateFee) {
     // Settlement date drives the late fee: paying late must not keep costing
     // more afterwards. Derived from when the principal was actually covered.
     const settledOn =
@@ -147,6 +145,10 @@ export async function recomputeInvoice(
       // so the invoice does not carry a meaningless ₹0 row.
       await tx.invoiceItem.delete({ where: { id: existingLateFee.id } });
     }
+  } else {
+    for (const staleFee of invoice.items.filter((item) => item.kind === 'LATE_FEE')) {
+      await tx.invoiceItem.delete({ where: { id: staleFee.id } });
+    }
   }
 
   const total = principal + lateFeeAmountPaise;
@@ -160,6 +162,7 @@ export async function recomputeInvoice(
         amountPaidPaise: invoice.amountPaidPaise,
         dueDate: fromPrismaDate(invoice.dueDate),
         asOf: today,
+        canBeOverdue: invoice.category !== 'ELECTRICITY',
       }),
     },
   });
@@ -329,7 +332,7 @@ async function raiseCategoryInvoice(
   // overdue with a late fee attached the instant it's created. So the due date
   // is never earlier than today plus the normal grace period, same principle
   // as a resident's first rent invoice in createResident.
-  const dueDate = maxDate(dueDateFor(periodKey, settings.rentDueDay), addDays(today, settings.graceDays));
+  const dueDate = billDueDate(periodKey, today, settings.graceDays);
 
   const invoice = await tx.invoice.create({
     data: {
@@ -339,9 +342,11 @@ async function raiseCategoryInvoice(
       category,
       number,
       status: 'ISSUED',
-      // Issued at the start of the period; rent and electricity are both
-      // charged in advance on the same schedule.
-      issueDate: toPrismaDate(firstDayOfPeriod(periodKey)),
+      // Issued at the start of the period, rent and electricity both being
+      // charged in advance. A bill raised ahead of its period, such as next
+      // month's rent on the last day of this one, is issued today instead, so it
+      // is never dated after its own due date.
+      issueDate: toPrismaDate(minDate(firstDayOfPeriod(periodKey), today)),
       dueDate: toPrismaDate(dueDate),
       items: { create: [...items] },
     },
@@ -426,7 +431,7 @@ export async function generateMoveInRentInvoice(
 
   const sequence = await tx.invoice.count({ where: { propertyId, periodKey } });
   const number = `INV-${periodKey.replace('-', '')}-${String(sequence + 1).padStart(4, '0')}`;
-  const dueDate = maxDate(dueDateFor(periodKey, settings.rentDueDay), addDays(startDate, settings.graceDays));
+  const dueDate = billDueDate(periodKey, startDate, settings.graceDays);
 
   const invoice = await tx.invoice.create({
     data: {
@@ -640,6 +645,7 @@ async function refreshOverdueStatuses(propertyId: string, today: DateOnly): Prom
     where: {
       propertyId,
       status: { in: ['ISSUED', 'PARTIALLY_PAID'] },
+      category: { not: 'ELECTRICITY' },
       dueDate: { lt: toPrismaDate(today) },
     },
     data: { status: 'OVERDUE' },
