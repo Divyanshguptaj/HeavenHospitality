@@ -452,9 +452,10 @@ function isLastDayOfMonth(today: DateOnly): boolean {
 }
 
 /**
- * Bills next month's rent on the last day of this one, so residents see it with
- * the day to pay. Rent is due that day, and the late fee starts the day after —
- * the 1st. Someone whose notice ends before the new month starts is left out.
+ * Bills next month's rent on the last day of this one, so residents see it
+ * before it falls due. Rent is due on the 1st, and the late fee starts the day
+ * after, on the 2nd. Someone whose notice ends before the new month starts is
+ * left out.
  */
 async function billNextMonth(today: DateOnly): Promise<string> {
   const periodKey = nextPeriodKey(periodKeyOf(today));

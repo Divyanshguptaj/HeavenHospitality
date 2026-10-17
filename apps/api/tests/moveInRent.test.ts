@@ -197,7 +197,7 @@ describe('the move-in rent invoice', () => {
   });
 });
 
-/** Puts a bill for November, due 31 October, straight into the fake database. */
+/** Puts a bill for November, due 1 November, straight into the fake database. */
 function novemberBill(tx: Tx, category = 'RENT', amountPaise = 900_000) {
   return (
     tx as unknown as { invoice: { create: (args: unknown) => Promise<Inv> } }
@@ -205,7 +205,7 @@ function novemberBill(tx: Tx, category = 'RENT', amountPaise = 900_000) {
     data: {
       category,
       periodKey: '2026-11',
-      dueDate: new Date(Date.UTC(2026, 9, 31)),
+      dueDate: new Date(Date.UTC(2026, 10, 1)),
       issueDate: new Date(Date.UTC(2026, 9, 31)),
       items: {
         create: [
@@ -229,18 +229,18 @@ describe('late fees', () => {
     return { invoice, fee: invoice.items.find((item) => item.kind === 'LATE_FEE')?.amountPaise };
   }
 
-  it('adds nothing on the due day itself', async () => {
-    expect((await rentFee('2026-10-31')).fee).toBeUndefined();
+  it('adds nothing on the 1st, the day rent is due', async () => {
+    expect((await rentFee('2026-11-01')).fee).toBeUndefined();
   });
 
-  it('adds Rs 100 as the date changes to the 1st, with no grace period', async () => {
-    const { invoice, fee } = await rentFee('2026-11-01');
+  it('adds Rs 100 on the 2nd, with no grace period', async () => {
+    const { invoice, fee } = await rentFee('2026-11-02');
     expect(fee).toBe(10_000);
     expect(invoice.totalPaise).toBe(910_000);
   });
 
   it('adds Rs 100 for every further day rent stays unpaid', async () => {
-    expect((await rentFee('2026-11-05')).fee).toBe(50_000);
+    expect((await rentFee('2026-11-06')).fee).toBe(50_000);
   });
 
   it('stops growing at the Rs 3,000 cap', async () => {
@@ -251,9 +251,9 @@ describe('late fees', () => {
     const { tx, invoices } = fakeTx();
     await novemberBill(tx);
 
-    await recomputeInvoice(tx, 'inv1', settings, '2026-11-04');
-    await recomputeInvoice(tx, 'inv1', settings, '2026-11-04');
-    await recomputeInvoice(tx, 'inv1', settings, '2026-11-04');
+    await recomputeInvoice(tx, 'inv1', settings, '2026-11-05');
+    await recomputeInvoice(tx, 'inv1', settings, '2026-11-05');
+    await recomputeInvoice(tx, 'inv1', settings, '2026-11-05');
 
     const invoice = invoices.get('inv1') as Inv;
     expect(invoice.items.filter((item) => item.kind === 'LATE_FEE')).toHaveLength(1);
@@ -261,8 +261,8 @@ describe('late fees', () => {
   });
 
   it('marks unpaid rent overdue once the due day has passed', async () => {
-    expect((await rentFee('2026-10-31')).invoice.status).toBe('ISSUED');
-    expect((await rentFee('2026-11-01')).invoice.status).toBe('OVERDUE');
+    expect((await rentFee('2026-11-01')).invoice.status).toBe('ISSUED');
+    expect((await rentFee('2026-11-02')).invoice.status).toBe('OVERDUE');
   });
 
   it('never charges a late fee on an electricity bill, however late', async () => {
@@ -333,7 +333,7 @@ describe('next month rent bill, created on the last day of the month', () => {
     electricityShares: [],
   };
 
-  it('is due that same day, so the late fee starts on the 1st', async () => {
+  it('is due on the 1st, so the late fee starts on the 2nd', async () => {
     const { tx, invoices } = fakeTx();
 
     await generateInvoiceForTenancy(tx, {
@@ -347,7 +347,7 @@ describe('next month rent bill, created on the last day of the month', () => {
     const bill = [...invoices.values()][0];
     expect(bill?.category).toBe('RENT');
     expect(bill?.periodKey).toBe('2026-11');
-    expect(bill?.dueDate.toISOString().slice(0, 10)).toBe('2026-10-31');
+    expect(bill?.dueDate.toISOString().slice(0, 10)).toBe('2026-11-01');
     expect(bill?.issueDate.toISOString().slice(0, 10)).toBe('2026-10-31');
     expect(bill?.totalPaise).toBe(900_000);
   });

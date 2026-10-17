@@ -4,10 +4,10 @@ import { billDueDate, nextPeriodKey } from '../src/lib/dates.js';
 import { staysIntoPeriod } from '../src/modules/billing/billing.calculations.js';
 
 describe('the due date of a bill', () => {
-  it('is the last day of the month before, for next month rent', () => {
-    expect(billDueDate('2026-11', '2026-10-31', 0)).toBe('2026-10-31');
-    expect(billDueDate('2026-03', '2026-02-28', 0)).toBe('2026-02-28');
-    expect(billDueDate('2027-01', '2026-12-31', 0)).toBe('2026-12-31');
+  it('is the 1st of the month, for rent billed ahead on the last day before', () => {
+    expect(billDueDate('2026-11', '2026-10-31', 0)).toBe('2026-11-01');
+    expect(billDueDate('2026-03', '2026-02-28', 0)).toBe('2026-03-01');
+    expect(billDueDate('2027-01', '2026-12-31', 0)).toBe('2027-01-01');
   });
 
   it('is never in the past when the bill is created later', () => {
