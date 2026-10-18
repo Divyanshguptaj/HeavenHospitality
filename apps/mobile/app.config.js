@@ -4,7 +4,7 @@ module.exports = ({ config }) => ({
   ...config,
   extra: {
     ...config.extra,
-    apiBaseUrl: process.env.API_BASE_URL ?? config.extra?.apiBaseUrl,
+    apiBaseUrl: process.env.API_BASE_URL || config.extra?.apiBaseUrl,
   },
   android: {
     ...config.android,

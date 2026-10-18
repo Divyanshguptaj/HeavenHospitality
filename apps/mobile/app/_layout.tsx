@@ -6,6 +6,7 @@ import { ActivityIndicator, View } from 'react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 
 import { isAdmin, isResident, useAuthStore } from '../src/auth/authStore';
+import { UpdateGate } from '../src/components/UpdateGate';
 import { AppIntro } from '../src/components/intro/AppIntro';
 import { ApiRequestError } from '../src/lib/apiClient';
 import {
@@ -140,8 +141,10 @@ export default function RootLayout() {
     <QueryClientProvider client={queryClient}>
       <SafeAreaProvider>
         <StatusBar style="auto" />
-        <RootNavigator />
-        {!introDone && <AppIntro onFinish={() => setIntroDone(true)} backgroundTarget={theme.canvas} />}
+        <UpdateGate>
+          <RootNavigator />
+          {!introDone && <AppIntro onFinish={() => setIntroDone(true)} backgroundTarget={theme.canvas} />}
+        </UpdateGate>
       </SafeAreaProvider>
     </QueryClientProvider>
   );

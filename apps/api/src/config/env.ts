@@ -109,6 +109,9 @@ const envSchema = z
     SENTRY_DSN: z.string().url().optional(),
 
 
+    /** Public address of the bucket holding app builds and over-the-air updates. */
+    APP_RELEASES_BASE_URL: z.string().url().optional(),
+
     S3_ENDPOINT: z.string().url().optional(),
     S3_REGION: z.string().default('ap-south-1'),
     S3_BUCKET: z.string().optional(),

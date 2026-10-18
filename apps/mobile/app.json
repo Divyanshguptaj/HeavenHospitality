@@ -6,6 +6,13 @@
     "orientation": "portrait",
     "icon": "./assets/icon/icon.png",
     "scheme": "heavenhospitality",
+    "runtimeVersion": "1",
+    "updates": {
+      "url": "https://3-104-19-26.sslip.io/api/v1/app/updates/manifest",
+      "enabled": true,
+      "checkAutomatically": "ON_LOAD",
+      "fallbackToCacheTimeout": 0
+    },
     "userInterfaceStyle": "automatic",
     "newArchEnabled": true,
     "splash": {
@@ -44,7 +51,8 @@
       ],
       "permissions": [
         "android.permission.READ_CONTACTS",
-        "android.permission.WRITE_CONTACTS"
+        "android.permission.WRITE_CONTACTS",
+        "android.permission.REQUEST_INSTALL_PACKAGES"
       ]
     },
     "plugins": [

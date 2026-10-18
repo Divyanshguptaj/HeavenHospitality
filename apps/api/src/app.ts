@@ -11,6 +11,7 @@ import { notFound } from './middleware/notFound.js';
 import { generalLimiter, publicLimiter } from './middleware/rateLimit.js';
 import { requestId } from './middleware/requestId.js';
 import { accountRouter } from './modules/account/account.routes.js';
+import { appReleaseRouter } from './modules/appRelease/release.routes.js';
 import { authRouter } from './modules/auth/auth.routes.js';
 import { healthRouter } from './modules/health/health.routes.js';
 import { devicesRouter } from './modules/notifications/notification.routes.js';
@@ -89,6 +90,7 @@ export function createApp(): Express {
   // authenticated traffic: there is no account to hold accountable and scraping
   // is the expected abuse.
   app.use(`${API_PREFIX}/public`, publicLimiter, publicRouter);
+  app.use(`${API_PREFIX}/app`, publicLimiter, appReleaseRouter);
 
   app.use(API_PREFIX, generalLimiter);
 
