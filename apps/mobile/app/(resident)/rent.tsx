@@ -176,6 +176,17 @@ export default function RentScreen() {
           <CardTitle>How to pay</CardTitle>
           {paymentDetails.data === undefined ? (
             <Muted>Loading payment details…</Muted>
+          ) : [
+              paymentDetails.data.upiId,
+              paymentDetails.data.bankAccountName,
+              paymentDetails.data.bankAccountNumber,
+              paymentDetails.data.bankIfsc,
+              paymentDetails.data.bankName,
+            ].every((value) => value === null) ? (
+            <Muted>
+              The manager has not added online payment details yet. Pay them in cash, or ask
+              them for their UPI or bank details.
+            </Muted>
           ) : (
             <>
               {paymentDetails.data.upiId !== null && (
