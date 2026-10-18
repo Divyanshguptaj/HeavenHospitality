@@ -151,6 +151,7 @@ export interface ResidentSummaryView {
     readonly bedLabel: string;
     readonly roomId: string;
     readonly roomNumber: string;
+    readonly roomType: string;
     readonly floorName: string;
   } | null;
   readonly monthlyRentPaise: number;

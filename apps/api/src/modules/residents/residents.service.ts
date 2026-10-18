@@ -89,6 +89,7 @@ const TENANCY_INCLUDE = {
               id: true,
               number: true,
               monthlyRentPaise: true,
+              roomType: true,
               floor: { select: { name: true } },
             },
           },
@@ -130,6 +131,7 @@ function toSummary(tenancy: TenancyWithRelations): ResidentSummaryView {
             bedLabel: allocation.bed.label,
             roomId: room.id,
             roomNumber: room.number,
+            roomType: room.roomType,
             floorName: room.floor.name,
           },
     // A tenancy-level override wins; otherwise the room's rent applies.

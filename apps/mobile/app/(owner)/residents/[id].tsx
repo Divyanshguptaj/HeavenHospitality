@@ -37,6 +37,8 @@ function rupeesField(paise: number | null): string {
   return paise === null ? '' : String(paise / 100);
 }
 
+const rupees = (paise: number): string => formatINR(paise, { withPaise: false });
+
 function statusTone(status: string): 'success' | 'warning' | 'neutral' {
   if (status === 'ACTIVE') return 'success';
   if (status === 'NOTICE_PERIOD') return 'warning';
@@ -100,6 +102,16 @@ export default function OwnerResidentDetailScreen() {
         />
       </Screen>
     );
+  }
+
+  const dues = { rent: 0, electricity: 0, lateFee: 0, deposit: 0 };
+  for (const invoice of data.invoices) {
+    if (invoice.status === 'CANCELLED') continue;
+    const lateFee = invoice.outstandingPaise - invoice.principalOutstandingPaise;
+    if (invoice.category === 'RENT') dues.rent += invoice.principalOutstandingPaise;
+    else if (invoice.category === 'ELECTRICITY') dues.electricity += invoice.principalOutstandingPaise;
+    else dues.deposit += invoice.principalOutstandingPaise;
+    dues.lateFee += lateFee;
   }
 
   async function save(): Promise<void> {
@@ -197,16 +209,16 @@ export default function OwnerResidentDetailScreen() {
         ) : (
           <>
             <DetailRow label="Phone" value={data.phone ?? '—'} />
-            <DetailRow label="Email" value={data.email ?? '—'} />
             <DetailRow label="Joined" value={data.joiningDate} />
             <DetailRow label="Leaving" value={data.expectedExitDate ?? '—'} />
             <DetailRow
-              label="Rent"
-              value={`${formatINR(data.monthlyRentPaise, { withPaise: false })}/month${
-                data.monthlyRentOverridePaise !== null ? ' (overridden)' : ''
-              }`}
+              label="Room"
+              value={
+                data.bed === null
+                  ? '—'
+                  : `${data.bed.roomNumber} · bed ${data.bed.bedLabel} · ${data.bed.roomType}`
+              }
             />
-            <DetailRow label="Deposit" value={formatINR(data.securityDepositPaise, { withPaise: false })} />
             <DetailRow
               label="Emergency"
               value={
@@ -217,16 +229,21 @@ export default function OwnerResidentDetailScreen() {
                     }`
               }
             />
-            <DetailRow
-              label="Owes"
-              value={
-                data.outstandingPaise > 0
-                  ? formatINR(data.outstandingPaise, { withPaise: false })
-                  : 'Paid up'
-              }
-            />
           </>
         )}
+      </Card>
+
+      <Card>
+        <CardTitle>What they owe</CardTitle>
+        <DetailRow label="Rent" value={rupees(dues.rent)} />
+        <DetailRow label="Electricity bill" value={rupees(dues.electricity)} />
+        <DetailRow label="Late fee" value={rupees(dues.lateFee)} />
+        <DetailRow label="Deposit" value={rupees(dues.deposit)} />
+        <Divider />
+        <DetailRow
+          label="Total"
+          value={data.outstandingPaise > 0 ? rupees(data.outstandingPaise) : 'Paid up'}
+        />
       </Card>
 
       <Card>
