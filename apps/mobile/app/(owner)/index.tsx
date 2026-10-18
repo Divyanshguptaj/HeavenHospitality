@@ -84,6 +84,13 @@ export default function OwnerOverviewScreen() {
             value={formatINR(money.collectedPaise, { withPaise: false })}
             color={theme.success}
           />
+          {money.settledPaise > 0 && (
+            <Metric
+              label="Settled"
+              value={formatINR(money.settledPaise, { withPaise: false })}
+              color={theme.info}
+            />
+          )}
           <Metric
             label="Pending"
             value={formatINR(money.pendingPaise, { withPaise: false })}

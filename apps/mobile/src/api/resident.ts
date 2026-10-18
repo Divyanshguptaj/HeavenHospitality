@@ -9,6 +9,7 @@ import type {
   ReceiptView,
   RegistrationDetailsView,
   ResidentHomeView,
+  SettlementView,
   submitRegistrationSchema,
 } from '@heaven/contracts';
 import type { z } from 'zod';
@@ -88,6 +89,12 @@ export const useResidentPayments = (): UseQueryResult<PaymentView[], Error> =>
   useQuery({
     queryKey: residentKeys.payments,
     queryFn: ({ signal }) => apiRequest<PaymentView[]>(`${ME}/payments`, { signal }),
+  });
+
+export const useResidentSettlements = (): UseQueryResult<SettlementView[], Error> =>
+  useQuery({
+    queryKey: ['me', 'settlements'],
+    queryFn: ({ signal }) => apiRequest<SettlementView[]>(`${ME}/settlements`, { signal }),
   });
 
 export const usePaymentDetails = (): UseQueryResult<PaymentDetails, Error> =>

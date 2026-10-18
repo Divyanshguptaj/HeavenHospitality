@@ -1,16 +1,18 @@
 import { INVOICE_CATEGORY_LABELS } from '@heaven/contracts';
 import { formatINR } from '@heaven/money';
-import { useLocalSearchParams } from 'expo-router';
+import { router, useLocalSearchParams } from 'expo-router';
 import { useEffect, useState } from 'react';
 import { Alert, StyleSheet, View } from 'react-native';
 
 import {
   useOwnerResident,
+  useResidentSettlements,
   useResetResidentPassword,
   useUpdateRegistration,
   useUpdateResident,
 } from '../../../src/api/owner';
 import { DateField } from '../../../src/components/DateField';
+import { SettlementList } from '../../../src/components/SettlementList';
 import { RegistrationCard } from '../../../src/components/RegistrationCard';
 import {
   Badge,
@@ -54,6 +56,7 @@ export default function OwnerResidentDetailScreen() {
   const updateResident = useUpdateResident();
   const updateRegistration = useUpdateRegistration();
   const resetPassword = useResetResidentPassword();
+  const settlements = useResidentSettlements(id);
 
   const [editing, setEditing] = useState(false);
   const [fullName, setFullName] = useState('');
@@ -283,6 +286,20 @@ export default function OwnerResidentDetailScreen() {
             </View>
           ))
         )}
+      </Card>
+
+      <Card>
+        <CardTitle>Settle up</CardTitle>
+        <Muted>
+          Forgive part of what they owe (rent, electricity, late fee or deposit) without recording a
+          payment. It never counts as collected.
+        </Muted>
+        <Button
+          label="Settle up"
+          variant="secondary"
+          onPress={() => router.push({ pathname: '/(owner)/residents/settle', params: { id } })}
+        />
+        {(settlements.data ?? []).length > 0 && <SettlementList settlements={settlements.data ?? []} />}
       </Card>
 
       <Card>

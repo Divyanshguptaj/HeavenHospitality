@@ -187,7 +187,7 @@ export interface ResidentDetailView extends ResidentSummaryView {
   readonly emergencyContactName: string | null;
   readonly emergencyContactPhone: string | null;
   readonly actualExitDate: string | null;
-  readonly invoices: readonly InvoiceSummaryView[];
+  readonly invoices: readonly ResidentInvoiceView[];
   readonly payments: readonly PaymentView[];
   readonly electricity: ReadonlyArray<{
     readonly id: string;
@@ -260,6 +260,12 @@ export interface InvoiceSummaryView {
   readonly residentName: string;
   readonly roomNumber: string | null;
   readonly tenancyId: string;
+}
+
+/** A bill on a resident's page, split into what is owed on the charge and on its late fee. */
+export interface ResidentInvoiceView extends InvoiceSummaryView {
+  readonly principalOutstandingPaise: number;
+  readonly lateFeePaise: number;
 }
 
 export interface InvoiceDetailView extends InvoiceSummaryView {

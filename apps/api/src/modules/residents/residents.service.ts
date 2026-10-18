@@ -32,6 +32,7 @@ import { issueTemporaryPassword } from '../auth/tempPassword.js';
 import { notify } from '../notifications/notification.service.js';
 import { getPropertyContext } from '../property/property.context.js';
 import { deleteCloudinaryAsset } from '../uploads/cloudinary.service.js';
+import { currentLateFee, outstandingPrincipal } from '../settlements/settlements.service.js';
 
 /**
  * Residents.
@@ -234,6 +235,7 @@ export async function getResident(actor: Actor, tenancyId: string): Promise<Resi
           dueDate: true,
           totalPaise: true,
           amountPaidPaise: true,
+          items: { select: { kind: true, amountPaise: true } },
         },
       },
       payments: {
@@ -292,6 +294,8 @@ export async function getResident(actor: Actor, tenancyId: string): Promise<Resi
       residentName: tenancy.user.fullName,
       roomNumber: room?.number ?? null,
       tenancyId: tenancy.id,
+      principalOutstandingPaise: outstandingPrincipal(invoice),
+      lateFeePaise: currentLateFee(invoice),
     })),
     payments: tenancy.payments.map((payment) => ({
       id: payment.id,

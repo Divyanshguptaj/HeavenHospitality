@@ -16,6 +16,7 @@ export default function ResidentsLayout() {
       <Stack.Screen name="index" />
       <Stack.Screen name="add" />
       <Stack.Screen name="[id]" />
+      <Stack.Screen name="settle" />
     </Stack>
   );
 }

@@ -19,6 +19,7 @@ import type {
   RoomView,
   RuleView,
   SettingsView,
+  SettlementView,
 } from '@heaven/contracts';
 import { useMutation, useQuery, useQueryClient, type UseQueryResult } from '@tanstack/react-query';
 
@@ -279,6 +280,41 @@ export const useCreateResident = () =>
   useOwnerMutation(
     (body: unknown) => apiRequest<ResidentCreatedView>(`${OWNER}/residents`, { method: 'POST', body }),
     [...OCCUPANCY_KEYS, ['owner', 'residents'], ownerKeys.applicants],
+  );
+
+export const useResidentSettlements = (tenancyId: string): UseQueryResult<SettlementView[], Error> =>
+  useQuery({
+    queryKey: ['owner', 'settlements', tenancyId],
+    queryFn: ({ signal }) =>
+      apiRequest<SettlementView[]>(`${OWNER}/residents/${tenancyId}/settlements`, { signal }),
+    enabled: tenancyId !== '',
+  });
+
+/** Forgives part of what a resident owes. No payment is recorded and it cannot be undone. */
+export const useSettleBalance = () =>
+  useOwnerMutation(
+    ({
+      tenancyId,
+      idempotencyKey,
+      ...body
+    }: {
+      tenancyId: string;
+      idempotencyKey: string;
+      note: string;
+      lines: Array<{ invoiceId: string; amountPaise: number; lateFeePaise: number }>;
+    }) =>
+      apiRequest<SettlementView>(`${OWNER}/residents/${tenancyId}/settle`, {
+        method: 'POST',
+        body,
+        idempotencyKey,
+      }),
+    [
+      ownerKeys.dashboard,
+      ['owner', 'invoices'],
+      ['owner', 'residents'],
+      ['owner', 'resident'],
+      ['owner', 'settlements'],
+    ],
   );
 
 /** Issues a resident a new temporary password and signs them out everywhere. */

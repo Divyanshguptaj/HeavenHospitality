@@ -17,7 +17,9 @@ import {
   useResidentHome,
   useResidentInvoices,
   useResidentPayments,
+  useResidentSettlements,
 } from '../../src/api/resident';
+import { SettlementList } from '../../src/components/SettlementList';
 import {
   Badge,
   Card,
@@ -56,6 +58,7 @@ export default function RentScreen() {
   const home = useResidentHome();
   const invoices = useResidentInvoices();
   const payments = useResidentPayments();
+  const settlements = useResidentSettlements();
   const paymentDetails = usePaymentDetails();
   const electricityInvoices = (invoices.data ?? []).filter((entry) => entry.category === 'ELECTRICITY');
 
@@ -290,6 +293,14 @@ export default function RentScreen() {
               ))
             )}
           </Card>
+
+          {(settlements.data ?? []).length > 0 && (
+            <Card>
+              <CardTitle>Settled by the manager</CardTitle>
+              <Muted>Amounts forgiven off your dues. These were not payments.</Muted>
+              <SettlementList settlements={settlements.data ?? []} />
+            </Card>
+          )}
 
           <Card>
             <CardTitle>Payments and receipts</CardTitle>
