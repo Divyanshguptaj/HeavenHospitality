@@ -297,6 +297,32 @@ export interface ReceiptView {
   readonly lines: ReadonlyArray<{ readonly label: string; readonly amountPaise: number }>;
 }
 
+/** One bill covered by a settlement. */
+export interface SettlementLineView {
+  readonly invoiceNumber: string;
+  readonly category: 'RENT' | 'ELECTRICITY' | 'DEPOSIT';
+  readonly label: string;
+  /** Forgiven off the bill itself. */
+  readonly amountPaise: number;
+  /** Forgiven off its late fee. */
+  readonly lateFeePaise: number;
+}
+
+/** The receipt for a settlement: what was forgiven, and why. */
+export interface SettlementView {
+  readonly id: string;
+  readonly number: string;
+  readonly issuedAt: string;
+  readonly propertyName: string;
+  readonly residentName: string;
+  readonly roomNumber: string | null;
+  readonly settledPaise: number;
+  readonly lateFeeForgivenPaise: number;
+  readonly totalPaise: number;
+  readonly note: string;
+  readonly lines: readonly SettlementLineView[];
+}
+
 export interface MeterReadingView {
   readonly id: string;
   readonly roomId: string;
@@ -406,6 +432,8 @@ export interface DashboardView {
     readonly periodKey: string;
     readonly expectedPaise: number;
     readonly collectedPaise: number;
+    /** Forgiven through settlements. Never part of collected. */
+    readonly settledPaise: number;
     readonly pendingPaise: number;
     readonly overdueInvoiceCount: number;
   };

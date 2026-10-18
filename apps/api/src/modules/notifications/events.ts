@@ -20,6 +20,7 @@ export interface EventParams {
   RENT_OVERDUE: { name: string; month: string; amountPaise: number; daysOverdue: number };
   INVOICE_GENERATED: { month: string; amountPaise: number; dueDate: string };
   PAYMENT_RECEIVED: { amountPaise: number; receiptNumber: string };
+  BALANCE_SETTLED: { amountPaise: number; receiptNumber: string };
   COMPLAINT_STATUS_CHANGED: { title: string; statusLabel: string };
   COMPLAINT_CREATED: { title: string; residentName: string };
   APPLICANT_SUBMITTED: { name: string };
@@ -91,6 +92,15 @@ export const EVENTS: { [E in NotificationEvent]: EventDefinition<E> } = {
     render: (p) => ({
       title: 'Payment received',
       body: `We received ${rupees(p.amountPaise)}. Receipt ${p.receiptNumber}.`,
+      route: RENT,
+    }),
+  },
+  BALANCE_SETTLED: {
+    category: 'FINANCIAL',
+    channels: ['PUSH'],
+    render: (p) => ({
+      title: 'Dues settled',
+      body: `${rupees(p.amountPaise)} of your dues was settled by the manager. Receipt ${p.receiptNumber}.`,
       route: RENT,
     }),
   },

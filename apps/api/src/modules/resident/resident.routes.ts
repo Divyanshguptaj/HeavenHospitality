@@ -18,6 +18,7 @@ import { getAbsencesForResident, markAbsence } from '../mess/mess.service.js';
 import {
   getReceipt,
 } from '../payments/payments.service.js';
+import { getSettlementForTenancy, listSettlementsForResident } from '../settlements/settlements.service.js';
 import { getActiveTenancyForActor } from '../property/property.context.js';
 import {
   getResidentHome,
@@ -94,6 +95,25 @@ residentRouter.get(
     const { tenancyId } = await getActiveTenancyForActor(getActor(req));
     // Scoped to the caller's tenancy: another resident's receipt id is a 404.
     return getReceipt(params.id, { tenancyId });
+  }),
+);
+
+residentRouter.get(
+  '/settlements',
+  handle(async (req) => {
+    const { tenancyId } = await getActiveTenancyForActor(getActor(req));
+    return listSettlementsForResident(tenancyId);
+  }),
+);
+
+residentRouter.get(
+  '/settlements/:id',
+  validate(idParam),
+  handle(async (req) => {
+    const { params } = getValidated<typeof idParam>(req);
+    const { tenancyId } = await getActiveTenancyForActor(getActor(req));
+    // Scoped to the caller's tenancy: another resident's settlement id is a 404.
+    return getSettlementForTenancy(params.id, tenancyId);
   }),
 );
 

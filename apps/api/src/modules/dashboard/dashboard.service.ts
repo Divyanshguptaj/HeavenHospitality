@@ -42,6 +42,7 @@ export async function getDashboard(actor: Actor): Promise<DashboardView> {
     prisma.invoice.findMany({
       where: { propertyId, periodKey, status: { not: 'CANCELLED' } },
       include: {
+        items: { where: { kind: 'SETTLEMENT' }, select: { amountPaise: true } },
         tenancy: {
           include: {
             user: { select: { fullName: true } },
@@ -90,8 +91,21 @@ export async function getDashboard(actor: Actor): Promise<DashboardView> {
 
   // Expected is the sum of what was actually invoiced this period, not a
   // theoretical rent roll — those differ whenever someone joins mid-month.
-  const expectedPaise = invoices.reduce((sum, invoice) => sum + invoice.totalPaise, 0);
+  const billedPaise = invoices.reduce((sum, invoice) => sum + invoice.totalPaise, 0);
   const collectedPaise = invoices.reduce((sum, invoice) => sum + invoice.amountPaidPaise, 0);
+
+  // What the manager forgave. A settlement is a negative line on the bill, so
+  // the bill total has already come down; adding it back keeps Expected the full
+  // amount billed, and shows the forgiven part as its own figure that never
+  // counts as collected.
+  const settledPaise = invoices.reduce(
+    (sum, invoice) =>
+      sum +
+      invoice.lateFeeForgivenPaise +
+      invoice.items.reduce((inner, item) => inner - item.amountPaise, 0),
+    0,
+  );
+  const expectedPaise = billedPaise + settledPaise;
 
   // Rent, the AC bill and (outside this period) the deposit are separate
   // invoices for the same resident — grouped into ONE row per tenancy here, or
@@ -148,7 +162,8 @@ export async function getDashboard(actor: Actor): Promise<DashboardView> {
       periodKey,
       expectedPaise,
       collectedPaise,
-      pendingPaise: Math.max(0, expectedPaise - collectedPaise),
+      settledPaise,
+      pendingPaise: Math.max(0, expectedPaise - collectedPaise - settledPaise),
       overdueInvoiceCount: invoices.filter((invoice) => invoice.status === 'OVERDUE').length,
     },
     unpaidResidents: unpaid,

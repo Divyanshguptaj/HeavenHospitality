@@ -99,6 +99,7 @@ export {
   paymentSettingsSchema,
   recordElectricityBillSchema,
   recordPaymentSchema,
+  settleBalanceSchema,
   submitRegistrationSchema,
   updateBedStatusSchema,
   updateComplaintSchema,

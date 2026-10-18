@@ -1,6 +1,6 @@
 import type { PaymentView, ReceiptView } from '@heaven/contracts';
 import { formatINR, sumPaise } from '@heaven/money';
-import type { PaymentMethod, PropertySettings } from '@prisma/client';
+import { Prisma, type PaymentMethod, type PropertySettings } from '@prisma/client';
 
 import { AppError } from '../../errors/AppError.js';
 import type { Loose } from '../../lib/types.js';
@@ -97,10 +97,24 @@ async function settlePayment(
     );
   }
 
+  // Lock the bills before reading what they still owe. Without it, two payments
+  // (or a payment and a settlement) on the same bill at the same moment could
+  // both pass the check below and over-settle it.
+  const requestedIds = [...requested.keys()];
+  if (requestedIds.length > 0) {
+    await tx.$queryRaw`
+      SELECT "id" FROM "Invoice"
+       WHERE "id" IN (${Prisma.join(requestedIds.map((id) => Prisma.sql`${id}::uuid`))})
+         AND "tenancyId" = ${params.tenancyId}::uuid
+       ORDER BY "id"
+       FOR UPDATE
+    `;
+  }
+
   const invoices = await tx.invoice.findMany({
     where: {
       tenancyId: params.tenancyId,
-      id: { in: [...requested.keys()] },
+      id: { in: requestedIds },
       status: { in: ['ISSUED', 'PARTIALLY_PAID', 'OVERDUE'] },
     },
     select: { id: true, totalPaise: true, amountPaidPaise: true },

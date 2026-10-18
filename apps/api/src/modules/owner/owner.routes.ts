@@ -19,6 +19,7 @@ import {
   phoneSchema,
   recordElectricityBillSchema,
   recordPaymentSchema,
+  settleBalanceSchema,
   updateBedStatusSchema,
   updateElectricityInvoiceSchema,
   updateElectricityShareSchema,
@@ -136,6 +137,7 @@ import {
   updateSettings,
 } from '../settings/settings.service.js';
 import { createUploadSignature } from '../uploads/cloudinary.service.js';
+import { listSettlementsForTenancy, settleBalance } from '../settlements/settlements.service.js';
 import { env } from '../../config/env.js';
 
 /**
@@ -570,6 +572,34 @@ ownerRouter.post(
   handle((req) => {
     const { body } = getValidated<{ body: typeof createResidentSchema }>(req);
     return createResident(getActor(req), body);
+  }),
+);
+
+ownerRouter.post(
+  '/residents/:id/settle',
+  requirePermission('invoice:settle'),
+  validate({ ...idParam, body: settleBalanceSchema }),
+  handle((req) => {
+    const { body, params } = getValidated<{
+      body: typeof settleBalanceSchema;
+      params: (typeof idParam)['params'];
+    }>(req);
+    const idempotencyKey = req.get('idempotency-key');
+    return settleBalance(getActor(req), params.id, {
+      lines: body.lines,
+      note: body.note,
+      ...(idempotencyKey === undefined ? {} : { idempotencyKey }),
+    });
+  }),
+);
+
+ownerRouter.get(
+  '/residents/:id/settlements',
+  requirePermission('resident:read'),
+  validate(idParam),
+  handle((req) => {
+    const { params } = getValidated<typeof idParam>(req);
+    return listSettlementsForTenancy(getActor(req), params.id);
   }),
 );
 

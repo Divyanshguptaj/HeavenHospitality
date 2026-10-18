@@ -151,6 +151,25 @@ Rules the function encodes:
 Waiving or adjusting a late fee is an admin action that writes an `AuditLog` entry
 with actor and reason.
 
+## Settling up
+
+An admin can forgive part of what a resident owes, in exchange for something
+other than cash. It is **not a payment**: no `Payment` or `Receipt` is created and
+**Collected never changes**.
+
+- Each settled amount is a negative `SETTLEMENT` item on the bill, so every
+  balance drops without special cases. Rent, electricity, late fee (rent only) and
+  deposit can each be settled, per bill, up to what is still owed.
+- A required note says what it was for. The resident gets a numbered receipt
+  (`HH/S/2026-27/0001`), a push notification, and an audit entry is written.
+- Settling deposit also lowers the deposit held.
+- A forgiven late fee is kept on the bill (`lateFeeForgivenPaise`) and deducted
+  from the fee on every recompute. If rent is cleared by settlement and a fee is
+  left, the fee stops growing on the settlement date (`settledOn`).
+- It cannot be undone, and needs the `invoice:settle` permission (admin only).
+- Overview shows **Settled** beside Expected and Collected;
+  Pending = Expected − Collected − Settled.
+
 ## Electricity
 
 ```

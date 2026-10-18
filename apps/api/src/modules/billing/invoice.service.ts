@@ -1,5 +1,5 @@
 import type { InvoiceDetailView, InvoiceSummaryView } from '@heaven/contracts';
-import { sumPaise } from '@heaven/money';
+import { formatINR, sumPaise } from '@heaven/money';
 import type { Prisma, PropertySettings } from '@prisma/client';
 
 import { AppError } from '../../errors/AppError.js';
@@ -9,6 +9,7 @@ import {
   billDueDate,
   firstDayOfPeriod,
   fromPrismaDate,
+  maxDate,
   minDate,
   periodKeyOf,
   todayInZone,
@@ -98,12 +99,17 @@ export async function recomputeInvoice(
   let lateFeeAmountPaise = 0;
 
   if (carriesLateFee) {
-    // Settlement date drives the late fee: paying late must not keep costing
-    // more afterwards. Derived from when the principal was actually covered.
-    const settledOn =
-      invoice.amountPaidPaise >= principal && invoice.amountPaidPaise > 0
+    // The day the balance was cleared drives the late fee: paying late, or being
+    // settled, must not keep costing more afterwards. It is the later of the last
+    // payment and the last settlement, once the bill is covered.
+    const cleared = invoice.amountPaidPaise >= principal;
+    const paidOn =
+      cleared && invoice.amountPaidPaise > 0
         ? await latestPaymentDate(tx, invoice.id, today)
         : null;
+    const settledDay = cleared && invoice.settledOn !== null ? fromPrismaDate(invoice.settledOn) : null;
+    const settledOn =
+      paidOn === null ? settledDay : settledDay === null ? paidOn : maxDate(paidOn, settledDay);
 
     const lateFee = calculateLateFee({
       dueDate: fromPrismaDate(invoice.dueDate),
@@ -115,29 +121,36 @@ export async function recomputeInvoice(
       isWaived: invoice.lateFeeWaivedAt !== null,
       outstandingPaise: Math.max(0, principal - invoice.amountPaidPaise),
     });
-    lateFeeAmountPaise = lateFee.amountPaise;
+    // What the manager forgave through a settlement comes off the computed fee,
+    // so the fee keeps being recomputed while the forgiven part stays forgiven.
+    const chargedFee = Math.max(0, lateFee.amountPaise - invoice.lateFeeForgivenPaise);
+    lateFeeAmountPaise = chargedFee;
 
     const existingLateFee = invoice.items.find((item) => item.kind === 'LATE_FEE');
 
-    if (lateFee.amountPaise > 0) {
-      const description = `Late fee — ${lateFee.overdueDays} day(s)${lateFee.isCapped ? ' (capped)' : ''}`;
+    if (chargedFee > 0) {
+      const forgiven =
+        invoice.lateFeeForgivenPaise > 0
+          ? `, ${formatINR(invoice.lateFeeForgivenPaise, { withPaise: false })} forgiven`
+          : '';
+      const description = `Late fee — ${lateFee.overdueDays} day(s)${lateFee.isCapped ? ' (capped)' : ''}${forgiven}`;
       if (existingLateFee === undefined) {
         await tx.invoiceItem.create({
           data: {
             invoiceId,
             kind: 'LATE_FEE',
             description,
-            amountPaise: lateFee.amountPaise,
+            amountPaise: chargedFee,
             sourceType: 'LateFeeRule',
           },
         });
       } else if (
-        existingLateFee.amountPaise !== lateFee.amountPaise ||
+        existingLateFee.amountPaise !== chargedFee ||
         existingLateFee.description !== description
       ) {
         await tx.invoiceItem.update({
           where: { id: existingLateFee.id },
-          data: { amountPaise: lateFee.amountPaise, description },
+          data: { amountPaise: chargedFee, description },
         });
       }
     } else if (existingLateFee !== undefined) {

@@ -134,7 +134,7 @@ model User {
   fatherName               String?
   motherName               String?
   parentMobile             String?
-  dateOfBirth              DateTime? @db.Date
+  dateOfBirth              DateTime?                 @db.Date
   aadhaarNumber            String?
   collegeOrInstitute       String?
   courseOrSemester         String?
@@ -150,7 +150,7 @@ model User {
   parentDocumentUrl        String?
   /// The person's own photo, also a Cloudinary URL. Required on every new submission; null only for accounts that registered before it was asked for.
   photoUrl                 String?
-  registrationCompletedAt  DateTime? @db.Timestamptz(3)
+  registrationCompletedAt  DateTime?                 @db.Timestamptz(3)
 
   createdAt DateTime @default(now()) @db.Timestamptz(3)
   updatedAt DateTime @updatedAt @db.Timestamptz(3)
@@ -253,6 +253,7 @@ enum AuditAction {
   RESIDENT_MOVED
   RESIDENT_EXITED
   RESIDENT_PASSWORD_RESET
+  BALANCE_SETTLED
   BED_ASSIGNED
   BED_RELEASED
   PAYMENT_RECORDED
@@ -356,27 +357,29 @@ model Property {
   createdAt DateTime @default(now()) @db.Timestamptz(3)
   updatedAt DateTime @updatedAt @db.Timestamptz(3)
 
-  menuOverrides    MenuOverride[]
-  settings         PropertySettings?
-  memberships      PropertyMembership[]
-  photos           PropertyPhoto[]
-  facilities       Facility[]
-  rules            PropertyRule[]
-  floors           Floor[]
-  rooms            Room[]
-  tenancies        Tenancy[]
-  invoices         Invoice[]
-  payments         Payment[]
-  menuItems        WeeklyMenuItem[]
-  mealTimings      MealTiming[]
-  complaints       Complaint[]
-  notices          Notice[]
-  staff            Staff[]
-  inventory        InventoryItem[]
-  expenses         Expense[]
-  reminders        ReminderEvent[]
-  meterReadings    MeterReading[]
-  receiptSequences ReceiptSequence[]
+  menuOverrides       MenuOverride[]
+  settings            PropertySettings?
+  memberships         PropertyMembership[]
+  photos              PropertyPhoto[]
+  facilities          Facility[]
+  rules               PropertyRule[]
+  floors              Floor[]
+  rooms               Room[]
+  tenancies           Tenancy[]
+  invoices            Invoice[]
+  payments            Payment[]
+  menuItems           WeeklyMenuItem[]
+  mealTimings         MealTiming[]
+  complaints          Complaint[]
+  notices             Notice[]
+  staff               Staff[]
+  inventory           InventoryItem[]
+  expenses            Expense[]
+  reminders           ReminderEvent[]
+  meterReadings       MeterReading[]
+  receiptSequences    ReceiptSequence[]
+  settlements         Settlement[]
+  settlementSequences SettlementSequence[]
 
   @@index([isPubliclyListed, status])
 }
@@ -626,6 +629,7 @@ model Tenancy {
   allocations       Allocation[]
   invoices          Invoice[]
   payments          Payment[]
+  settlements       Settlement[]
   mealAbsences      MealAbsence[]
   electricityShares ElectricityShare[]
 
@@ -675,6 +679,8 @@ enum InvoiceItemKind {
   LATE_FEE
   OTHER
   DISCOUNT
+  /// A negative line: part of the bill the manager forgave. Never a payment.
+  SETTLEMENT
   /// A one-time security deposit, always its own invoice — never mixed with
   /// rent, so it can be paid in full, in parts, or not yet without touching
   /// what is owed for the room itself.
@@ -719,7 +725,12 @@ model Invoice {
 
   /// Set when the owner waives the late fee; the fee function respects it.
   lateFeeWaivedAt DateTime? @db.Timestamptz(3)
-  notes           String?
+
+  /// Part of the late fee the manager forgave through a settlement. The fee itself is recomputed every night; this is deducted from it.
+  lateFeeForgivenPaise Int       @default(0)
+  /// The day the manager last settled part of this bill. Once a settlement clears the balance, the late fee stops growing from that day.
+  settledOn            DateTime? @db.Date
+  notes                String?
 
   createdAt DateTime @default(now()) @db.Timestamptz(3)
   updatedAt DateTime @updatedAt @db.Timestamptz(3)
@@ -851,6 +862,50 @@ model Receipt {
   snapshot Json
 
   @@index([paymentId])
+}
+
+/// A manager's decision to forgive part of what a resident owes, in exchange for
+/// something that is not money received. It is never a payment: nothing here counts
+/// as collected, and it has its own receipt series so payment receipt numbers stay gapless.
+model Settlement {
+  id         String   @id @default(uuid(7)) @db.Uuid
+  propertyId String   @db.Uuid
+  property   Property @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+  tenancyId  String   @db.Uuid
+  tenancy    Tenancy  @relation(fields: [tenancyId], references: [id], onDelete: Cascade)
+
+  /// "HH/S/2026-27/0001".
+  number String @unique
+
+  /// Forgiven on rent, electricity and deposit bills.
+  settledPaise         Int
+  /// Late fee forgiven on top of that.
+  lateFeeForgivenPaise Int @default(0)
+
+  /// What the settlement was in exchange for. Shown on the resident's receipt.
+  note String
+
+  /// The receipt as issued, one line per bill. Frozen, like a payment receipt.
+  snapshot Json
+
+  settledByUserId String? @db.Uuid
+  idempotencyKey  String? @unique
+
+  createdAt DateTime @default(now()) @db.Timestamptz(3)
+
+  @@index([tenancyId, createdAt])
+  @@index([propertyId, createdAt])
+}
+
+model SettlementSequence {
+  id         String   @id @default(uuid(7)) @db.Uuid
+  propertyId String   @db.Uuid
+  property   Property @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+  /// "2026-27".
+  fiscalYear String
+  lastNumber Int      @default(0)
+
+  @@unique([propertyId, fiscalYear])
 }
 
 // ---------------------------------------------------------------------------
@@ -1236,9 +1291,9 @@ model NotificationDelivery {
   user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   /// e.g. "RENT_DUE_TODAY".
-  event   String
-  channel NotificationChannel
-  status  NotificationStatus  @default(PENDING)
+  event    String
+  channel  NotificationChannel
+  status   NotificationStatus  @default(PENDING)
   provider String
 
   /// Encodes the business meaning, e.g. "RENT_DUE_TODAY:<tenancyId>:2026-09".

@@ -72,6 +72,7 @@ export const INVOICE_ITEM_KINDS = [
   'LATE_FEE',
   'OTHER',
   'DISCOUNT',
+  'SETTLEMENT',
   'DEPOSIT',
 ] as const;
 export type InvoiceItemKindName = (typeof INVOICE_ITEM_KINDS)[number];
@@ -461,6 +462,28 @@ export const updateElectricityShareSchema = z.object({
 
 export const generateInvoicesSchema = z.object({
   periodKey: periodKeySchema,
+});
+
+/**
+ * Settling up: forgiving part of what a resident owes without any money having
+ * been received. Every amount is what is forgiven, and is checked against what
+ * the bill still owes.
+ */
+export const settleBalanceSchema = z.object({
+  lines: z
+    .array(
+      z.object({
+        invoiceId: idSchema,
+        /// Forgiven off the bill itself: rent, electricity or deposit.
+        amountPaise: nonNegativePaiseSchema,
+        /// Forgiven off that bill's late fee. Only a rent bill has one.
+        lateFeePaise: nonNegativePaiseSchema.default(0),
+      }),
+    )
+    .min(1)
+    .max(20),
+  /// What the settlement is in exchange for. Shown on the resident's receipt.
+  note: z.string().trim().min(3, 'Say what this is for').max(300),
 });
 
 export const addInvoiceItemSchema = z.object({

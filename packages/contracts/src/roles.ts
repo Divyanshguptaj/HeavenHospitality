@@ -43,6 +43,8 @@ export const PERMISSIONS = [
   'resident:write',
   'invoice:read',
   'invoice:write',
+  /** Forgive part of what a resident owes. Owner only, and never granted to residents. */
+  'invoice:settle',
   'payment:read',
   'payment:record',
   'electricity:read',

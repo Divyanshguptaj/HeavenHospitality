@@ -35,6 +35,8 @@ interface Inv {
   items: Item[];
   amountPaidPaise: number;
   lateFeeWaivedAt: Date | null;
+  lateFeeForgivenPaise: number;
+  settledOn: Date | null;
   totalPaise: number;
   status: string;
 }
@@ -62,6 +64,8 @@ function fakeTx(options: { roomRentPaise?: number; existingRent?: boolean } = {}
           items: data.items.create.map((item) => ({ ...item, id: `it${(itemSeq += 1)}` })),
           amountPaidPaise: 0,
           lateFeeWaivedAt: null,
+          lateFeeForgivenPaise: 0,
+          settledOn: null,
           totalPaise: 0,
           status: 'ISSUED',
         };
