@@ -70,6 +70,11 @@ export function setSessionExpiredHandler(handler: (() => void) | null): void {
  */
 let refreshInFlight: Promise<boolean> | null = null;
 
+/** Error codes the server uses for a missing, expired or unusable access token. */
+function isAuthFailure(code: string): boolean {
+  return code === 'UNAUTHENTICATED' || code === 'TOKEN_EXPIRED' || code === 'TOKEN_INVALID';
+}
+
 async function refreshSession(): Promise<boolean> {
   const refreshToken = await readRefreshToken().catch(() => null);
   if (refreshToken === null) return false;
@@ -234,7 +239,7 @@ async function performRequest<T>(
     // once, retry the ONE request that hit it, and the caller never sees a
     // failure. Only a second 401, right after a fresh token, or a refresh that
     // itself fails, means the session is actually dead.
-    if (code === 'UNAUTHENTICATED' && !isRetryAfterRefresh && path !== '/auth/refresh') {
+    if (isAuthFailure(code) && !isRetryAfterRefresh && path !== '/auth/refresh') {
       refreshInFlight ??= refreshSession().finally(() => {
         refreshInFlight = null;
       });
@@ -243,7 +248,7 @@ async function performRequest<T>(
       }
     }
 
-    if (code === 'UNAUTHENTICATED' || code === 'SESSION_REVOKED') {
+    if (isAuthFailure(code) || code === 'SESSION_REVOKED') {
       await clearRefreshToken().catch(() => undefined);
       setAccessToken(null);
       onSessionExpired?.();
