@@ -89,6 +89,7 @@ export interface BedView {
 export interface RoomView {
   readonly id: string;
   readonly number: string;
+  readonly roomTypeId: string | null;
   readonly roomType: string;
   readonly capacity: number;
   readonly monthlyRentPaise: number;
@@ -100,6 +101,22 @@ export interface RoomView {
   readonly beds: readonly BedView[];
   readonly occupiedBeds: number;
   readonly availableBeds: number;
+}
+
+/** The saved kind of room an admin picks when adding a room. */
+export interface RoomTypeView {
+  readonly id: string;
+  readonly name: string;
+  readonly capacity: number;
+  readonly isAirConditioned: boolean;
+  readonly monthlyRentPaise: number;
+  readonly isActive: boolean;
+  readonly roomCount: number;
+}
+
+/** The title shown for a room type, for example "3 Sharing · AC". */
+export function roomTypeName(capacity: number, isAirConditioned: boolean): string {
+  return `${capacity} Sharing · ${isAirConditioned ? 'AC' : 'Non-AC'}`;
 }
 
 export interface FacilityView {

@@ -20,6 +20,7 @@ export default function MoreLayout() {
       <Stack.Screen name="facilities" />
       <Stack.Screen name="rules" />
       <Stack.Screen name="gallery" />
+      <Stack.Screen name="room-types" />
       <Stack.Screen name="applicants" />
       <Stack.Screen name="applicant-details" />
     </Stack>

@@ -14,6 +14,7 @@ import {
   useUpdateRoom,
 } from '../../../src/api/owner';
 import { ResidentSearch } from '../../../src/components/ResidentSearch';
+import { RoomTypePicker } from '../../../src/components/RoomTypePicker';
 import {
   Badge,
   Button,
@@ -291,14 +292,10 @@ function EditRoomForm({
   readonly room: RoomView;
   readonly onDone: () => void;
 }) {
-  const theme = useTheme();
   const updateRoom = useUpdateRoom();
 
   const [number, setNumber] = useState(room.number);
-  const [roomType, setRoomType] = useState(room.roomType);
-  const [capacity, setCapacity] = useState(String(room.capacity));
-  const [rent, setRent] = useState(String(room.monthlyRentPaise / 100));
-  const [isAirConditioned, setIsAirConditioned] = useState(room.isAirConditioned);
+  const [roomTypeId, setRoomTypeId] = useState<string | null>(room.roomTypeId);
   const [error, setError] = useState<string | null>(null);
 
   async function submit(): Promise<void> {
@@ -311,10 +308,7 @@ function EditRoomForm({
       await updateRoom.mutateAsync({
         id: room.id,
         number: number.trim(),
-        roomType: roomType.trim(),
-        capacity: Number(capacity),
-        monthlyRentPaise: Math.round(Number(rent) * 100),
-        isAirConditioned,
+        ...(roomTypeId === null || roomTypeId === room.roomTypeId ? {} : { roomTypeId }),
       });
       onDone();
     } catch (caught) {
@@ -325,41 +319,7 @@ function EditRoomForm({
   return (
     <View style={styles.form}>
       <FormField label="Room number" value={number} onChangeText={setNumber} placeholder="204" />
-      <FormField label="Room type" value={roomType} onChangeText={setRoomType} placeholder="3 Sharing" />
-      <FormField
-        label="Capacity"
-        value={capacity}
-        onChangeText={setCapacity}
-        placeholder="3"
-        keyboardType="number-pad"
-      />
-      <FormField
-        label="Rent per resident (₹/month)"
-        value={rent}
-        onChangeText={setRent}
-        placeholder="7000"
-        keyboardType="decimal-pad"
-      />
-
-      <View style={styles.field}>
-        <Text style={[styles.label, { color: theme.textSecondary }]}>Air conditioned</Text>
-        <View style={styles.chipsRow}>
-          {[
-            { value: false, label: 'No' },
-            { value: true, label: 'Yes' },
-          ].map((option) => {
-            const active = option.value === isAirConditioned;
-            return (
-              <Button
-                key={option.label}
-                label={option.label}
-                variant={active ? 'primary' : 'secondary'}
-                onPress={() => setIsAirConditioned(option.value)}
-              />
-            );
-          })}
-        </View>
-      </View>
+      <RoomTypePicker value={roomTypeId} onChange={setRoomTypeId} />
 
       {error !== null && <Muted>{error}</Muted>}
       <View style={styles.searchRow}>

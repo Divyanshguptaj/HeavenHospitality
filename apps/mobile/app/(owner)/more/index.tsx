@@ -65,6 +65,13 @@ export default function OwnerMoreScreen() {
         />
         <Separator />
         <NavRow
+          icon="bed-outline"
+          title="Room types"
+          subtitle="Sharing, AC and rent for each kind of room"
+          onPress={() => router.push('/(owner)/more/room-types')}
+        />
+        <Separator />
+        <NavRow
           icon="restaurant-outline"
           title="Mess menu"
           subtitle="The weekly menu and meal timings"

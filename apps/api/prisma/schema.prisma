@@ -267,6 +267,8 @@ enum AuditAction {
   SETTINGS_CHANGED
   ROOM_CREATED
   ROOM_UPDATED
+  ROOM_TYPE_CREATED
+  ROOM_TYPE_UPDATED
   FLOOR_CREATED
   ATTENDANCE_OVERRIDDEN
 }
@@ -365,6 +367,7 @@ model Property {
   rules               PropertyRule[]
   floors              Floor[]
   rooms               Room[]
+  roomTypes           RoomType[]
   tenancies           Tenancy[]
   invoices            Invoice[]
   payments            Payment[]
@@ -545,6 +548,9 @@ model Room {
   capacity         Int
   monthlyRentPaise Int
   isAirConditioned Boolean    @default(false)
+  /// The saved room type this room was set up from; null for rooms set up by hand.
+  roomTypeId       String?    @db.Uuid
+  typeRef          RoomType?  @relation(fields: [roomTypeId], references: [id], onDelete: Restrict)
   description      String?
   facilities       String[]
   status           RoomStatus @default(ACTIVE)
@@ -558,6 +564,27 @@ model Room {
   @@unique([propertyId, number])
   @@index([propertyId, status])
   @@index([floorId])
+  @@index([roomTypeId])
+}
+
+/// A saved kind of room: how many share it, AC or not, and the rent per person.
+/// Rooms are created by choosing one, so capacity and rent are never typed per room.
+model RoomType {
+  id               String   @id @default(uuid(7)) @db.Uuid
+  propertyId       String   @db.Uuid
+  property         Property @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+  capacity         Int
+  isAirConditioned Boolean  @default(false)
+  monthlyRentPaise Int
+  isActive         Boolean  @default(true)
+
+  createdAt DateTime @default(now()) @db.Timestamptz(3)
+  updatedAt DateTime @updatedAt @db.Timestamptz(3)
+
+  rooms Room[]
+
+  @@unique([propertyId, capacity, isAirConditioned, monthlyRentPaise])
+  @@index([propertyId, isActive])
 }
 
 enum BedStatus {

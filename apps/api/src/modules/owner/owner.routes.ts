@@ -9,6 +9,7 @@ import {
   createReadingSchema,
   createResidentSchema,
   createRoomSchema,
+  createRoomTypeSchema,
   createRuleSchema,
   createStaffSchema,
   exitResidentSchema,
@@ -31,6 +32,7 @@ import {
   updateRegistrationSchema,
   updateResidentSchema,
   updateRoomSchema,
+  updateRoomTypeSchema,
   updateRuleSchema,
   updateSettingsSchema,
   type ApiSuccess,
@@ -138,6 +140,12 @@ import {
 } from '../settings/settings.service.js';
 import { createUploadSignature } from '../uploads/cloudinary.service.js';
 import { listSettlementsForTenancy, settleBalance } from '../settlements/settlements.service.js';
+import {
+  createRoomType,
+  deleteRoomType,
+  listRoomTypes,
+  updateRoomType,
+} from '../property/roomTypes.service.js';
 import { env } from '../../config/env.js';
 
 /**
@@ -425,6 +433,46 @@ ownerRouter.get(
   handle((req) => {
     const { params } = getValidated<typeof idParam>(req);
     return getRoom(getActor(req), params.id);
+  }),
+);
+
+ownerRouter.get(
+  '/room-types',
+  requirePermission('property:read'),
+  handle((req) => listRoomTypes(getActor(req), { includeInactive: req.query['all'] === 'true' })),
+);
+
+ownerRouter.post(
+  '/room-types',
+  requirePermission('room:manage'),
+  validate({ body: createRoomTypeSchema }),
+  handle((req) => {
+    const { body } = getValidated<{ body: typeof createRoomTypeSchema }>(req);
+    return createRoomType(getActor(req), body);
+  }),
+);
+
+ownerRouter.patch(
+  '/room-types/:id',
+  requirePermission('room:manage'),
+  validate({ ...idParam, body: updateRoomTypeSchema }),
+  handle((req) => {
+    const { body, params } = getValidated<{
+      body: typeof updateRoomTypeSchema;
+      params: (typeof idParam)['params'];
+    }>(req);
+    return updateRoomType(getActor(req), params.id, body);
+  }),
+);
+
+ownerRouter.delete(
+  '/room-types/:id',
+  requirePermission('room:manage'),
+  validate(idParam),
+  handle(async (req) => {
+    const { params } = getValidated<typeof idParam>(req);
+    await deleteRoomType(getActor(req), params.id);
+    return { deleted: true };
   }),
 );
 

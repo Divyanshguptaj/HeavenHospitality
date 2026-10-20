@@ -5,6 +5,7 @@ import {
   dateOnlySchema,
   idSchema,
   nonNegativePaiseSchema,
+  positivePaiseSchema,
   periodKeySchema,
   phoneSchema,
 } from './primitives.js';
@@ -293,19 +294,41 @@ export const updateFloorSchema = createFloorSchema.partial();
 
 // --- Rooms ------------------------------------------------------------------
 
-export const createRoomSchema = z.object({
+const roomFieldsSchema = z.object({
   floorId: idSchema,
   number: z.string().trim().min(1).max(20),
-  roomType: z.string().trim().min(1).max(40),
-  capacity: z.number().int().min(1).max(12),
-  monthlyRentPaise: nonNegativePaiseSchema,
-  isAirConditioned: z.boolean().default(false),
+  /// A saved room type; supplies the label, capacity, AC and rent below.
+  roomTypeId: idSchema.optional(),
+  roomType: z.string().trim().min(1).max(40).optional(),
+  capacity: z.number().int().min(1).max(12).optional(),
+  monthlyRentPaise: nonNegativePaiseSchema.optional(),
+  isAirConditioned: z.boolean().optional(),
   description: z.string().trim().max(500).nullable().optional(),
   facilities: z.array(z.string().trim().min(1).max(60)).max(20).default([]),
   status: z.enum(ROOM_STATUSES).default('ACTIVE'),
 });
 
-export const updateRoomSchema = createRoomSchema.partial();
+export const createRoomSchema = roomFieldsSchema.superRefine((room, ctx) => {
+  if (room.roomTypeId !== undefined) return;
+  if (room.roomType === undefined || room.capacity === undefined || room.monthlyRentPaise === undefined) {
+    ctx.addIssue({ code: 'custom', path: ['roomTypeId'], message: 'Choose a room type.' });
+  }
+});
+
+export const updateRoomSchema = roomFieldsSchema.partial();
+
+// --- Room types -------------------------------------------------------------
+
+export const createRoomTypeSchema = z.object({
+  capacity: z.number().int().min(1).max(12),
+  isAirConditioned: z.boolean(),
+  monthlyRentPaise: positivePaiseSchema,
+});
+
+export const updateRoomTypeSchema = createRoomTypeSchema
+  .partial()
+  .extend({ isActive: z.boolean().optional() })
+  .refine((value) => Object.keys(value).length > 0, 'Nothing to change.');
 
 // --- Beds -------------------------------------------------------------------
 

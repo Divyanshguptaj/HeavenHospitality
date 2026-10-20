@@ -16,6 +16,7 @@ import type {
   ResidentCreatedView,
   ResidentSummaryView,
   TemporaryCredentialView,
+  RoomTypeView,
   RoomView,
   RuleView,
   SettingsView,
@@ -229,6 +230,35 @@ const OCCUPANCY_KEYS = [
   ['owner', 'room'],
 ];
 
+export const useRoomTypes = (includeInactive = false): UseQueryResult<RoomTypeView[], Error> =>
+  useQuery({
+    queryKey: ['owner', 'room-types', includeInactive],
+    queryFn: ({ signal }) =>
+      apiRequest<RoomTypeView[]>(`${OWNER}/room-types${includeInactive ? '?all=true' : ''}`, { signal }),
+  });
+
+const ROOM_TYPE_KEYS = [['owner', 'room-types'], ...OCCUPANCY_KEYS];
+
+export const useCreateRoomType = () =>
+  useOwnerMutation(
+    (body: { capacity: number; isAirConditioned: boolean; monthlyRentPaise: number }) =>
+      apiRequest<RoomTypeView>(`${OWNER}/room-types`, { method: 'POST', body }),
+    ROOM_TYPE_KEYS,
+  );
+
+export const useUpdateRoomType = () =>
+  useOwnerMutation(
+    ({ id, ...body }: { id: string } & Record<string, unknown>) =>
+      apiRequest<RoomTypeView>(`${OWNER}/room-types/${id}`, { method: 'PATCH', body }),
+    ROOM_TYPE_KEYS,
+  );
+
+export const useDeleteRoomType = () =>
+  useOwnerMutation(
+    (id: string) => apiRequest<unknown>(`${OWNER}/room-types/${id}`, { method: 'DELETE' }),
+    ROOM_TYPE_KEYS,
+  );
+
 export const useCreateFloor = () =>
   useOwnerMutation(
     (input: { name: string; level: number }) =>
@@ -244,14 +274,8 @@ export const useDeleteFloor = () =>
 
 export const useCreateRoom = () =>
   useOwnerMutation(
-    (input: {
-      floorId: string;
-      number: string;
-      roomType: string;
-      capacity: number;
-      monthlyRentPaise: number;
-      isAirConditioned: boolean;
-    }) => apiRequest<RoomView>(`${OWNER}/rooms`, { method: 'POST', body: input }),
+    (input: { floorId: string; number: string; roomTypeId: string }) =>
+      apiRequest<RoomView>(`${OWNER}/rooms`, { method: 'POST', body: input }),
     OCCUPANCY_KEYS,
   );
 

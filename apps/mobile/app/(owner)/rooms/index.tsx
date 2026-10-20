@@ -4,6 +4,7 @@ import { useState } from 'react';
 import { Alert, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 
 import { useCreateFloor, useCreateRoom, useOwnerOccupancy } from '../../../src/api/owner';
+import { RoomTypePicker } from '../../../src/components/RoomTypePicker';
 import {
   Accordion,
   Badge,
@@ -247,10 +248,7 @@ function AddRoomCard({
 
   const [floorId, setFloorId] = useState(floors[0]?.id ?? '');
   const [number, setNumber] = useState('');
-  const [roomType, setRoomType] = useState('3 Sharing');
-  const [capacity, setCapacity] = useState('3');
-  const [rent, setRent] = useState('7000');
-  const [isAirConditioned, setIsAirConditioned] = useState(false);
+  const [roomTypeId, setRoomTypeId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   async function submit(): Promise<void> {
@@ -258,16 +256,13 @@ function AddRoomCard({
       setError('Choose a floor and enter a room number.');
       return;
     }
+    if (roomTypeId === null) {
+      setError('Choose a room type.');
+      return;
+    }
     setError(null);
     try {
-      await createRoom.mutateAsync({
-        floorId,
-        number: number.trim(),
-        roomType: roomType.trim(),
-        capacity: Number(capacity),
-        monthlyRentPaise: Math.round(Number(rent) * 100),
-        isAirConditioned,
-      });
+      await createRoom.mutateAsync({ floorId, number: number.trim(), roomTypeId });
       onDone();
     } catch (caught) {
       setError(caught instanceof ApiRequestError ? caught.message : 'Could not add the room.');
@@ -301,46 +296,7 @@ function AddRoomCard({
       </View>
 
       <FormField label="Room number" value={number} onChangeText={setNumber} placeholder="204" autoFocus />
-      <FormField label="Room type" value={roomType} onChangeText={setRoomType} placeholder="3 Sharing" />
-      <FormField
-        label="Capacity"
-        value={capacity}
-        onChangeText={setCapacity}
-        placeholder="3"
-        keyboardType="number-pad"
-      />
-      <FormField
-        label="Rent per resident (₹/month)"
-        value={rent}
-        onChangeText={setRent}
-        placeholder="7000"
-        keyboardType="decimal-pad"
-      />
-
-      <View style={styles.field}>
-        <Text style={[styles.label, { color: theme.textSecondary }]}>Air conditioned</Text>
-        <View style={styles.chipsRow}>
-          {[
-            { value: false, label: 'No' },
-            { value: true, label: 'Yes' },
-          ].map((option) => {
-            const active = option.value === isAirConditioned;
-            return (
-              <Pressable
-                key={option.label}
-                onPress={() => setIsAirConditioned(option.value)}
-                accessibilityRole="radio"
-                accessibilityState={{ selected: active }}
-                style={[styles.chip, { backgroundColor: active ? theme.primary : theme.surfaceSubtle }]}
-              >
-                <Text style={{ color: active ? theme.textInverse : theme.textSecondary, fontWeight: '600' }}>
-                  {option.label}
-                </Text>
-              </Pressable>
-            );
-          })}
-        </View>
-      </View>
+      <RoomTypePicker value={roomTypeId} onChange={setRoomTypeId} />
 
       {error !== null && <Muted>{error}</Muted>}
       <View style={styles.actionsRow}>

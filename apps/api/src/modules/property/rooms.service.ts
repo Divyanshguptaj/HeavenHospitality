@@ -8,6 +8,7 @@ import { fromPrismaDate } from '../../lib/dates.js';
 import { prisma } from '../../lib/prisma.js';
 import type { Actor } from '../../middleware/authenticate.js';
 import { getPropertyContext } from './property.context.js';
+import { resolveRoomType } from './roomTypes.service.js';
 
 /**
  * Floors, rooms and beds.
@@ -215,6 +216,7 @@ export function toRoomView(room: RoomWithRelations): RoomView {
   return {
     id: room.id,
     number: room.number,
+    roomTypeId: room.roomTypeId,
     roomType: room.roomType,
     capacity: room.capacity,
     monthlyRentPaise: room.monthlyRentPaise,
@@ -259,10 +261,11 @@ export async function getRoom(actor: Actor, roomId: string): Promise<RoomView> {
 export interface CreateRoomInput {
   floorId: string;
   number: string;
-  roomType: string;
-  capacity: number;
-  monthlyRentPaise: number;
-  isAirConditioned: boolean;
+  roomTypeId?: string | undefined;
+  roomType?: string | undefined;
+  capacity?: number | undefined;
+  monthlyRentPaise?: number | undefined;
+  isAirConditioned?: boolean | undefined;
   description?: string | null | undefined;
   facilities: string[];
   status: 'ACTIVE' | 'MAINTENANCE' | 'INACTIVE';
@@ -277,6 +280,17 @@ export async function createRoom(actor: Actor, input: CreateRoomInput): Promise<
   });
   if (floor === null) throw new AppError('NOT_FOUND', 'Floor not found.');
 
+  const fields =
+    input.roomTypeId === undefined
+      ? {
+          roomTypeId: null,
+          roomType: input.roomType ?? '',
+          capacity: input.capacity ?? 1,
+          monthlyRentPaise: input.monthlyRentPaise ?? 0,
+          isAirConditioned: input.isAirConditioned ?? false,
+        }
+      : await resolveRoomType(prisma, propertyId, input.roomTypeId);
+
   try {
     const room = await prisma.$transaction(async (tx) => {
       const created = await tx.room.create({
@@ -284,17 +298,18 @@ export async function createRoom(actor: Actor, input: CreateRoomInput): Promise<
           propertyId,
           floorId: input.floorId,
           number: input.number,
-          roomType: input.roomType,
-          capacity: input.capacity,
-          monthlyRentPaise: input.monthlyRentPaise,
-          isAirConditioned: input.isAirConditioned,
+          roomTypeId: fields.roomTypeId,
+          roomType: fields.roomType,
+          capacity: fields.capacity,
+          monthlyRentPaise: fields.monthlyRentPaise,
+          isAirConditioned: fields.isAirConditioned,
           description: input.description ?? null,
           facilities: input.facilities,
           status: input.status,
           // Beds are created with the room so capacity is never a promise the
           // room cannot keep.
           beds: {
-            create: Array.from({ length: input.capacity }, (_unused, index) => ({
+            create: Array.from({ length: fields.capacity }, (_unused, index) => ({
               label: bedLabelFor(index),
             })),
           },
@@ -307,7 +322,7 @@ export async function createRoom(actor: Actor, input: CreateRoomInput): Promise<
         entityType: 'Room',
         entityId: created.id,
         propertyId,
-        summary: `Room ${created.number} created with ${input.capacity} bed(s)`,
+        summary: `Room ${created.number} created with ${fields.capacity} bed(s)`,
         actorUserId: actor.userId,
         actorRole: 'ADMIN',
       });
@@ -352,7 +367,33 @@ export async function updateRoom(
     if (floor === null) throw new AppError('NOT_FOUND', 'Floor not found.');
   }
 
-  const newCapacity = input.capacity ?? existing.capacity;
+  const fromType =
+    input.roomTypeId === undefined
+      ? null
+      : await resolveRoomType(prisma, propertyId, input.roomTypeId, input.roomTypeId === existing.roomTypeId);
+  const typeFields: {
+    roomTypeId?: string | null;
+    roomType?: string;
+    capacity?: number;
+    monthlyRentPaise?: number;
+    isAirConditioned?: boolean;
+  } =
+    fromType !== null
+      ? fromType
+      : input.roomType !== undefined ||
+          input.capacity !== undefined ||
+          input.monthlyRentPaise !== undefined ||
+          input.isAirConditioned !== undefined
+        ? {
+            roomTypeId: null,
+            ...(input.roomType === undefined ? {} : { roomType: input.roomType }),
+            ...(input.capacity === undefined ? {} : { capacity: input.capacity }),
+            ...(input.monthlyRentPaise === undefined ? {} : { monthlyRentPaise: input.monthlyRentPaise }),
+            ...(input.isAirConditioned === undefined ? {} : { isAirConditioned: input.isAirConditioned }),
+          }
+        : {};
+
+  const newCapacity = typeFields.capacity ?? existing.capacity;
   const currentCount = existing.beds.length;
 
   if (newCapacity < currentCount) {
@@ -374,14 +415,7 @@ export async function updateRoom(
         data: {
           ...(input.floorId === undefined ? {} : { floorId: input.floorId }),
           ...(input.number === undefined ? {} : { number: input.number }),
-          ...(input.roomType === undefined ? {} : { roomType: input.roomType }),
-          ...(input.capacity === undefined ? {} : { capacity: input.capacity }),
-          ...(input.monthlyRentPaise === undefined
-            ? {}
-            : { monthlyRentPaise: input.monthlyRentPaise }),
-          ...(input.isAirConditioned === undefined
-            ? {}
-            : { isAirConditioned: input.isAirConditioned }),
+          ...typeFields,
           ...(input.description === undefined ? {} : { description: input.description }),
           ...(input.facilities === undefined ? {} : { facilities: input.facilities }),
           ...(input.status === undefined ? {} : { status: input.status }),
@@ -412,7 +446,7 @@ export async function updateRoom(
         before: { capacity: existing.capacity, monthlyRentPaise: existing.monthlyRentPaise },
         after: {
           capacity: newCapacity,
-          monthlyRentPaise: input.monthlyRentPaise ?? existing.monthlyRentPaise,
+          monthlyRentPaise: typeFields.monthlyRentPaise ?? existing.monthlyRentPaise,
         },
       });
 
