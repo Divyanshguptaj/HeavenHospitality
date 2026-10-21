@@ -1,26 +1,23 @@
-const WebsiteSettings = require('../models/WebsiteSettings');
+const { settings: settingsRepository } = require('../repositories');
 const sendResponse = require('../utils/apiResponse');
 const asyncHandler = require('../utils/asyncHandler');
 
 const getSettings = asyncHandler(async (req, res) => {
-  let settings = await WebsiteSettings.findOne();
-
-  if (!settings) {
-    settings = await WebsiteSettings.create({});
-  }
+  const [existing] = await settingsRepository.query('SELECT * FROM website_settings ORDER BY created_at LIMIT 1');
+  const settings = existing || (await settingsRepository.create({}));
 
   return sendResponse(res, 200, true, 'Settings fetched successfully', settings);
 });
 
 const updateSettings = asyncHandler(async (req, res) => {
-  let settings = await WebsiteSettings.findOne();
+  const [existing] = await settingsRepository.query('SELECT * FROM website_settings ORDER BY created_at LIMIT 1');
 
-  if (!settings) {
-    settings = await WebsiteSettings.create(req.body);
-    return sendResponse(res, 201, true, 'Settings created successfully', settings);
+  if (!existing) {
+    const created = await settingsRepository.create(req.body);
+    return sendResponse(res, 201, true, 'Settings created successfully', created);
   }
 
-  settings = await WebsiteSettings.findByIdAndUpdate(settings._id, req.body, { new: true, runValidators: true });
+  const settings = await settingsRepository.update(existing._id, req.body);
   return sendResponse(res, 200, true, 'Settings updated successfully', settings);
 });
 

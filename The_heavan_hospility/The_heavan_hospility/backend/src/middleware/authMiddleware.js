@@ -1,5 +1,5 @@
 const jwt = require('jsonwebtoken');
-const Admin = require('../models/Admin');
+const { admins } = require('../repositories');
 const sendResponse = require('../utils/apiResponse');
 
 const protect = async (req, res, next) => {
@@ -19,13 +19,13 @@ const protect = async (req, res, next) => {
   }
 
   try {
-    const admin = await Admin.findById(decoded.id).select('-password');
+    const admin = await admins.findById(decoded.id);
 
     if (!admin) {
       return sendResponse(res, 401, false, 'Not authorized, admin not found');
     }
 
-    req.admin = admin;
+    req.admin = { _id: admin._id, name: admin.name, email: admin.email };
     next();
   } catch (error) {
     next(error);

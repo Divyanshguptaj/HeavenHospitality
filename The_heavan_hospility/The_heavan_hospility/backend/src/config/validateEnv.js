@@ -1,4 +1,4 @@
-const REQUIRED_VARS = ['JWT_SECRET'];
+const REQUIRED_VARS = ['JWT_SECRET', 'DATABASE_URL'];
 
 const validateEnv = () => {
   const missing = REQUIRED_VARS.filter((key) => !process.env[key] || !process.env[key].trim());

@@ -1,4 +1,5 @@
-const Admin = require('../models/Admin');
+const bcrypt = require('bcryptjs');
+const { pool } = require('../config/db');
 const generateToken = require('../utils/generateToken');
 const sendResponse = require('../utils/apiResponse');
 const asyncHandler = require('../utils/asyncHandler');
@@ -6,23 +7,18 @@ const asyncHandler = require('../utils/asyncHandler');
 const loginAdmin = asyncHandler(async (req, res) => {
   const { email, password } = req.body;
 
-  const admin = await Admin.findOne({ email: email.trim().toLowerCase() });
+  const { rows } = await pool.query('SELECT * FROM admins WHERE email = $1', [email.trim().toLowerCase()]);
+  const admin = rows[0];
 
-  if (!admin) {
-    return sendResponse(res, 401, false, 'Invalid credentials');
-  }
-
-  const isMatch = await admin.matchPassword(password);
-
-  if (!isMatch) {
+  if (!admin || !(await bcrypt.compare(password, admin.password))) {
     return sendResponse(res, 401, false, 'Invalid credentials');
   }
 
   return sendResponse(res, 200, true, 'Login successful', {
-    _id: admin._id,
+    _id: admin.id,
     name: admin.name,
     email: admin.email,
-    token: generateToken(admin._id),
+    token: generateToken(admin.id),
   });
 });
 

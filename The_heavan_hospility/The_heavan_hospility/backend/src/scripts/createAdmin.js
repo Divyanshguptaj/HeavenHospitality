@@ -1,8 +1,8 @@
 require('dotenv').config();
 
-const mongoose = require('mongoose');
-const Admin = require('../models/Admin');
+const bcrypt = require('bcryptjs');
 const connectDB = require('../config/db');
+const { pool } = require('../config/db');
 
 const createAdmin = async () => {
   const { ADMIN_NAME, ADMIN_EMAIL, ADMIN_PASSWORD } = process.env;
@@ -18,10 +18,11 @@ const createAdmin = async () => {
   await connectDB();
 
   const email = ADMIN_EMAIL.toLowerCase().trim();
-  const existingAdmin = await Admin.findOne({ email });
+  const { rows } = await pool.query('SELECT * FROM admins WHERE email = $1', [email]);
+  const existingAdmin = rows[0];
 
   if (existingAdmin) {
-    const credentialsMatch = await existingAdmin.matchPassword(ADMIN_PASSWORD);
+    const credentialsMatch = await bcrypt.compare(ADMIN_PASSWORD, existingAdmin.password);
     if (!credentialsMatch) {
       throw new Error(`An admin account already exists for ${email}, but the configured password does not match. No changes were made.`);
     }
@@ -30,13 +31,10 @@ const createAdmin = async () => {
     return;
   }
 
-  const admin = await Admin.create({
-    name: ADMIN_NAME.trim(),
-    email,
-    password: ADMIN_PASSWORD,
-  });
+  const hash = await bcrypt.hash(ADMIN_PASSWORD, 10);
+  await pool.query('INSERT INTO admins (name, email, password) VALUES ($1, $2, $3)', [ADMIN_NAME.trim(), email, hash]);
 
-  console.log(`Admin account created for ${admin.email}.`);
+  console.log(`Admin account created for ${email}.`);
 };
 
 createAdmin()
@@ -45,5 +43,5 @@ createAdmin()
     process.exitCode = 1;
   })
   .finally(async () => {
-    await mongoose.disconnect();
+    await pool.end();
   });

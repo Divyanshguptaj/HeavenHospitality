@@ -7,12 +7,11 @@
     "dev": "node --watch src/server.js",
     "start": "node src/server.js",
     "admin:create": "node src/scripts/createAdmin.js",
-    "seed:admin": "node src/scripts/createAdmin.js",
-    "migrate:room-inventory": "node src/scripts/migrateRoomInventory.js"
+    "seed:admin": "node src/scripts/createAdmin.js"
   },
   "keywords": [
     "express",
-    "mongodb",
+    "postgresql",
     "hospitality",
     "pg"
   ],
@@ -26,9 +25,9 @@
     "dotenv": "^18.0.4",
     "express": "^5.2.1",
     "jsonwebtoken": "^9.0.3",
-    "mongoose": "^9.10.2",
     "multer": "^2.4.0",
     "nodemailer": "^10.0.11",
+    "pg": "^8.23.1",
     "zod": "^4.6.5"
   }
 }
