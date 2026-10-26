@@ -62,7 +62,7 @@ fi
 
 echo "Deployed $NAME:$TAG"
 
-# Keep the running image and the previous one; drop the rest and dangling layers.
-docker images "$NAME" --format '{{.Tag}}' | grep -v '^latest$' | tail -n +3 | xargs -r -I{} docker rmi "$NAME:{}" || true
+# Remove every older image of this app and the build cache.
+docker images "$NAME" --format '{{.Tag}}' | grep -vx "$TAG" | xargs -r -I{} docker rmi "$NAME:{}" || true
 docker image prune -f >/dev/null
-docker builder prune -f --filter 'until=72h' >/dev/null
+docker builder prune -af >/dev/null
