@@ -12,7 +12,7 @@ const uploadImage = asyncHandler(async (req, res) => {
   if (!file) return sendResponse(res, 400, false, 'No image uploaded');
 
   const result = await cloudinary.uploader.upload(`data:${file.mimetype};base64,${file.buffer.toString('base64')}`, {
-    folder: 'the-heaven-hospitality',
+    folder: process.env.CLOUDINARY_FOLDER || 'the-heaven-hospitality',
   });
 
   const { rows } = await pool.query('SELECT max(sort_order) AS max_order FROM gallery');
