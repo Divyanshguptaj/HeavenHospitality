@@ -11,8 +11,8 @@ const createAdmin = async () => {
     throw new Error('Set ADMIN_NAME, ADMIN_EMAIL, and ADMIN_PASSWORD in backend/.env first.');
   }
 
-  if (ADMIN_PASSWORD.length < 12) {
-    throw new Error('ADMIN_PASSWORD must be at least 12 characters long.');
+  if (ADMIN_PASSWORD.length < 8) {
+    throw new Error('ADMIN_PASSWORD must be at least 8 characters long.');
   }
 
   await connectDB();
