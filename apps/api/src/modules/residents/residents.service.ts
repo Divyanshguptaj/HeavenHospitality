@@ -1188,3 +1188,66 @@ export async function exitResident(
   if (exited === undefined) throw new AppError('NOT_FOUND', 'Resident not found.');
   return exited;
 }
+
+/**
+ * Erases a former resident: their account, every stay, bill, payment, receipt and
+ * complaint, and their photos and documents on Cloudinary. Only possible once
+ * every stay of theirs has ended, and never for an owner account. Cannot be undone.
+ */
+export async function deleteResidentData(actor: Actor, tenancyId: string): Promise<void> {
+  const { propertyId } = await getPropertyContext(actor, 'resident:delete');
+
+  const tenancy = await prisma.tenancy.findFirst({
+    where: { id: tenancyId, propertyId },
+    select: {
+      user: {
+        select: {
+          id: true,
+          role: true,
+          phone: true,
+          photoUrl: true,
+          documentImageUrl: true,
+          parentDocumentUrl: true,
+          tenancies: { select: { id: true, status: true } },
+          complaints: { select: { imageUrl: true } },
+        },
+      },
+    },
+  });
+  if (tenancy === null) throw new AppError('NOT_FOUND', 'Resident not found.');
+
+  const { user } = tenancy;
+  if (user.role === 'ADMIN') {
+    throw new AppError('FORBIDDEN', 'An owner account cannot be deleted here.');
+  }
+  if (user.tenancies.some((stay) => stay.status !== 'VACATED')) {
+    throw new AppError('CONFLICT', 'Remove this resident from their room before deleting their data.');
+  }
+
+  const stayIds = user.tenancies.map((stay) => stay.id);
+  const fileUrls = [
+    user.photoUrl,
+    user.documentImageUrl,
+    user.parentDocumentUrl,
+    ...user.complaints.map((complaint) => complaint.imageUrl),
+  ].filter((url): url is string => url !== null);
+
+  await prisma.$transaction(async (tx) => {
+    await tx.reminderEvent.deleteMany({ where: { tenancyId: { in: stayIds } } });
+    await tx.tenancy.deleteMany({ where: { id: { in: stayIds } } });
+    if (user.phone !== null) await tx.otpVerification.deleteMany({ where: { phone: user.phone } });
+    await tx.user.delete({ where: { id: user.id } });
+
+    await writeAudit(tx, {
+      action: 'RESIDENT_DATA_DELETED',
+      entityType: 'User',
+      entityId: user.id,
+      propertyId,
+      summary: `A former resident and all their data were deleted (${String(stayIds.length)} stay(s), ${String(fileUrls.length)} file(s))`,
+      actorUserId: actor.userId,
+      actorRole: 'ADMIN',
+    });
+  });
+
+  for (const url of fileUrls) await deleteCloudinaryAsset(url);
+}

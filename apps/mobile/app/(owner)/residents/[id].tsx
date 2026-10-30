@@ -5,6 +5,7 @@ import { useEffect, useState } from 'react';
 import { Alert, StyleSheet, View } from 'react-native';
 
 import {
+  useDeleteResidentData,
   useOwnerResident,
   useResidentSettlements,
   useResetResidentPassword,
@@ -58,6 +59,7 @@ export default function OwnerResidentDetailScreen() {
   const updateResident = useUpdateResident();
   const updateRegistration = useUpdateRegistration();
   const resetPassword = useResetResidentPassword();
+  const deleteResident = useDeleteResidentData();
   const settlements = useResidentSettlements(id);
 
   const [editing, setEditing] = useState(false);
@@ -112,6 +114,34 @@ export default function OwnerResidentDetailScreen() {
     else if (invoice.category === 'ELECTRICITY') dues.electricity += invoice.principalOutstandingPaise;
     else dues.deposit += invoice.principalOutstandingPaise;
     dues.lateFee += lateFee;
+  }
+
+  function confirmDelete(): void {
+    if (data === undefined) return;
+    const owes =
+      data.outstandingPaise > 0 ? ` They still owe ${rupees(data.outstandingPaise)}, which will be lost.` : '';
+    Alert.alert(
+      `Delete ${data.fullName} permanently?`,
+      `This erases their account, photos, documents, bills, payments, receipts and complaints, here and on Cloudinary.${owes} Overview totals will drop. This cannot be undone.`,
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Delete forever',
+          style: 'destructive',
+          onPress: () => {
+            deleteResident.mutateAsync(id).then(
+              () => router.back(),
+              (error: unknown) => {
+                Alert.alert(
+                  'Could not delete',
+                  error instanceof ApiRequestError ? error.message : 'Please try again.',
+                );
+              },
+            );
+          },
+        },
+      ],
+    );
   }
 
   async function save(): Promise<void> {
@@ -348,6 +378,21 @@ export default function OwnerResidentDetailScreen() {
               </View>
             </View>
           ))}
+        </Card>
+      )}
+
+      {data.status === 'VACATED' && (
+        <Card>
+          <CardTitle>Delete resident</CardTitle>
+          <Muted>
+            They have left. Delete everything about them to free up space: account, photos,
+            documents, bills, payments and complaints.
+          </Muted>
+          <Button
+            label={deleteResident.isPending ? 'Deleting…' : 'Delete all their data'}
+            variant="secondary"
+            onPress={confirmDelete}
+          />
         </Card>
       )}
     </Screen>

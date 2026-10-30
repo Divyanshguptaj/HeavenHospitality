@@ -126,8 +126,16 @@ export default function OwnerRoomDetailScreen() {
 
     if (outstandingPaise > 0) {
       Alert.alert(
-        'Rent is still owed',
-        `${residentName} owes ${formatINR(outstandingPaise, { withPaise: false })}. Settle or waive it from Collect or their profile before removing them from the room.`,
+        'Amount is still owed',
+        `${residentName} owes ${formatINR(outstandingPaise, { withPaise: false })}. Clear it first, then remove them from the room.`,
+        [
+          { text: 'Cancel', style: 'cancel' },
+          {
+            text: 'Settle up',
+            onPress: () =>
+              router.push({ pathname: '/(owner)/residents/settle', params: { id: tenancyId } }),
+          },
+        ],
       );
       return;
     }

@@ -392,6 +392,13 @@ export const useExitResident = () =>
     [...OCCUPANCY_KEYS, ['owner', 'residents']],
   );
 
+/** Erases a former resident and all their data, including their files on Cloudinary. */
+export const useDeleteResidentData = () =>
+  useOwnerMutation(
+    (id: string) => apiRequest<unknown>(`${OWNER}/residents/${id}`, { method: 'DELETE' }),
+    [...OCCUPANCY_KEYS, ['owner', 'residents'], ['owner', 'applicants'], ['owner', 'dashboard']],
+  );
+
 /** Moves a resident into a bed — their first one, or a change from one they already hold. */
 export const useMoveResident = () =>
   useOwnerMutation(

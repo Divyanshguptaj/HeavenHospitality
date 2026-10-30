@@ -132,6 +132,7 @@ import {
   moveResident,
   updateRegistration,
   updateResident,
+  deleteResidentData,
 } from '../residents/residents.service.js';
 import {
   getSettings,
@@ -658,6 +659,17 @@ ownerRouter.post(
   handle((req) => {
     const { params } = getValidated<typeof idParam>(req);
     return resetResidentPassword(getActor(req), params.id);
+  }),
+);
+
+ownerRouter.delete(
+  '/residents/:id',
+  requirePermission('resident:delete'),
+  validate(idParam),
+  handle(async (req) => {
+    const { params } = getValidated<typeof idParam>(req);
+    await deleteResidentData(getActor(req), params.id);
+    return { deleted: true };
   }),
 );
 

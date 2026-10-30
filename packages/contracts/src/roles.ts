@@ -41,6 +41,8 @@ export const PERMISSIONS = [
   'bed:manage',
   'resident:read',
   'resident:write',
+  /** Erase a former resident and all their data. Owner only. */
+  'resident:delete',
   'invoice:read',
   'invoice:write',
   /** Forgive part of what a resident owes. Owner only, and never granted to residents. */
