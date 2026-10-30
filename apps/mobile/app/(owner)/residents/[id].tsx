@@ -121,19 +121,19 @@ export default function OwnerResidentDetailScreen() {
     const owes =
       data.outstandingPaise > 0 ? ` They still owe ${rupees(data.outstandingPaise)}, which will be lost.` : '';
     Alert.alert(
-      `Delete ${data.fullName} permanently?`,
-      `This erases their account, photos, documents, bills, payments, receipts and complaints, here and on Cloudinary.${owes} Overview totals will drop. This cannot be undone.`,
+      `Remove ${data.fullName}'s records?`,
+      `This removes their details, photos, documents, bills and payments for good.${owes} Overview totals will drop. This cannot be undone.`,
       [
         { text: 'Cancel', style: 'cancel' },
         {
-          text: 'Delete forever',
+          text: 'Remove records',
           style: 'destructive',
           onPress: () => {
             deleteResident.mutateAsync(id).then(
               () => router.back(),
               (error: unknown) => {
                 Alert.alert(
-                  'Could not delete',
+                  'Could not remove',
                   error instanceof ApiRequestError ? error.message : 'Please try again.',
                 );
               },
@@ -382,15 +382,15 @@ export default function OwnerResidentDetailScreen() {
       )}
 
       <Card>
-        <CardTitle>Delete resident</CardTitle>
+        <CardTitle>Remove records</CardTitle>
         <Muted>
           {data.status === 'VACATED'
-            ? 'They have left. Delete everything about them to free up space: account, photos, documents, bills, payments and complaints.'
-            : 'Remove them from their room first. After that you can delete everything about them to free up space.'}
+            ? 'They have left. Remove their details, photos, bills and payments to free up space.'
+            : 'Remove them from their room first. After that you can remove their records to free up space.'}
         </Muted>
         {data.status === 'VACATED' && (
           <Button
-            label={deleteResident.isPending ? 'Deleting…' : 'Delete all their data'}
+            label={deleteResident.isPending ? 'Removing…' : 'Remove resident records'}
             variant="secondary"
             onPress={confirmDelete}
           />
