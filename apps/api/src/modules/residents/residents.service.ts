@@ -117,6 +117,7 @@ function toSummary(tenancy: TenancyWithRelations): ResidentSummaryView {
     tenancyId: tenancy.id,
     userId: tenancy.user.id,
     fullName: tenancy.user.fullName,
+    photoUrl: tenancy.user.photoUrl,
     email: tenancy.user.email,
     phone: tenancy.user.phone,
     status: tenancy.status,

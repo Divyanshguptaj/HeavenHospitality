@@ -158,6 +158,7 @@ export interface ResidentSummaryView {
   readonly tenancyId: string;
   readonly userId: string;
   readonly fullName: string;
+  readonly photoUrl: string | null;
   readonly email: string | null;
   readonly phone: string | null;
   readonly status: TenancyStatusName;

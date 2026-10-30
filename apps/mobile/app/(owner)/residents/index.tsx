@@ -1,7 +1,7 @@
 import { formatINR } from '@heaven/money';
 import { router, useLocalSearchParams } from 'expo-router';
 import { useEffect, useState } from 'react';
-import { FlatList, Pressable, RefreshControl, StyleSheet, Text, TextInput, View } from 'react-native';
+import { FlatList, Image, Pressable, RefreshControl, StyleSheet, Text, TextInput, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import type { ResidentSummaryView } from '@heaven/contracts';
 
@@ -271,7 +271,18 @@ function ResidentRow({ resident }: { readonly resident: ResidentSummaryView }) {
     >
       <Card style={styles.card}>
         <View style={styles.headerRow}>
-          <CardTitle>{resident.fullName}</CardTitle>
+          {resident.photoUrl === null ? (
+            <View style={[styles.photo, styles.photoEmpty, { backgroundColor: theme.primarySubtle }]}>
+              <Text style={[styles.photoInitial, { color: theme.primary }]}>
+                {resident.fullName.trim().charAt(0).toUpperCase()}
+              </Text>
+            </View>
+          ) : (
+            <Image source={{ uri: resident.photoUrl }} style={styles.photo} resizeMode="cover" />
+          )}
+          <View style={styles.grow}>
+            <CardTitle>{resident.fullName}</CardTitle>
+          </View>
           <Badge
             label={
               resident.outstandingPaise > 0
@@ -346,6 +357,9 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     gap: layout.spacing[3],
   },
+  photo: { width: 56, height: 56, borderRadius: layout.radius.full },
+  photoEmpty: { alignItems: 'center', justifyContent: 'center' },
+  photoInitial: { fontSize: layout.fontSize.lg, fontWeight: '700' },
   detailRow: { flexDirection: 'row', gap: layout.spacing[4] },
   detailLabel: { width: 64, fontSize: layout.fontSize.sm },
   detailValue: { flex: 1, fontSize: layout.fontSize.md },
