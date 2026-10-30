@@ -10,7 +10,6 @@ import {
   Badge,
   Button,
   Card,
-  CardTitle,
   EmptyState,
   ErrorState,
   LoadingState,
@@ -260,6 +259,21 @@ export default function OwnerResidentsScreen() {
 
 function ResidentRow({ resident }: { readonly resident: ResidentSummaryView }) {
   const theme = useTheme();
+  const owes = resident.outstandingPaise > 0;
+  const details: ReadonlyArray<{ label: string; value: string; color?: string }> = [
+    {
+      label: 'Room',
+      value:
+        resident.bed === null
+          ? 'Not allocated'
+          : `${resident.bed.roomNumber} · bed ${resident.bed.bedLabel} (${resident.bed.floorName})`,
+    },
+    { label: 'Rent', value: `${formatINR(resident.monthlyRentPaise, { withPaise: false })}/month` },
+    { label: 'Joined', value: resident.joiningDate },
+    ...(resident.expectedExitDate === null
+      ? []
+      : [{ label: 'Leaving', value: resident.expectedExitDate, color: theme.warning }]),
+  ];
 
   return (
     <Pressable
@@ -268,9 +282,10 @@ function ResidentRow({ resident }: { readonly resident: ResidentSummaryView }) {
       }
       accessibilityRole="button"
       accessibilityLabel={`${resident.fullName}. View details.`}
+      style={styles.card}
     >
-      <Card style={styles.card}>
-        <View style={styles.headerRow}>
+      <Card>
+        <View style={styles.cardRow}>
           {resident.photoUrl === null ? (
             <View style={[styles.photo, styles.photoEmpty, { backgroundColor: theme.primarySubtle }]}>
               <Text style={[styles.photoInitial, { color: theme.primary }]}>
@@ -280,50 +295,36 @@ function ResidentRow({ resident }: { readonly resident: ResidentSummaryView }) {
           ) : (
             <Image source={{ uri: resident.photoUrl }} style={styles.photo} resizeMode="cover" />
           )}
-          <View style={styles.grow}>
-            <CardTitle>{resident.fullName}</CardTitle>
-          </View>
-          <Badge
-            label={
-              resident.outstandingPaise > 0
-                ? formatINR(resident.outstandingPaise, { withPaise: false })
-                : 'Paid up'
-            }
-            tone={resident.outstandingPaise > 0 ? 'danger' : 'success'}
-          />
-        </View>
 
-        <View style={styles.detailRow}>
-          <Text style={[styles.detailLabel, { color: theme.textMuted }]}>Room</Text>
-          <Text style={[styles.detailValue, { color: theme.textPrimary }]}>
-            {resident.bed === null
-              ? 'Not allocated'
-              : `${resident.bed.roomNumber} · bed ${resident.bed.bedLabel} (${resident.bed.floorName})`}
-          </Text>
-        </View>
+          <View style={styles.info}>
+            <Text numberOfLines={1} ellipsizeMode="tail" style={[styles.name, { color: theme.textPrimary }]}>
+              {resident.fullName}
+            </Text>
+            <View style={styles.badgeRow}>
+              <Badge
+                label={owes ? formatINR(resident.outstandingPaise, { withPaise: false }) : 'Paid up'}
+                tone={owes ? 'danger' : 'success'}
+              />
+            </View>
 
-        <View style={styles.detailRow}>
-          <Text style={[styles.detailLabel, { color: theme.textMuted }]}>Rent</Text>
-          <Text style={[styles.detailValue, { color: theme.textPrimary }]}>
-            {formatINR(resident.monthlyRentPaise, { withPaise: false })}/month
-          </Text>
-        </View>
+            {details.map((detail) => (
+              <View key={detail.label} style={styles.detailRow}>
+                <Text style={[styles.detailLabel, { color: theme.textMuted }]}>{detail.label}</Text>
+                <Text
+                  numberOfLines={1}
+                  ellipsizeMode="tail"
+                  style={[styles.detailValue, { color: detail.color ?? theme.textPrimary }]}
+                >
+                  {detail.value}
+                </Text>
+              </View>
+            ))}
 
-        <View style={styles.detailRow}>
-          <Text style={[styles.detailLabel, { color: theme.textMuted }]}>Joined</Text>
-          <Text style={[styles.detailValue, { color: theme.textPrimary }]}>{resident.joiningDate}</Text>
-        </View>
-
-        {resident.expectedExitDate !== null && (
-          <View style={styles.detailRow}>
-            <Text style={[styles.detailLabel, { color: theme.textMuted }]}>Leaving</Text>
-            <Text style={[styles.detailValue, { color: theme.warning }]}>
-              {resident.expectedExitDate}
+            <Text numberOfLines={1} ellipsizeMode="tail" style={{ color: theme.textMuted, fontSize: layout.fontSize.sm }}>
+              {resident.email ?? resident.phone ?? 'No contact details'}
             </Text>
           </View>
-        )}
-
-        <Muted>{resident.email ?? resident.phone ?? 'No contact details'}</Muted>
+        </View>
       </Card>
     </Pressable>
   );
@@ -357,12 +358,16 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     gap: layout.spacing[3],
   },
-  photo: { width: 56, height: 56, borderRadius: layout.radius.full },
+  cardRow: { flexDirection: 'row', gap: layout.spacing[4] },
+  photo: { width: 112, height: 150, borderRadius: layout.radius.lg },
+  info: { flex: 1, gap: layout.spacing[1] },
+  name: { fontSize: layout.fontSize.lg, fontWeight: '700' },
+  badgeRow: { flexDirection: 'row' },
   photoEmpty: { alignItems: 'center', justifyContent: 'center' },
   photoInitial: { fontSize: layout.fontSize.lg, fontWeight: '700' },
   detailRow: { flexDirection: 'row', gap: layout.spacing[4] },
-  detailLabel: { width: 64, fontSize: layout.fontSize.sm },
-  detailValue: { flex: 1, fontSize: layout.fontSize.md },
+  detailLabel: { width: 52, fontSize: layout.fontSize.sm },
+  detailValue: { flex: 1, fontSize: layout.fontSize.sm },
   field: { gap: layout.spacing[2] },
   filterLabel: { fontSize: layout.fontSize.sm, fontWeight: '600' },
   filters: { flexDirection: 'row', flexWrap: 'wrap', gap: layout.spacing[2] },
