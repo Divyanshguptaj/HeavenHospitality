@@ -381,20 +381,21 @@ export default function OwnerResidentDetailScreen() {
         </Card>
       )}
 
-      {data.status === 'VACATED' && (
-        <Card>
-          <CardTitle>Delete resident</CardTitle>
-          <Muted>
-            They have left. Delete everything about them to free up space: account, photos,
-            documents, bills, payments and complaints.
-          </Muted>
+      <Card>
+        <CardTitle>Delete resident</CardTitle>
+        <Muted>
+          {data.status === 'VACATED'
+            ? 'They have left. Delete everything about them to free up space: account, photos, documents, bills, payments and complaints.'
+            : 'Remove them from their room first. After that you can delete everything about them to free up space.'}
+        </Muted>
+        {data.status === 'VACATED' && (
           <Button
             label={deleteResident.isPending ? 'Deleting…' : 'Delete all their data'}
             variant="secondary"
             onPress={confirmDelete}
           />
-        </Card>
-      )}
+        )}
+      </Card>
     </Screen>
   );
 }
