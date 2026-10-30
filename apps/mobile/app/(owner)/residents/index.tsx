@@ -269,6 +269,7 @@ function ResidentRow({ resident }: { readonly resident: ResidentSummaryView }) {
           : `${resident.bed.roomNumber} · bed ${resident.bed.bedLabel} (${resident.bed.floorName})`,
     },
     { label: 'Rent', value: `${formatINR(resident.monthlyRentPaise, { withPaise: false })}/month` },
+    { label: 'Contact', value: resident.phone ?? resident.email ?? 'Not provided' },
     { label: 'Joined', value: resident.joiningDate },
     ...(resident.expectedExitDate === null
       ? []
@@ -282,7 +283,6 @@ function ResidentRow({ resident }: { readonly resident: ResidentSummaryView }) {
       }
       accessibilityRole="button"
       accessibilityLabel={`${resident.fullName}. View details.`}
-      style={styles.card}
     >
       <Card>
         <View style={styles.cardRow}>
@@ -319,10 +319,6 @@ function ResidentRow({ resident }: { readonly resident: ResidentSummaryView }) {
                 </Text>
               </View>
             ))}
-
-            <Text numberOfLines={1} ellipsizeMode="tail" style={{ color: theme.textMuted, fontSize: layout.fontSize.sm }}>
-              {resident.email ?? resident.phone ?? 'No contact details'}
-            </Text>
           </View>
         </View>
       </Card>
@@ -333,7 +329,7 @@ function ResidentRow({ resident }: { readonly resident: ResidentSummaryView }) {
 const styles = StyleSheet.create({
   screenContent: {
     padding: layout.spacing[5],
-    gap: layout.spacing[5],
+    gap: layout.spacing[3],
     paddingBottom: layout.spacing[10],
   },
   header: { gap: layout.spacing[5], marginBottom: layout.spacing[5] },
@@ -344,7 +340,6 @@ const styles = StyleSheet.create({
     gap: layout.spacing[4],
   },
   grow: { flex: 1 },
-  card: { marginBottom: layout.spacing[5] },
   search: {
     minHeight: layout.minTouchTarget,
     borderWidth: 1,
@@ -366,7 +361,7 @@ const styles = StyleSheet.create({
   photoEmpty: { alignItems: 'center', justifyContent: 'center' },
   photoInitial: { fontSize: layout.fontSize.lg, fontWeight: '700' },
   detailRow: { flexDirection: 'row', gap: layout.spacing[4] },
-  detailLabel: { width: 52, fontSize: layout.fontSize.sm },
+  detailLabel: { width: 60, fontSize: layout.fontSize.sm },
   detailValue: { flex: 1, fontSize: layout.fontSize.sm },
   field: { gap: layout.spacing[2] },
   filterLabel: { fontSize: layout.fontSize.sm, fontWeight: '600' },
